@@ -227,7 +227,8 @@ test('状态持续时间：1 回合后自动失效，永久状态保留', () => 
       id: 'a', name: '施加', kind: 'trigger', trigger: 'on_play',
       effects: [
         { action: 'apply_status', status: 'zhen_she', duration: 1, target: { side: 'enemy' } },
-        { action: 'apply_status', status: 'zhong_du', stacks: 1, target: { side: 'enemy' } },   // 永久
+        // 永久 DoT 用「灼烧」（ADR-117 起 zhong_du 是**限时**的中毒，不再是永久状态）
+        { action: 'apply_status', status: 'zhuo_shao', stacks: 1, target: { side: 'enemy' } },
       ],
     }],
   });
@@ -237,7 +238,7 @@ test('状态持续时间：1 回合后自动失效，永久状态保留', () => 
   const e1 = getUnit(r1.state, 'enemy', 'front', 0);
   assert.equal(e1?.statuses.zhen_she?.stacks, 1, '震慑应生效');
   assert.equal(e1?.statuses.zhen_she?.turns, 1, '震慑应剩 1 回合');
-  assert.equal(e1?.statuses.zhong_du?.turns, undefined, '中毒应是永久');
+  assert.equal(e1?.statuses.zhuo_shao?.turns, undefined, '灼烧应是永久');
 
   // 持续时间在**持有者**的回合结束时递减：结束己方回合 → 敌方回合 → 敌方结束
   const r2 = applyAction(r1.state, ctx, { type: 'END_TURN' });   // 己方结束
@@ -246,7 +247,7 @@ test('状态持续时间：1 回合后自动失效，永久状态保留', () => 
   const r3 = applyAction(r2.state, ctx, { type: 'END_TURN' });   // 敌方结束
   const e2 = getUnit(r3.state, 'enemy', 'front', 0);
   assert.equal(e2?.statuses.zhen_she, undefined, '敌方回合结束后震慑应失效');
-  assert.ok(e2?.statuses.zhong_du, '永久状态应保留');
+  assert.ok(e2?.statuses.zhuo_shao, '永久状态应保留');
 });
 
 test('禁用状态：不能使用主动技，但仍可普通攻击', () => {

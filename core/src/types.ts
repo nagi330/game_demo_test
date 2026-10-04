@@ -70,9 +70,12 @@ export type CompareOp = '>=' | '<=' | '==' | '>' | '<' | '!=';
  * 伤害属性（ADR-108 藤甲兵）
  *
  * 缺省 `physical` 覆盖**普通攻击**与**无属性效果伤害**（如万箭齐发、火烧洛阳
- * 补 damage_type 之前的状态）。`fire` / `water` 由卡面 `damage_type` 显式声明。
+ * 补 damage_type 之前的状态）。`fire` / `water` / `poison` 由卡面 `damage_type` 显式声明。
+ *
+ * `poison`（ADR-117，无当飞军「毒箭」）：毒攻**不吃藤甲的 `reduce_physical`**
+ * —— 藤甲挡箭不挡毒，这是它与火/水并列的第三条属性轴（火/水/毒各有一条 DoT）。
  */
-export type DamageType = 'physical' | 'fire' | 'water';
+export type DamageType = 'physical' | 'fire' | 'water' | 'poison';
 
 export interface CardEffect {
   action: string;
@@ -85,7 +88,7 @@ export interface CardEffect {
   status_source?: 'self';        // apply_status 时把来源单位记为状态的 srcUid（ADR-039）
   value_from_discarded?: 'cost' | 'health';   // 取「最近被弃牌」的属性作为数值（ADR-040）
   value_from_source?: 'attack' | 'health';    // 取来源单位当前攻/血作为数值
-  damage_type?: DamageType;       // damage 专用：水攻/火攻伤害（缺省 physical，见 DamageType）
+  damage_type?: DamageType;       // damage 专用：水攻/火攻/毒攻伤害（缺省 physical，见 DamageType）
   damage_origin?: 'reflected';    // 反射伤害不再触发主公受伤联动
   copy_source_stats?: boolean;    // summon：复制来源当前攻血，不复制技能或状态
   discover_to?: 'hand' | 'deck_top'; // discover 专用：选择后进手牌或牌库顶
@@ -168,11 +171,12 @@ export interface TargetSelector {
     lane?: number;
     row?: Row;
     health_max?: number;
-    damaged?: boolean;          // 当前生命低于生命上限
+    damaged?: boolean;          // true=低于生命上限；false=**毫发无伤**（越骑「厉志」用）
     cost_max?: number;             // 统帅值上限（绝对，含）
     cost_min?: number;             // 统帅值下限（绝对，含）——与 cost_max 配合可写出互斥分支
     cost_below_source?: boolean;   // 统帅值低于来源单位（相对，"低于自己统帅的敌军"）ADR-036
     attack_below_source?: boolean; // 攻击力低于来源单位（张飞「咆哮」）ADR-069
+    attack_max?: number;           // 攻击力上限（绝对，含）——越骑「厉志」的 +3 硬上限
     card_id?: string;              // 指定具体卡（关平亡语指定「关羽」）ADR-069
   troopKind?: 'infantry' | 'shield' | 'cavalry' | 'archer';   // 兵种（进化卡按兵种选目标，ADR-042）
     has_status?: string;
@@ -427,7 +431,18 @@ export type Action =
       /** 抉择分支下标（ADR-071，曹彰）：缺省 / 越界一律取 modes[0] */
       modeIndex?: number }
   | { type: 'CHOOSE_DISCOVER'; cardId: string }
-  | { type: 'UPGRADE_UNIT'; row: Row; col: number; toCardId: string }
+  /**
+   * 升变（ADR-114 / ADR-116）。
+   *
+   * `target` 是给**新形态的指向性战吼**用的：升变会派发新形态的 `on_play`（ADR-114），
+   * 而像虎步军「越水」这种"对指定敌方人物"的战吼需要玩家选目标。
+   * 此前本 action 没有 target 字段 → `mode: 'choose'` 只能走 `narrowByMode` 的兜底
+   * （`pool.slice(0, n)`，即"第一个合法目标"），玩家**无法指定** ——
+   * 而升变恰恰是获得特种兵的**主要途径**。
+   *
+   * 形状与 `USE_SKILL` 一致（`row` 省略 = 指向该方主帅）。
+   */
+  | { type: 'UPGRADE_UNIT'; row: Row; col: number; toCardId: string; target?: { side: Side; row?: Row; col?: number } }
   | { type: 'ATTACK'; from: { row: Row; col: number }; to: { kind: 'unit'; row: Row; col: number } | { kind: 'lord' } }
   | { type: 'USE_LORD_SKILL'; target?: { side: Side; row?: Row; col?: number }; handIndex?: number; modeIndex?: number }
   | { type: 'USE_SKILL'; row: Row; col: number; target?: { side: Side; row?: Row; col?: number }; handIndex?: number; modeIndex?: number; skillId?: string }

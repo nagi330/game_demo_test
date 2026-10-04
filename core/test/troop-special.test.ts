@@ -4,13 +4,14 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import assert from 'node:assert/strict';
 
-import { applyAction, unitSkillTargetPlan } from '../src/engine.ts';
-import { dealDamage, expireStatuses, lordRef, unitRef } from '../src/mutate.ts';
-import { recomputeAuras, resolveAttack } from '../src/effects.ts';
+import { applyAction, playTargetPlan, unitSkillTargetPlan } from '../src/engine.ts';
+import { applyStatus, dealDamage, expireStatuses, lordRef, resolveTurnEndStatuses, unitRef } from '../src/mutate.ts';
+import { recomputeAuras, resolveAttack, resolveTargets } from '../src/effects.ts';
 import { createRng } from '../src/rng.ts';
 import { capStacks, getUnit, makeUnit, setUnit, statusStacks } from '../src/state.ts';
 import { scenario } from './fixtures.ts';
 import type { CardDef, GameEvent } from '../src/types.ts';
+import type { Row, Side } from '../src/types.ts';
 
 /** 从 core/data/cards.json 读一张**真实卡**（防内联夹具与数据漂移） */
 const REAL_CARDS: CardDef[] = JSON.parse(
@@ -241,9 +242,9 @@ test('先登弩手战技：先随机消灭先攻士兵，再继续放箭', () =>
 test('治疗战技可以选择满血友军', () => {
   const { state, ctx } = scenario({});
   const healer: CardDef = {
-    id: 'test_full_heal', name: '木牛流马', faction: 'shu', type: 'troop',
-    cost: 2, attack: 0, health: 6, troopKind: 'cavalry', keywords: ['zhan_ji'], memo: '测试',
-    skills: [{ id: 'mu_niu', name: '木牛流马', kind: 'active', frequency: 'once_per_turn',
+    id: 'test_full_heal', name: '测试医者', faction: 'shu', type: 'troop',
+    cost: 2, attack: 0, health: 6, troopKind: 'infantry', keywords: ['zhan_ji'], memo: '测试',
+    skills: [{ id: 'mu_niu', name: '测试治疗', kind: 'active', frequency: 'once_per_turn',
       target: { side: 'ally', filter: { type: 'character' }, count: 1, mode: 'choose' },
       effects: [{ action: 'heal', value: 3 }] }],
   };
@@ -731,4 +732,744 @@ test('升变：战吼在数据里是 on_play（防夹具/数据漂移）', () =>
   const sk = (HUSHI.skills ?? [])[0];
   assert.equal(sk?.trigger, 'on_play', '虎士应为上场触发');
   assert.equal((HUSHI as { upgradeFrom?: string }).upgradeFrom, 'infantry', '宿卫虎士走步兵升变');
+});
+
+/* ========================================================================
+ * 「水困」——与火（灼烧）正交的持续轴（ADR-116）
+ *
+ * 火惩罚「存在」（每回合结束掉血，永久），水惩罚「行动」（动就掉血，2 回合）。
+ * 三条硬约束在这里各锁一个用例：
+ *   ① 回合末 DoT 按**能力**驱动（dot_water），不是按状态 id 硬编码
+ *   ② 行动税**固定 1 点**，不随层数增长（3 层水困行动也只掉 1）
+ *   ③ 只在**主动行动**（普攻 / 主动技）时触发，反击/被动不触发
+ * ===================================================================== */
+
+const SHUIKUN_CARD: CardDef = {
+  id: 'test_shuikun_dummy', name: '受困者', faction: 'wei', type: 'troop',
+  cost: 2, attack: 3, health: 8, troopKind: 'infantry', keywords: [], memo: '测试',
+};
+
+function withShuiKun(stacks = 1) {
+  const { state, ctx } = scenario({ ownCommand: 10 });
+  ctx.cards.set(SHUIKUN_CARD.id, SHUIKUN_CARD);
+  const u = makeUnit(SHUIKUN_CARD, 0, 901);
+  u.statuses.shui_kun = { stacks, turns: 2 };
+  setUnit(state, 'enemy', 'front', 4, u);
+  return { state, ctx, get: () => getUnit(state, 'enemy', 'front', 4)! };
+}
+
+test('水困：回合末按 dot_water 能力结算 N 点水攻伤害（不再硬编码状态 id）', () => {
+  const { state, ctx, get } = withShuiKun(2);
+  const before = get().hp;
+  resolveTurnEndStatuses(state, ctx.cards, 'enemy', []);
+  assert.equal(get().hp, before - 2, '2 层水困 → 回合末掉 2 点');
+});
+
+test('灼烧（zhuo_shao）：同样走能力驱动，回合末仍是火属性伤害', () => {
+  const { state, ctx, get } = withShuiKun(1);
+  delete get().statuses.shui_kun;
+  get().statuses.zhuo_shao = { stacks: 3 };         // 永久，无 turns
+  const before = get().hp;
+  resolveTurnEndStatuses(state, ctx.cards, 'enemy', []);
+  assert.equal(get().hp, before - 3, '3 层灼烧 → 掉 3 点（改造后行为不变）');
+});
+
+test('水困：行动税固定 1 点，**不随层数增长**（3 层也只扣 1）', () => {
+  const { state, ctx, get } = withShuiKun(3);        // 3 层
+  const before = get().hp;
+  state.active = 'enemy';
+  // 打**敌方主公** —— 主将不反击（ADR-051），所以掉的血只可能来自行动税。
+  // ⚠️ 若改成打单位，反击伤害会混进来，断言就变成">= 1"这种查不出问题的松断言。
+  const r = applyAction(state, ctx, { type: 'ATTACK', from: { row: 'front', col: 4 }, to: { kind: 'lord' } });
+  assert.equal(r.ok, true, r.error ?? '攻击应成立');
+  const after = getUnit(r.state, 'enemy', 'front', 4)!;
+  assert.equal(before - after.hp, 1,
+    `3 层水困行动一次也只扣 1 点（固定值，不随层数增长）；实际扣 ${before - after.hp}`);
+  // 同时确认这笔伤害确实出自水困（而不是别处漏出来的扣血）
+  assert.ok((r.events ?? []).some((e) => e.type === 'DAMAGE' && e.source === '水困'),
+    '应有一条来源为「水困」的伤害事件');
+});
+
+test('水困：反击/被动不触发行动税（只有主动行动才扣）', () => {
+  const { state, ctx, get } = withShuiKun(1);
+  const before = get().hp;
+  // 我方攻击它 → 它自动反击（不是"主动行动"）
+  setUnit(state, 'own', 'front', 0, makeUnit(SHUIKUN_CARD, 0, 903));
+  state.active = 'own';
+  resolveAttack(state, ctx.cards, 'own', { row: 'front', col: 0 },
+    { kind: 'unit', row: 'front', col: 4 }, [], createRng(1), { toSide: 'enemy' });
+  const lost = before - get().hp;
+  // 掉血只应来自我方这次攻击（3 点），不含行动税
+  assert.equal(lost, 3, `被攻击只掉 3 点（我方攻击力），不应有行动税；实际掉 ${lost}`);
+});
+
+/* ========================================================================
+ * 升变也要能**指定战吼目标**（ADR-116）
+ *
+ * 升变是获得特种兵的主要途径，而虎步军「越水」是"对指定敌方人物"的战吼。
+ * `UPGRADE_UNIT` 此前没有 target 字段 → `mode:'choose'` 只能走 narrowByMode 的
+ * 兜底（`pool.slice(0, n)` = 第一个合法目标），玩家无法指定。
+ *
+ * 本用例刻意放**两个**敌人：第一个是兜底会命中的，第二个才是"被指定的"。
+ * 如果 target 没被真正传下去，水困会挂到第一个身上 → 断言失败。
+ * ===================================================================== */
+
+const HUBU = realTroop('shu_hubujun');
+
+test('升变：可以把战吼目标指定给**非第一个**的敌人（越水）', () => {
+  const { state, ctx } = scenario({ ownCommand: 10 });
+  ctx.cards.set(HUBU.id, HUBU);
+  const base = realTroop('neutral_infantry');
+  ctx.cards.set(base.id, base);
+  const dummy = realTroop('neutral_shieldman');
+  ctx.cards.set(dummy.id, dummy);
+
+  const u = makeUnit(base, 0, 801);
+  u.upgradeProgress = { damage: 2, shieldSurvival: 0, basicKills: 0, characterKills: 0, heroHits: 0 };
+  setUnit(state, 'own', 'front', 0, u);
+  setUnit(state, 'enemy', 'front', 0, makeUnit(dummy, 0, 802));   // 第一个（兜底会打它）
+  setUnit(state, 'enemy', 'front', 3, makeUnit(dummy, 0, 803));   // 第二个（我们要指定的）
+
+  const r = applyAction(state, ctx, {
+    type: 'UPGRADE_UNIT', row: 'front', col: 0, toCardId: HUBU.id,
+    target: { side: 'enemy', row: 'front', col: 3 },              // ← 指定第二个
+  });
+  assert.equal(r.ok, true, r.error ?? '升变应成立');
+  assert.equal(getUnit(r.state, 'own', 'front', 0)!.name, '虎步军', '形态应已替换');
+
+  const first = getUnit(r.state, 'enemy', 'front', 0)!;
+  const third = getUnit(r.state, 'enemy', 'front', 3)!;
+  assert.equal(statusStacks(third, 'shui_kun'), 1, '被指定的那个敌人应获得水困');
+  assert.equal(statusStacks(first, 'shui_kun'), 0, '第一个敌人**不应**获得水困（否则说明 target 没生效）');
+});
+
+test('升变：不传 target 时退回兜底（AI / 测试路径不崩）', () => {
+  const { state, ctx } = scenario({ ownCommand: 10 });
+  ctx.cards.set(HUBU.id, HUBU);
+  const base = realTroop('neutral_infantry');
+  ctx.cards.set(base.id, base);
+  ctx.cards.set('neutral_shieldman', realTroop('neutral_shieldman'));
+  const u = makeUnit(base, 0, 811);
+  u.upgradeProgress = { damage: 2, shieldSurvival: 0, basicKills: 0, characterKills: 0, heroHits: 0 };
+  setUnit(state, 'own', 'front', 0, u);
+  setUnit(state, 'enemy', 'front', 3, makeUnit(realTroop('neutral_shieldman'), 0, 812));
+
+  const r = applyAction(state, ctx, { type: 'UPGRADE_UNIT', row: 'front', col: 0, toCardId: HUBU.id });
+  assert.equal(r.ok, true, r.error ?? '不传 target 也应成立（兜底取第一个合法目标）');
+});
+
+/* ========================================================================
+ * 越水的目标池**只能是场上人物**，绝不能盲选对方手牌（ADR-116）
+ *
+ * 设计者提出的风险：手牌里的卡在你看来只是**牌背**，玩家并不知道对方手里
+ * 拿的是人物牌还是非人物牌 —— 若战吼能选到手牌，那是纯赌博。
+ *
+ * 引擎侧的依据（已核查）：
+ *   · `resolveTargets` 的基础池只从 `state.sides[s].rows[r]` 构建（场上单位），
+ *     手牌必须在 selector 里**显式**写 `zone: 'hand' | 'both'` 才会并入；
+ *   · UI 的 `playTargetPlan` → `choiceOf` **复用同一个 resolveTargets**，
+ *     且只把 `kind === 'unit' | 'lord'` 放进可点列表。
+ * 本组测试把这个不变量钉死：即使对方**手里全是人物牌**，也不能出现在候选里。
+ * ===================================================================== */
+
+test('越水：目标池只含场上人物，对方手牌（含人物牌）绝不入选', () => {
+  const { state, ctx } = scenario({ ownCommand: 10 });
+  ctx.cards.set(HUBU.id, HUBU);
+  // 对方手牌刻意混入**人物牌**与**非人物牌** —— 若机制有漏，人物牌最容易被误选
+  ctx.cards.set('wei_caoren', realTroop('wei_caoren'));
+  ctx.cards.set('tactic_huogong', realTroop('tactic_huogong'));
+  state.sides.enemy.hand = [
+    { card: realTroop('wei_caoren'), mods: [] },          // 人物牌
+    { card: realTroop('tactic_huogong'), mods: [] },      // 非人物牌
+  ];
+  const dummy = realTroop('neutral_shieldman');
+  ctx.cards.set(dummy.id, dummy);
+  setUnit(state, 'enemy', 'front', 3, makeUnit(dummy, 0, 821));
+
+  const plan = playTargetPlan(state, 'own', HUBU, 0);
+  const all = plan.choices.flatMap((c) => c.targets);
+  assert.ok(all.length > 0, '应当有候选目标（场上那个单位 + 主公）');
+  assert.ok(all.every((t) => t.kind === 'unit' || t.kind === 'lord'),
+    `候选里出现了非场上目标：${JSON.stringify(all.filter((t) => t.kind !== 'unit' && t.kind !== 'lord'))}`);
+  assert.ok(plan.choices.every((c) => !c.includesHand), '不应标记为"含手牌目标"');
+
+  // 直接查引擎的解析结果：同样不能出现 handRef
+  const sel = { side: 'enemy' as const, filter: { type: 'character' as const, include_lord: true },
+                count: 'all' as const, mode: 'first' as const };
+  const pool = resolveTargets(state, sel, { side: 'own' }, createRng(1));
+  assert.ok(pool.every((r) => r.kind !== 'hand'),
+    `引擎目标池混入了手牌：${JSON.stringify(pool.filter((r) => r.kind === 'hand'))}`);
+});
+
+test('越水：显式声明 zone: hand 时才可能选到手牌（证明是白名单而非全局禁令）', () => {
+  const { state, ctx } = scenario({ ownCommand: 10 });
+  ctx.cards.set('wei_caoren', realTroop('wei_caoren'));
+  state.sides.enemy.hand = [{ card: realTroop('wei_caoren'), mods: [] }];
+  const withHand = resolveTargets(state,
+    { side: 'enemy', zone: 'hand', filter: { type: 'character' }, count: 'all', mode: 'first' },
+    { side: 'own' }, createRng(1));
+  assert.ok(withHand.some((r) => r.kind === 'hand'),
+    '写了 zone: hand 就应该能选到手牌 —— 说明上面那条不是"手牌永远不可选"的假阳性');
+});
+
+/* ========================================================================
+ * 「水困」的**持续时间必须走真实卡牌 DSL 验证**（ADR-116）
+ *
+ * 血的教训：最初的单测都是「手工把状态塞进 `unit.statuses`」，
+ * 于是卡牌 YAML 里把 `apply_status` 的字段写成了 `turns`（正确字段是 `duration`），
+ * **完全查不出来** —— `turns` 不是 `Effect` 的字段（它只是 `StatusInstance` 的），
+ * 引擎读到 `eff.duration === undefined` 就当成**永久**，水困于是永远不消失，
+ * 而"2 回合、有解"正是这个机制能被接受的全部理由。
+ *
+ * 所以这组测试坚持**从卡牌数据出牌**，不碰 unit.statuses。
+ * ===================================================================== */
+
+function playFromHand(cardId: string, target?: { side: Side; row?: Row; col?: number }) {
+  const { state, ctx } = scenario({ ownCommand: 10 });
+  const card = realTroop(cardId);
+  ctx.cards.set(card.id, card);
+  const foe = realTroop('neutral_shieldman');
+  ctx.cards.set(foe.id, foe);
+  state.sides.own.hand = [{ card, mods: [] }];
+  setUnit(state, 'enemy', 'front', 3, makeUnit(foe, 0, 831));   // 高血量，确保扛得住伤害
+  const action: { type: 'PLAY_CARD'; cardIndex: number; row: Row; col: number; target?: typeof target } =
+    { type: 'PLAY_CARD', cardIndex: 0, row: 'front', col: 0 };
+  if (target) action.target = target;
+  const r = applyAction(state, ctx, action);
+  assert.equal(r.ok, true, r.error ?? '出牌应成立');
+  return { state: r.state, target: getUnit(r.state, 'enemy', 'front', 3) };
+}
+
+test('越水（真实 DSL）：水困是 **1 回合**，绝不是永久', () => {
+  const { target } = playFromHand('shu_hubujun', { side: 'enemy', row: 'front', col: 3 });
+  const st = target!.statuses.shui_kun;
+  assert.ok(st, '目标应获得水困');
+  assert.equal(st.turns, 1,
+    '虎步军 2 费 → 1 回合（设计者：2 回合太厉害）。若为 undefined 就说明卡牌 YAML 又把 apply_status 的字段写错了（应为 duration）');
+});
+
+test('水淹七军（真实 DSL）：同时给出 水困(2回合) 与 禁用(1回合)，且是水攻伤害', () => {
+  const { target } = playFromHand('shu_guanyu', undefined);   // count:all，不需要指定目标
+  assert.equal(target!.statuses.shui_kun?.turns, 2, '水困应为 2 回合');
+  assert.equal(target!.statuses.jin_yong?.turns, 1, '禁用应为 1 回合');
+});
+
+test('水淹七军：伤害是**水攻**属性（不是默认物理）', () => {
+  const { target } = playFromHand('shu_guanyu', undefined);
+  assert.equal(target!.hp, (realTroop('neutral_shieldman').health ?? 0) - 1, '应受到 1 点伤害');
+});
+
+/* ========================================================================
+ * 蜀国「西凉铁骑」的「突阵」——攻击**主将**时 +2 攻（ADR-116）
+ *
+ * 史实：《三国志·蜀书六》「超负其多力，阴欲突前捉曹公」。
+ * 与群雄版「突骑」（打武将/谋臣 +2）构成**同一支凉州铁骑的两个时期**：
+ * 马腾「典领部众」是创业期（破敌将），马超「领腾部曲」入蜀是突击期（直取主帅）。
+ *
+ * 旧技能是「放箭：随机 1 点」—— 那是**弓兵「神射」**的具体化（keywords.yaml），
+ * 放在骑兵身上张冠李戴，这组测试同时锁住"新技能生效"与"旧机制已摘除"。
+ * ===================================================================== */
+
+const SHU_TIEQI = realTroop('shu_xiliangtieqi');
+
+/** 让 source 攻击一次指定目标，返回事件流 */
+function attackWith(sourceId: string, to: { kind: 'lord' } | { kind: 'unit'; row: Row; col: number }) {
+  const { state, ctx } = scenario({ ownCommand: 10 });
+  const card = realTroop(sourceId);
+  ctx.cards.set(card.id, card);
+  const u = makeUnit(card, 0, 841);
+  u.statuses.xian_gong = { stacks: 1, turns: 1 };      // 先攻：入场即可攻击
+  setUnit(state, 'own', 'front', 0, u);
+  // ⚠️ 只在打**单位**时才放敌人：`neutral_shieldman` 带「架盾」（嘲讽），
+  // 它会把打主将的攻击吸走 —— 那样测的就不是「突阵」了。
+  if (to.kind === 'unit') {
+    // ⚠️ 用高血靶子：`neutral_shieldman` 只有 4 血，而西凉铁骑定档后是 4 攻
+    // （ADR-118），一击必死 → `getUnit()` 返回 undefined，血量差会算出 NaN。
+    // 用合成卡而不是真实卡 id，避免以后数值再调时又被打破。
+    const foe: CardDef = {
+      id: 'test_high_hp_dummy', name: '高血靶', faction: 'wei', type: 'troop',
+      cost: 3, attack: 1, health: 10, troopKind: 'infantry', keywords: [], memo: '测试',
+    };
+    ctx.cards.set(foe.id, foe);
+    setUnit(state, 'enemy', 'front', 3, makeUnit(foe, 0, 842));
+  }
+  state.active = 'own';
+  const before = state.sides.enemy.lord.hp;
+  const r = applyAction(state, ctx, { type: 'ATTACK', from: { row: 'front', col: 0 }, to });
+  assert.equal(r.ok, true, r.error ?? '攻击应成立');
+  return { state: r.state, lordLost: before - r.state.sides.enemy.lord.hp,
+           target: getUnit(r.state, 'enemy', 'front', 3) };
+}
+
+test('突阵：攻击**主将**时 +2 攻（4 攻打成 6 点）', () => {
+  const { lordLost } = attackWith('shu_xiliangtieqi', { kind: 'lord' });
+  // 基础攻 4（ADR-118 特种骑兵定档 4 费 4/3）+ 突阵 2 = 6
+  assert.equal(lordLost, 6, `西凉铁骑 4 攻 + 突阵 2 = 6；实际 ${lordLost}`);
+});
+
+test('突阵：打**普通单位**时不加成（仍只有基础攻 4 点）', () => {
+  const { target } = attackWith('shu_xiliangtieqi', { kind: 'unit', row: 'front', col: 3 });
+  assert.ok(target, '靶子应活着（10 血挨 4 点）');
+  assert.equal(10 - target!.hp, 4, `打单位不应有加成；实际掉 ${10 - target!.hp}`);
+});
+
+test('突阵：已摘除旧的「放箭」随机伤害（关键词 zhan_ji 也应移除）', () => {
+  assert.ok(!(SHU_TIEQI.skills ?? []).some((s) => s.name === '放箭'), '不应再有「放箭」');
+  assert.ok(!(SHU_TIEQI.keywords ?? []).includes('zhan_ji'), '改成触发后不该再带战技关键词');
+  assert.ok((SHU_TIEQI.skills ?? []).some((s) => s.name === '突阵'), '应有「突阵」');
+});
+
+/* ========================================================================
+ * 「木牛流马」不是兵种，是诸葛亮的运输器械（ADR-116）
+ *
+ * 史料：《三国志·蜀书五·诸葛亮传》
+ *   · 「九年，亮复出祁山，**以木牛运**…粮尽退军」
+ *   · 「十二年春，亮悉大众由斜谷出，**以流马运**」
+ *   · 「亮性长于巧思，**损益连弩，木牛流马，皆出其意**」（陈寿把它定性为发明）
+ *   · 裴松之注引《亮集》载《作木牛流马法》有完整机械尺寸
+ * 与「元戎弩」同属陈寿所谓「工械技巧」，**不是兵**。
+ *
+ * 原先它被做成「特种兵·骑兵 0/6」，三处错：type=troop / troopKind=cavalry /
+ * 「治疗友军」无依据（它运的是粮草）。已改为战法卡：**抽 2 张牌**（运粮=补给资源）。
+ * ===================================================================== */
+
+const ALL_CARDS: CardDef[] = JSON.parse(
+  readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'data', 'cards.json'), 'utf8'));
+
+test('木牛流马：已是**战法卡**，不再是任何形式的兵', () => {
+  const c = ALL_CARDS.find((x) => x.id === 'tactic_muniuliuma');
+  assert.ok(c, '应有 tactic_muniuliuma');
+  assert.equal(c!.type, 'tactic', '必须是战法卡');
+  assert.equal((c as { troopKind?: string }).troopKind, undefined, '战法卡不该有兵种');
+  assert.equal(ALL_CARDS.some((x) => x.id === 'shu_muniuliuma'), false,
+    '旧的「特种兵·木牛流马」必须已删除（它是器械，不是兵）');
+});
+
+test('木牛流马：效果是抽 2 张牌（运粮=补给资源）', () => {
+  const c = ALL_CARDS.find((x) => x.id === 'tactic_muniuliuma')!;
+  const draw = (c.effects ?? []).find((e) => e.action === 'draw');
+  assert.ok(draw, '应有 draw 效果');
+  assert.equal(draw!.value, 2, '抽 2 张');
+});
+
+test('木牛流马：3 费 —— 对齐全库「抽 2 张」的标准档', () => {
+  const c = ALL_CARDS.find((x) => x.id === 'tactic_muniuliuma')!;
+  assert.equal(c.cost, 3, '抽 2 张的标准档是 3 费（屯田 / 瞒天过海 / 马谡）');
+  // 反向锁：不该再出现「低于 3 费还抽 2 张」的战法卡
+  const cheap = ALL_CARDS.filter((x) => x.type === 'tactic' && (x.cost ?? 9) < 3
+    && (x.effects ?? []).some((e) => e.action === 'draw' && (e.value ?? 0) >= 2));
+  assert.deepEqual(cheap.map((x) => x.id), [],
+    '不该有低于 3 费却抽 2 张以上的战法卡（会低于费效曲线）');
+});
+
+test('木牛流马：不能再挂在骑兵的升变池里', () => {
+  const cav = ALL_CARDS.filter((x) => x.upgradeFrom === 'cavalry').map((x) => x.id);
+  assert.ok(!cav.includes('shu_muniuliuma'), '骑兵升变池不该再有木牛流马');
+  assert.ok(!cav.includes('tactic_muniuliuma'), '战法卡更不该进升变池');
+});
+
+/* ========================================================================
+ * 五谷丰登：`draw` 必须尊重 `target.side`（ADR-116）
+ *
+ * 引擎原先的 `draw` 是 `drawCard(state, cards, ctx.side, events)` ——
+ * **无条件抽给施放者，完全忽略 `eff.target`**。于是五谷丰登（名义"双方各抽 2 张"）
+ * 实际是**自己抽 4 张**（两条 draw 都抽给自己），1 费抽 4 张，
+ * 远超全库「3 费抽 2」的标准档。
+ *
+ * 这组测试从**真实卡牌数据**出牌，同时锁住"引擎修复"与"卡面数值"。
+ * ===================================================================== */
+
+function playEvent(cardId: string) {
+  const { state, ctx } = scenario({ ownCommand: 10 });
+  const card = realTroop(cardId);          // 该 helper 只是"从 cards.json 按 id 取卡"
+  ctx.cards.set(card.id, card);
+  state.sides.own.hand = [{ card, mods: [] }];
+  // ⚠️ `scenario()` 默认**牌库是空的**（`decks: { own: [], enemy: [] }`）——
+  // 不补牌库的话「抽牌」抽了个寂寞，测出来两头都是 0，看着像引擎没修好。
+  const filler = realTroop('neutral_infantry').id;
+  state.sides.own.deck = [filler, filler, filler];
+  state.sides.enemy.deck = [filler, filler, filler];
+  const ownBefore = state.sides.own.hand.length;
+  const foeBefore = state.sides.enemy.hand.length;
+  const r = applyAction(state, ctx, { type: 'PLAY_CARD', cardIndex: 0, row: 'front', col: 0 });
+  assert.equal(r.ok, true, r.error ?? '出牌应成立');
+  return {
+    ownDelta: r.state.sides.own.hand.length - ownBefore,
+    foeDelta: r.state.sides.enemy.hand.length - foeBefore,
+  };
+}
+
+test('五谷丰登（真实 DSL）：双方各抽 1 张 —— 不能变成只给自己抽', () => {
+  const { ownDelta, foeDelta } = playEvent('event_fengnian');
+  // 自己：打出消耗 1 张，再抽 1 张 → 净 0
+  assert.equal(ownDelta, 0, `自己净手牌应为 0（出 1 抽 1）；实际 ${ownDelta}`);
+  assert.equal(foeDelta, 1, `对手也必须抽到 1 张；实际 ${foeDelta}`);
+});
+
+test('draw 动作：不带 target 时只抽给自己（默认行为不变）', () => {
+  const { state, ctx } = scenario({ ownCommand: 10 });
+  const card = realTroop('tactic_tuntian');       // 屯田：3 费抽 2，没有 target
+  ctx.cards.set(card.id, card);
+  state.sides.own.hand = [{ card, mods: [] }];
+  const filler = realTroop('neutral_infantry').id;
+  state.sides.own.deck = [filler, filler, filler];
+  state.sides.enemy.deck = [filler, filler, filler];
+  const foeBefore = state.sides.enemy.hand.length;
+  const r = applyAction(state, ctx, { type: 'PLAY_CARD', cardIndex: 0, row: 'front', col: 0 });
+  if (r.ok) {
+    assert.equal(r.state.sides.enemy.hand.length, foeBefore,
+      '没写 target 的 draw 不该给对手抽牌');
+  }
+});
+
+/* ========================================================================
+ * 卡面文案的回合数必须等于**实际 duration**（ADR-116）
+ *
+ * 这是真漂移过的：虎步军的水困从 2 回合改成 1 回合时，`effects` 改了、
+ * **卡面 `text` 没改**，于是玩家看到的和实际结算对不上。
+ * 这类不一致没有任何自动防线（`validate` 不比对文案与数值），只能靠测试钉住。
+ * ===================================================================== */
+
+test('卡面回合数 = 实际 duration（虎步军 1 回合 / 关羽 水困 2 回合、禁用 1 回合）', () => {
+  const expectations: Array<[string, string, string, number]> = [
+    ['shu_hubujun', '越水', 'shui_kun', 1],
+    ['shu_guanyu', '水淹七军', 'shui_kun', 2],
+    ['shu_guanyu', '水淹七军', 'jin_yong', 1],
+  ];
+  for (const [cardId, skillName, statusId, turns] of expectations) {
+    const card = ALL_CARDS.find((x) => x.id === cardId)!;
+    const sk = (card.skills ?? []).find((s) => s.name === skillName)!;
+    const eff = (sk.effects ?? []).find((e) => e.status === statusId)!;
+    assert.equal(eff.duration, turns, `${card.name}「${skillName}」的 ${statusId} 应为 ${turns} 回合`);
+    // 卡面文案必须写出同一个数字 —— 否则就是"文案没跟着改"
+    // 中文数字也算（关羽的禁用写的是「禁用一回合」而非「1 回合」）
+    const cn = ['零', '一', '二', '三', '四', '五'][turns] ?? String(turns);
+    assert.match(sk.text ?? '', new RegExp(`(?:${turns}|${cn})\\s*回合`),
+      `${card.name}「${skillName}」卡面文案里的回合数应写成 ${turns}（实际 duration=${turns}）`);
+  }
+});
+
+/* ========================================================================
+ * 蜀国「越骑」的「蓄锐」——未受伤才成长（ADR-116）
+ *
+ * 史实：《三国志·蜀书十一·杨洪传》「后为**越骑校尉**，领郡如故」；
+ *      《季汉辅臣赞》「**越骑惟忠，厉志自祗，职于内外，念公忘私**」。
+ *
+ * 设计取舍：初版是"不行动攻击就 +1 攻"，但 3 回合不打 = 少打 9 点伤害，
+ * 换 +3 攻要再打 3 回合才回本（6 回合内都是亏的），且体验消极。
+ * 改成"**未受伤**才成长"后：可正常攻击（零机会成本）+ **对手打一下就能打断**（博弈）。
+ *
+ * 本组测试同时锁住三个引擎改动：
+ *   ① `damaged: false` 生效（原先只认 `true`，写 false 静默失效）
+ *   ② `attack_max` 过滤器（+3 硬上限）
+ *   ③ `source: true` 尊重 filter（原先直接 return，全池 42 处都没带 filter 所以从未暴露）
+ * ===================================================================== */
+
+const YUEQI = realTroop('shu_yueqi');
+
+/** 造一个越骑在我方场上，返回 state 与它 */
+function withYueqi() {
+  const { state, ctx } = scenario({ ownCommand: 10 });
+  ctx.cards.set(YUEQI.id, YUEQI);
+  setUnit(state, 'own', 'front', 0, makeUnit(YUEQI, 0, 851));
+  return { state, ctx, get: () => getUnit(state, 'own', 'front', 0)! };
+}
+
+test('蓄锐：回合末毫发无伤 → 攻击力永久 +1', () => {
+  const { state, ctx } = withYueqi();
+  assert.equal(getUnit(state, 'own', 'front', 0)!.atk, 3, '基础 3 攻');
+  // ⚠️ `turn_end` **技能**走的是结束回合流程（engine.ts:477 第 20 步 ②），
+  // 不是 `resolveTurnEndStatuses`（那只结算持续伤害）—— 最初就是踩了这个才全红。
+  const r = applyAction(state, ctx, { type: 'END_TURN' });
+  assert.equal(r.ok, true, r.error ?? '结束回合应成立');
+  assert.equal(getUnit(r.state, 'own', 'front', 0)!.atk, 4, '未受伤，应 +1 → 4 攻');
+});
+
+test('蓄锐：受过伤 → 本回合**不成长**（对手可以打断）', () => {
+  const { state, ctx } = withYueqi();
+  getUnit(state, 'own', 'front', 0)!.hp -= 1;      // 挨了一下
+  const r = applyAction(state, ctx, { type: 'END_TURN' });
+  assert.equal(getUnit(r.state, 'own', 'front', 0)!.atk, 3,
+    '受过伤就不该成长 —— 这正是"对手打一下就能打断"的机制本身');
+});
+
+test('蓄锐：上限 +3（涨到 6 攻后不再涨）', () => {
+  let { state, ctx } = withYueqi();
+  // 走真实的回合循环：我方结束 → 敌方结束 → 又轮到我方
+  for (let i = 0; i < 8; i++) {
+    const u = getUnit(state, 'own', 'front', 0);
+    if (u) u.hp = u.maxHp;                          // 每回合都保持无伤
+    const a = applyAction(state, ctx, { type: 'END_TURN' });
+    if (!a.ok) break;
+    state = a.state;
+    if (state.active !== 'own') {
+      const b = applyAction(state, ctx, { type: 'END_TURN' });
+      if (!b.ok) break;
+      state = b.state;
+    }
+  }
+  const final = getUnit(state, 'own', 'front', 0);
+  assert.ok(final, '越骑应还活着');
+  assert.equal(final!.atk, 6, '基础 3 + 上限 3 = 6 攻（再多回合也不涨）');
+});
+
+test('越骑：卡面写明上限，且是骑兵（不再是越骑校尉的"官"）', () => {
+  assert.equal(YUEQI.troopKind, 'cavalry', '骑兵');
+  assert.equal(YUEQI.upgradeFrom, 'cavalry', '从骑兵升变而来');
+  assert.ok((YUEQI.keywords ?? []).includes('xian_gong'), '保留先攻');
+  const sk = (YUEQI.skills ?? [])[0];
+  assert.match(sk.text ?? '', /最多\s*\+3/, '卡面必须写明上限，否则玩家不知道能涨多少');
+});
+
+/* ========================================================================
+ * 蜀国「连弩士」与战法「元戎弩射」（ADR-116）
+ *
+ * 史料：《三国志·蜀书五·诸葛亮传》裴注引《魏氏春秋》
+ *   「又损益连弩，谓之元戎，以铁为矢，矢长八寸，**一弩十矢俱发**。」
+ * 「一弩十矢俱发」= 多发 → 技能做成**两次 1 点**而非一次 2 点。
+ *
+ * 旧卡「元戎弩兵」已删除：那名字是 **KOEI《三国志10》的兵种名**，正史零依据；
+ * 且其「每回合免费对全体敌方 1 点」严重超模。
+ * ===================================================================== */
+
+const LIANNU = realTroop('shu_liannushi');
+
+test('连弩士：2 费 1/2 弓兵，两次 1 点的战技', () => {
+  assert.equal(LIANNU.cost, 2);
+  assert.equal(LIANNU.attack, 1);
+  assert.equal(LIANNU.health, 2);
+  assert.equal(LIANNU.troopKind, 'archer', '弓兵');
+  const sk = (LIANNU.skills ?? [])[0];
+  assert.equal(sk.kind, 'active');
+  const dmgs = (sk.effects ?? []).filter((e) => e.action === 'damage');
+  assert.equal(dmgs.length, 2, '必须是**两次独立的 1 点**，不是一次 2 点（取「十矢俱发」的多发之意）');
+  assert.ok(dmgs.every((e) => e.value === 1), '每次都是 1 点');
+  // 卡面写「人物」时，全池 7/8 的卡都**不含主将**，本卡遵循该约定
+  assert.ok(dmgs.every((e) => !e.target?.filter?.include_lord), '卡面写「人物」→ 不含主将');
+});
+
+test('连弩士：旧卡「元戎弩兵」已删除（那是 KOEI 的兵种名）', () => {
+  assert.equal(ALL_CARDS.some((x) => x.id === 'shu_yuanrongnubing'), false,
+    '元戎弩兵是《三国志10》的兵种名，正史 0 见，必须已删除');
+  assert.equal(ALL_CARDS.some((x) => x.name === '元戎弩兵'), false, '不该再有同名的卡');
+});
+
+test('元戎弩射：1 费 3 支箭随机；场上无连弩士时不加箭', () => {
+  const t = ALL_CARDS.find((x) => x.id === 'tactic_yuanrongnushe')!;
+  assert.equal(t.cost, 1);
+  const dmgs = (t.effects ?? []).filter((e) => e.action === 'damage');
+  assert.equal(dmgs.length, 4, '3 支基础箭 + 1 支条件箭');
+  const base = dmgs.filter((e) => !e.condition);
+  const bonus = dmgs.filter((e) => e.condition);
+  assert.equal(base.length, 3, '基础 3 支');
+  assert.equal(bonus.length, 1, '条件加 1 支');
+  assert.ok(base.every((e) => e.target?.mode === 'random'), '随机发射');
+});
+
+test('元戎弩射：条件的判定是"己方场上有连弩士"', () => {
+  const t = ALL_CARDS.find((x) => x.id === 'tactic_yuanrongnushe')!;
+  const bonus = (t.effects ?? []).find((e) => e.condition)!;
+  const ex = bonus.condition!.exists!;
+  assert.equal(ex.side, 'self', '看己方场上（不是双方）');
+  assert.equal(ex.filter?.card_id, 'shu_liannushi', '必须是连弩士');
+});
+
+test('元戎弩射（真实 DSL）：场上**有**连弩士 → 多射 1 支（4 点），**没有** → 只有 3 点', () => {
+  const tactic = realTroop('tactic_yuanrongnushe');
+  const foe = realTroop('neutral_infantry');       // 1/1，两箭必死，便于数伤害
+  const run = (withLiannu: boolean) => {
+    const { state, ctx } = scenario({ ownCommand: 10 });
+    ctx.cards.set(tactic.id, tactic);
+    ctx.cards.set(LIANNU.id, LIANNU);
+    ctx.cards.set(foe.id, foe);
+    if (withLiannu) setUnit(state, 'own', 'front', 5, makeUnit(LIANNU, 0, 861));
+    // 放 4 个 1/1：3 支箭最多打 3 点，4 支箭最多打 4 点 → 用总掉血区分
+    for (let c = 0; c < 4; c++) setUnit(state, 'enemy', 'front', c, makeUnit(foe, 0, 870 + c));
+    state.sides.own.hand = [{ card: tactic, mods: [] }];
+    const before = [0, 1, 2, 3].map((c) => getUnit(state, 'enemy', 'front', c)!.hp);
+    const lordBefore = state.sides.enemy.lord.hp;
+    const r = applyAction(state, ctx, { type: 'PLAY_CARD', cardIndex: 0, row: 'front', col: 0 });
+    assert.equal(r.ok, true, r.error ?? '出牌应成立');
+    const after = [0, 1, 2, 3].map((c) => getUnit(r.state, 'enemy', 'front', c)?.hp ?? 0);
+    const unitDmg = before.reduce((s, h, i) => s + (h - after[i]), 0);
+    // ⚠️ 必须把**主将**也算进来：ADR-087 规定「范围/随机伤害默认含主公」，
+    // 所以随机箭本来就会随机打到敌方主将。只数单位血量会少算，导致"条件没生效"的误判。
+    const lordDmg = lordBefore - r.state.sides.enemy.lord.hp;
+    return unitDmg + lordDmg;
+  };
+  assert.equal(run(false), 3, '场上没有连弩士 → 只有 3 支箭 = 3 点');
+  assert.equal(run(true), 4, '场上有连弩士 → 多射 1 支 = 4 点');
+});
+
+/* ========================================================================
+ * 毒攻与「中毒」（ADR-117，无当飞军「毒箭」）
+ *
+ * 三条 DoT 轴的分工：火惩罚「存在」（永久、不封顶）、水惩罚「行动」（行动税）、
+ * 毒惩罚「拖」——**层数 = 每回合毒伤、封顶 3**，每次施加把时长重置为 2 回合（不累加）。
+ *
+ * 设计者原案是「第 N 回合 N 点伤害、续毒再 +1 回合」，推演后为二次增长
+ * （1/3/6/10/15，主将 8 回合必死），故改为**只保留一份收益**：续毒加伤、不加时。
+ *
+ * 断言一律走**真实卡牌 DSL**（`shu_wudangfeijun` 从 cards.json 读），
+ * 手工塞状态只能验证引擎、验证不了数据 —— ADR-116 的水困就是这么漏掉过一次。
+ * ===================================================================== */
+
+const WUDANG = realTroop('shu_wudangfeijun');
+
+/** 摆一个「无当飞军 + 一个敌方目标」的局面，返回目标格 */
+function wudangReady(foeId = 'neutral_shieldman') {
+  const { state, ctx } = scenario({ ownCommand: 10 });
+  ctx.cards.set(WUDANG.id, WUDANG);
+  const foe = realTroop(foeId);
+  ctx.cards.set(foe.id, foe);
+  setUnit(state, 'own', 'front', 0, makeUnit(WUDANG, 0, 881));
+  setUnit(state, 'enemy', 'front', 3, makeUnit(foe, 0, 882));
+  return { state, ctx, get: (s: typeof state = state) => getUnit(s, 'enemy', 'front', 3) };
+}
+
+test('毒箭（真实 DSL）：指定目标 → 中毒 1 层 / 2 回合，并造成 1 点毒攻伤害', () => {
+  const { state, ctx, get } = wudangReady();
+  const before = get()!.hp;
+  const r = applyAction(state, ctx, {
+    type: 'USE_SKILL', row: 'front', col: 0,
+    target: { side: 'enemy', row: 'front', col: 3 },
+  });
+  assert.equal(r.ok, true, r.error ?? '毒箭应能释放');
+  const st = get(r.state)!.statuses.zhong_du;
+  assert.ok(st, '目标应获得中毒');
+  assert.equal(st.stacks, 1, '首次施加 = 1 层（层数就是每回合毒伤）');
+  assert.equal(st.turns, 2,
+    '时长应为 2 回合。若为 undefined 说明卡牌 YAML 把 apply_status 的字段写成了 turns（正确字段是 duration）');
+  assert.equal(before - get(r.state)!.hp, 1, '毒箭本身还有 1 点毒攻伤害');
+});
+
+test('毒箭（真实 DSL）：指定的是**第二个**敌人，不是兜底的第一个', () => {
+  const { state, ctx } = wudangReady();
+  ctx.cards.set('neutral_infantry', realTroop('neutral_infantry'));
+  setUnit(state, 'enemy', 'front', 0, makeUnit(realTroop('neutral_infantry'), 0, 883));  // 兜底会打它
+  const r = applyAction(state, ctx, {
+    type: 'USE_SKILL', row: 'front', col: 0,
+    target: { side: 'enemy', row: 'front', col: 3 },
+  });
+  assert.equal(r.ok, true, r.error ?? '毒箭应能释放');
+  assert.equal(statusStacks(getUnit(r.state, 'enemy', 'front', 3)!, 'zhong_du'), 1, '被指定的那个应中毒');
+  assert.equal(statusStacks(getUnit(r.state, 'enemy', 'front', 0)!, 'zhong_du'), 0,
+    '第一个敌人**不应**中毒（否则说明 skill 级 target 没下沉到效果上）');
+});
+
+test('中毒：层数封顶 3 —— 续毒不再加深', () => {
+  const { state, ctx, get } = wudangReady();
+  for (let i = 0; i < 5; i++) applyStatus(state, unitRef('enemy', 'front', 3), 'zhong_du', 1, [], 2);
+  assert.equal(get()!.statuses.zhong_du.stacks, 3,
+    '封顶在**施加时**夹紧（卡面徽章直接显示层数，超封顶会让玩家算不出这一下掉多少血）');
+});
+
+test('中毒：续毒把时长**重置为 2 回合**，不是累加', () => {
+  const { state, ctx, get } = wudangReady();
+  applyStatus(state, unitRef('enemy', 'front', 3), 'zhong_du', 1, [], 2);
+  get()!.statuses.zhong_du.turns = 1;                    // 模拟已经过了一个回合
+  applyStatus(state, unitRef('enemy', 'front', 3), 'zhong_du', 1, [], 2);
+  const st = get()!.statuses.zhong_du;
+  assert.equal(st.stacks, 2, '续毒应加 1 层（= 每回合多 1 伤）');
+  assert.equal(st.turns, 2, '时长回到 2 回合；若为 3 就说明"续毒 +1 回合"被实现成了累加');
+});
+
+test('中毒：回合末按 dot_poison 结算，伤害 = 层数，且事件来源是「中毒」', () => {
+  const { state, ctx, get } = wudangReady();
+  applyStatus(state, unitRef('enemy', 'front', 3), 'zhong_du', 3, [], 2);
+  const before = get()!.hp;
+  const events: GameEvent[] = [];
+  resolveTurnEndStatuses(state, ctx.cards, 'enemy', events);
+  assert.equal(before - get()!.hp, 3, '3 层中毒 → 回合末掉 3 点');
+  assert.ok(events.some((e) => e.type === 'DAMAGE' && e.source === '中毒'),
+    '伤害事件来源应为「中毒」（与灼烧/水困区分，便于回放与 UI 飘字）');
+});
+
+test('中毒：回合末的毒伤走 **poison** 属性 —— 藤甲减不掉它（不是 physical）', () => {
+  // 这条是 `resolveTurnEndStatuses` 里 dot_poison → 'poison' 的**唯一**端到端断言：
+  // 若把映射退回 'physical'，藤甲会把 1 点毒伤减成 0，本用例立刻失败。
+  const { state, ctx } = tengjiaUnderAttack();
+  const u = getUnit(state, 'enemy', 'front', 3)!;
+  u.statuses.zhong_du = { stacks: 1, turns: 2 };
+  const before = u.hp;
+  resolveTurnEndStatuses(state, ctx.cards, 'enemy', []);
+  assert.equal(before - getUnit(state, 'enemy', 'front', 3)!.hp, 1,
+    '1 层中毒 → 掉 1 点（藤甲只减 physical，毒照扣）');
+});
+
+test('毒攻：**不吃**藤甲的物理减伤（同一张卡通不过，毒照扣）', () => {
+  const { state, ctx, target } = tengjiaUnderAttack();
+  const before = getUnit(state, 'enemy', 'front', 3)!.hp;
+  const src = getUnit(state, 'own', 'front', 0) ?? undefined;
+  // 先确认这局面确实是"1 点物理打不动"（否则下面那条断言就成了假阳性）
+  assert.equal(dealDamage(state, ctx.cards, target, 1, [], '测试',
+    0, { side: 'own', row: 'front', col: 0 }, src, 'physical'), 0, '1 点物理应被藤甲完全减掉');
+  const hpAfterPhysical = getUnit(state, 'enemy', 'front', 3)!.hp;
+  assert.equal(dealDamage(state, ctx.cards, target, 1, [], '毒箭',
+    0, { side: 'own', row: 'front', col: 0 }, src, 'poison'), 1, '1 点毒攻应原样结算');
+  assert.equal(hpAfterPhysical - getUnit(state, 'enemy', 'front', 3)!.hp, 1, '毒伤实扣 1 点');
+  assert.equal(before - getUnit(state, 'enemy', 'front', 3)!.hp, 1, '合计只掉了毒的那 1 点');
+});
+
+test('毒箭（真实 DSL）：目标池**不含主公**（毒不上主将）', () => {
+  const { state, ctx } = wudangReady();
+  // 把唯一的敌方单位移走，只剩敌方主将
+  setUnit(state, 'enemy', 'front', 3, null);
+  const plan = unitSkillTargetPlan(state, 'own', 'front', 0);
+  const targets = plan.choices.flatMap((c) => c.targets);
+  assert.equal(targets.length, 0,
+    `敌方只剩主将时不应有合法目标（30 血主将 + 递增 DoT 会变成无需攻击的自动胜利线）；实际 ${JSON.stringify(targets)}`);
+  const r = applyAction(state, ctx, { type: 'USE_SKILL', row: 'front', col: 0 });
+  assert.equal(r.state.sides.enemy.lord.statuses?.zhong_du, undefined, '主将不应中毒');
+});
+
+test('剧毒：已从无当飞军移除（另立卡牌），关键词本身仍按「命中即斩杀」结算', () => {
+  assert.ok(!(WUDANG.keywords ?? []).includes('ju_du'),
+    '无当飞军不应再带剧毒 —— 剧毒认**一切**伤害（含战技），旧版「放箭」实际是每回合随机秒一个敌方单位');
+  // 关键词保留给后续卡牌，行为钉死：造成伤害并实际命中 → 目标阵亡
+  const { state, ctx, get } = wudangReady();
+  const killer = realTroop('neutral_infantry');
+  const juDu: CardDef = { ...killer, id: 'test_judu', name: '剧毒测试', attack: 1, keywords: ['ju_du'] };
+  ctx.cards.set(juDu.id, juDu);
+  const atk = makeUnit(juDu, 0, 884);
+  setUnit(state, 'own', 'front', 1, atk);
+  const before = get()!.hp;
+  assert.ok(before > 1, '夹具目标应活得下 1 点伤害，否则测不出"命中即斩杀"');
+  resolveAttack(state, ctx.cards, 'own', { row: 'front', col: 1 },
+    { kind: 'unit', row: 'front', col: 3 }, [], createRng(1));
+  assert.equal(getUnit(state, 'enemy', 'front', 3), null, '剧毒命中后目标应直接阵亡');
+});
+
+/* ========================================================================
+ * 特种骑兵的定档规则：基础骑兵 3 费 → 特种骑兵 4 费（ADR-118）
+ *
+ * 全池 7 张特种骑兵原先**统一 2 费**，比基础骑兵（3 费 2/3）还便宜 1 费
+ * —— 升级形态反而更便宜，是结构性问题。本轮先改蜀国两张。
+ *
+ * 4 费强度基准（从全池 29 张 4 费人物卡统计）：攻+血 区间 4~9、中位 6。
+ * 设计者口径：优质 = 7~8，极品 = 9。
+ * ===================================================================== */
+
+test('特种骑兵定档：西凉铁骑 4 费 4/3（攻+血 7 = 优质档）', () => {
+  const c = ALL_CARDS.find((x) => x.id === 'shu_xiliangtieqi')!;
+  assert.equal(c.cost, 4, '特种骑兵定档 4 费');
+  assert.equal((c.attack ?? 0) + (c.health ?? 0), 7, '攻+血 7 = 4 费优质档（区间 4~9、中位 6）');
+});
+
+test('特种骑兵定档：越骑 4 费，但基础值保持 3/3（有成长，故低于优质档）', () => {
+  const c = ALL_CARDS.find((x) => x.id === 'shu_yueqi')!;
+  assert.equal(c.cost, 4, '特种骑兵定档 4 费');
+  assert.equal((c.attack ?? 0) + (c.health ?? 0), 6,
+    '基础值 6（中位）——「蓄锐」可长到 6/3（攻+血 9），起手必须低于优质档才平衡');
+});
+
+test('特种骑兵定档：蜀国特种骑兵不再低于基础骑兵的费用', () => {
+  const base = ALL_CARDS.find((x) => x.name === '骑兵' && !x.upgradeFrom)!;
+  assert.equal(base.cost, 3, '基础骑兵 3 费');
+  const shuCav = ALL_CARDS.filter((x) => x.faction === 'shu' && x.upgradeFrom === 'cavalry');
+  assert.ok(shuCav.length >= 2, '蜀国至少两张特种骑兵');
+  for (const c of shuCav) {
+    assert.ok((c.cost ?? 0) > base.cost!,
+      `${c.name}（${c.cost} 费）必须贵于基础骑兵（${base.cost} 费）—— 升级形态不该更便宜`);
+  }
 });

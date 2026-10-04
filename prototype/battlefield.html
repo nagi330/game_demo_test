@@ -111,11 +111,16 @@
   }
 
   /* 主公条：横贯阵型前后，空列直接指向它 */
+  /* ADR-116：主公条由 24px 压到 16px（屏幕 44→30），**腾出的 8px 全部转给行上方的
+     减益带**（见下面 .lord-bar.enemy 的 margin-bottom 与 .boards .row[data-side=own]
+     的 margin-top），所以战场总高度不变。
+     布局改为「[名 血量] [头像] [技能]」：头像居中作为主公的**可点击实体**，
+     点名/血量在左、主公技按钮在右。点击整条（含头像）= 选主公（点击绑定在 bar 上）。 */
   .lord-bar {
-    width: 330px; height: 24px;
-    display: flex; align-items: center; gap: 7px;
-    padding: 0 8px;
-    border-radius: 6px;
+    width: 330px; height: 16px;
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+    padding: 0 6px;
+    border-radius: 5px;
     position: relative; z-index: 4;
     background: linear-gradient(180deg, rgba(48,32,20,.9), rgba(18,12,8,.95));
     box-shadow:
@@ -125,7 +130,7 @@
   }
   .lord-bar.own { background: linear-gradient(180deg, rgba(24,40,56,.9), rgba(10,16,22,.95)); }
   .lord-bar .lb-portrait {
-    width: 18px; height: 18px; flex: 0 0 auto;
+    width: 14px; height: 14px; flex: 0 0 auto; font-size: 9px;
     display: flex; align-items: center; justify-content: center;
     border-radius: 50%;
     background: radial-gradient(circle at 40% 30%, var(--f1, #6b5738), #1a1208);
@@ -134,14 +139,14 @@
     text-shadow: 0 1px 2px #000;
   }
   .lord-bar .lb-name {
-    font-size: 12px; font-weight: 900; letter-spacing: .08em;
+    font-size: 10px; font-weight: 900; letter-spacing: .06em;
     color: var(--gold-hi); text-shadow: 0 1px 2px #000;
   }
-  .lord-bar .lb-hp { font-size: 12px; font-weight: 900; color: #ff9a86; text-shadow: 0 1px 2px #3a0d06; }
-  .lord-bar .lb-armor { font-size: 11px; font-weight: 800; color: #9fd0ff; }
+  .lord-bar .lb-hp { font-size: 10px; font-weight: 900; color: #ff9a86; text-shadow: 0 1px 2px #3a0d06; }
+  .lord-bar .lb-armor { font-size: 9px; font-weight: 800; color: #9fd0ff; }
   .lord-bar .lb-skill {
     margin-left: auto;
-    font-size: 10px; padding: 1px 7px;
+    font-size: 9px; padding: 0 5px;
     border-radius: 4px;
     background: linear-gradient(180deg, #6a4a22, #2e1f0c);
     box-shadow: inset 0 0 0 1px rgba(255,220,160,.35), 0 2px 5px rgba(0,0,0,.6);
@@ -198,13 +203,31 @@
   }
 
   /* ---------- 战场 ---------- */
+  /* 主公条压扁腾出的 8px 转到这里 —— 供单位卡外上方的减益带（ADR-116）使用 */
+  .lord-bar.enemy { margin-bottom: 6px; }
+  /* 我方主公条现在是 #canvas 的直接子元素（flex 列，align-items 默认 stretch）→ 必须显式居中 */
+  .lord-bar.own { align-self: center; margin-top: 6px; }
+  .boards .row[data-side="own"] { margin-top: 8px; }
   .boards {
     flex: 0 0 auto; width: var(--board-w);
-    position: relative; z-index: 3;
+    position: relative; z-index: 5;
     display: flex; flex-direction: column; gap: var(--row-gap);
   }
+  /* ⚠️ 必须高于 .lord-bar(z:4)：`.boards` 自带 z-index 会创建层叠上下文，
+     Position+ZIndex 让行内一切都封在它这一层 —— 单位卡外上方的减益带
+     （ADR-116）要压过主公条，就只能把整个 .boards 抬上去。 */
   /* ADR-051：单排——敌方一行略压暗，用光影区分敌我 */
-  .boards .row[data-side="enemy"][data-row="front"] { filter: brightness(.92); }
+  /* 敌方前军整体压暗一档（原为 filter: brightness(.92)）。
+     ⚠️ 不能再用 `filter` —— **filter 会创建层叠上下文**，把行内所有内容困在里面，
+     于是单位卡外上方的**减益带**（ADR-116）无论 z-index 多高都压不过 .lord-bar(z:4)，
+     表现为带子被主公条盖住、发暗读不清。
+     改用「给卡面底色叠一层半透明黑」达到同样的压暗，且不产生层叠上下文。
+     注意：这里**不能**把 filter 挪到 .cr-card 上 —— 那会连卡内的披坚护罩一起灰掉（ADR-115 踩过）。 */
+  .boards .row[data-side="enemy"][data-row="front"] .cr-card {
+    background-blend-mode: multiply;
+    background-color: rgba(0, 0, 0, .08);
+  }
+  .boards .row[data-side="enemy"][data-row="front"] .cr-portrait { filter: brightness(.92); }
   .row { display: flex; gap: var(--col-gap); height: var(--card-h); justify-content: center; }
   .slot {
     width: var(--card-w); height: var(--card-h);
@@ -1247,13 +1270,14 @@
 
     <div class="arena">
       <div class="arena-inner">
+        <!-- ADR-116：主公挪到**最外**（原在主公条贴着行，减益带没地方放） -->
+        <div class="lord-bar enemy" id="lord-enemy"></div>
         <!-- 敌方手牌 + 牌库：以卡背正面呈现（对称于我下方的手牌），
              对方手里几张牌一眼可见 —— 原先只在右侧面板里有个数字 -->
         <div class="foe-tray">
           <div class="foe-hand" id="foe-hand-visual"></div>
         </div>
 
-        <div class="lord-bar enemy" id="lord-enemy"></div>
 
         <div class="boards" id="boards">
           <div class="row" data-side="enemy" data-row="front"></div>
@@ -1261,7 +1285,6 @@
           <div class="row" data-side="own" data-row="front"></div>
         </div>
 
-        <div class="lord-bar own" id="lord-own"></div>
       </div>
 
       <div class="panel">
@@ -1289,6 +1312,8 @@
       </span>
     </div>
     <div class="hand" id="hand"></div>
+    <!-- ADR-116：我方主公挪到手牌**之后**（最外），行上方因此完全空出 -->
+    <div class="lord-bar own" id="lord-own"></div>
     <div id="banner"></div>
   </div>
 </div>

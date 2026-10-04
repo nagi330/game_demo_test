@@ -90,14 +90,31 @@
     "memo": "普攻与主动技的目标在合法目标中随机"
   },
   {
+    "id": "zhuo_shao",
+    "name": "灼烧",
+    "kind": "debuff",
+    "numeric": true,
+    "scope": "character",
+    "timing": 20,
+    "duration": "permanent",
+    "caps": [
+      "dot_fire"
+    ],
+    "memo": "回合结束时失去 N 点生命（按火属性结算）；层数叠加、不封顶、永久。ADR-117 由 zhong_du 改名而来——旧 id 名字是「中毒」却被三张火卡当灼烧用，名实不符"
+  },
+  {
     "id": "zhong_du",
     "name": "中毒",
     "kind": "debuff",
     "numeric": true,
     "scope": "character",
     "timing": 20,
-    "duration": "permanent",
-    "memo": "回合结束时失去 N 点生命"
+    "duration": "turns",
+    "caps": [
+      "dot_poison"
+    ],
+    "max_stacks": 3,
+    "memo": "回合结束时受 N 点毒属性伤害（N = 层数，封顶 3）；每次施加把时长重置为 2 回合、不累加，断供 2 回合自然结束。只有场上单位会中毒，主公免疫（ADR-117）"
   },
   {
     "id": "xu_ruo",
@@ -359,5 +376,19 @@
       "thorns"
     ],
     "memo": "受到普通攻击并实际受伤后，对攻击者额外造成 N 点伤害（与自动反击分开结算；技能伤害不触发）"
+  },
+  {
+    "id": "shui_kun",
+    "name": "水困",
+    "kind": "debuff",
+    "numeric": true,
+    "scope": "character",
+    "timing": 20,
+    "duration": "turns",
+    "caps": [
+      "damage_on_action",
+      "dot_water"
+    ],
+    "memo": "① 回合结束时受 N 点水攻伤害 ② 主动行动（普攻/主动技）时额外受 1 点水攻伤害。持续回合数由施加来源指定（虎步军 1 / 水淹七军 2，ADR-116）"
   }
 ]

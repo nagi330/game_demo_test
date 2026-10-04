@@ -556,6 +556,40 @@
   position: absolute; left: 2px; top: 13px; right: 2px;
   display: flex; flex-wrap: wrap; gap: 2px; z-index: 4;
 }
+/* ============================================================
+   ADR-116：**减益徽章列到卡外上方**
+   ------------------------------------------------------------
+   卡内那行只有 8px、又夹在名称与立绘之间，减益很难被注意到；
+   而"这个单位正在受什么罪"恰恰是最该一眼看到的信息。
+   放在卡外上方既不挤占卡面，也天然形成一条"受难标记带"。
+   用 `bottom: 100%` 贴住卡顶边向上生长（不写死像素，卡片尺寸变化时依然贴合）。
+   ============================================================ */
+/* ⚠️ 布局约束（实测）：每行卡片上方的间隙只有 5px（CSS 像素约 2.7px），
+   而一枚徽章本身就有 ~10px —— 所以减益带**必然**会向上压到主公条 / 行间隔上。
+   对策：做成**紧凑单行**（压到 ~9px）+ **实底 + 外发光**，即使压在主公条上也读得清。 */
+.cr-status-top {
+  position: absolute; left: 50%; bottom: 100%;
+  transform: translateX(-50%);
+  margin-bottom: 1px;
+  /* **多个减益向上堆叠**（设计者要求）：容器钉在卡顶边（bottom:100%），
+     所以内容增多时整体**向上生长**，不会往卡里挤。
+     `column-reverse` 让第一个减益紧贴卡顶、后续依次往上。 */
+  display: flex; flex-direction: column-reverse; align-items: center; gap: 1px;
+  z-index: 9;                       /* 高于披坚护罩(z=7)，保证 debuff 一定看得见 */
+  pointer-events: none;
+}
+.cr-status-top .cr-st {
+  font-size: 7px; line-height: 1.1; padding: 0 2px; border-radius: 2px;
+  background: #2a0d0a; color: #ffcfc0; border: 1px solid #8a4a3a;
+  font-style: normal; white-space: nowrap;
+  box-shadow: 0 0 4px rgba(0,0,0,1), 0 0 1px rgba(0,0,0,1);
+}
+/* 减益统一走"危险色"底，个别状态再覆盖自己的色 */
+.cr-status-top .cr-st[data-st="shui_kun"] { color: #bfe4ff; border-color: #3a6a8a; background: rgba(10,30,48,.94); }
+.cr-status-top .cr-st[data-st="zhong_du"] { color: #ffd0a0; border-color: #8a5a2a; background: rgba(48,26,10,.94); }
+.cr-status-top .cr-st[data-st="zhen_she"] { color: #ffb0a0; }
+.cr-status-top .cr-st[data-st="hun_luan"]  { color: #e0b0ff; border-color: #5a3a7a; background: rgba(34,16,48,.94); }
+.cr-status-top .cr-st[data-st="xu_ruo"]    { color: #d8c0ff; border-color: #5a4a7a; background: rgba(26,20,44,.94); }
 .cr-status .cr-st {
   font-size: 8px; line-height: 1.15; padding: 0 2px; border-radius: 2px;
   background: rgba(20,14,8,.88); color: #ffd9a0; border: 1px solid #6b5a3a;

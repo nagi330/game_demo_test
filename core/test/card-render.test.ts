@@ -88,3 +88,39 @@ test('披坚：护罩是**空心盾形描边**，绝不能糊住卡面', () => {
   // 尖角会看起来像"倒过来的盾牌"，不完整。
   assert.match(css, /d='M6 12 Q30 6 54 12/, '盾形顶部应为拱形 Q 曲线，不是尖角');
 });
+
+/* ========================================================================
+ * 减益带（ADR-116）：只在**已上场**的卡上出现，多个向上堆叠
+ *
+ * 设计者要求：debuff 列在卡**外上方**；没上场的卡（手牌）不得展示效果；
+ * 多个 debuff 继续往卡上方叠加。
+ * ===================================================================== */
+
+test('减益带：在**场上单位**卡上渲染（CR.mini 路径）', () => {
+  const debuff = { id: 'shui_kun', name: '水困', stacks: 1, turns: 2, kind: 'debuff' };
+  const onBoard = renderMini({ statuses: [debuff] });
+  assert.match(onBoard.innerHTML, /cr-status-top/, '场上单位应渲染卡外减益带');
+  assert.match(onBoard.innerHTML, /水困/, '带子里应有减益名');
+});
+
+test('减益带：增益仍留卡内，两者分流', () => {
+  const html = renderMini({ statuses: [
+    { id: 'shui_kun', name: '水困', stacks: 1, kind: 'debuff' },
+    { id: 'teng_jia', name: '藤甲', stacks: 1, kind: 'buff' },
+  ] }).innerHTML;
+  // 用正则取出两个容器各自的内容（不能按 indexOf 切片：cr-status-top 在 cr-name 之后）
+  const top = (html.match(/<div class="cr-status-top">([\s\S]*?)<\/div>/) || [])[1] || '';
+  const inner = (html.match(/<div class="cr-status">([\s\S]*?)<\/div>/) || [])[1] || '';
+  assert.match(top, /水困/, '减益应在卡外带子里');
+  assert.doesNotMatch(top, /藤甲/, '增益不该跑进卡外带子');
+  assert.match(inner, /藤甲/, '增益应留在卡内');
+  assert.doesNotMatch(inner, /水困/, '减益不该同时留在卡内');
+});
+
+test('减益带：多个减益竖直向上堆叠（column-reverse）', () => {
+  const css = readFileSync(new URL('../../prototype/card-render.css', import.meta.url), 'utf8');
+  const body = css.slice(css.indexOf('.cr-status-top {'), css.indexOf('.cr-status-top .cr-st'));
+  assert.match(body, /bottom:\s*100%/, '带子应钉在卡顶边向上生长');
+  assert.match(body, /flex-direction:\s*column-reverse/,
+    '多个减益应竖直堆叠（第一个贴卡，后续依次向上）');
+});

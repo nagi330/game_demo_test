@@ -41,6 +41,15 @@ var pendingPick = null;
  * 形状：{ cardIndex, row, col, modeIndex, plan, idx, picks: {1: t, 2: t} }
  */
 var pendingPlay = null;
+/**
+ * 升变的「战吼选目标」待选态（ADR-116）
+ *
+ * 升变会派发新形态的 on_play（ADR-114），而像虎步军「越水」这种指向性战吼
+ * 需要玩家选目标。此前 UPGRADE_UNIT 没有 target 字段，只能走引擎兜底
+ * （第一个合法目标）—— 而升变恰恰是获得特种兵的主要途径。
+ * 形状：{ row, col, toCardId, card, choice }
+ */
+var pendingUpgrade = null;
 /** 动画播放令牌 / 队列：供 skipAnimation 打断（ADR-077） */
 var animToken = 0;
 var animQueue = null;
@@ -63,6 +72,18 @@ function statusName(id) {
   return STATUS_NAME[id] || id;
 }
 
+/** 查状态是增益还是减益（供卡面把 debuff 挪到卡外，ADR-116） */
+var STATUS_KIND = null;
+function statusKind(id) {
+  if (!STATUS_KIND) {
+    STATUS_KIND = {};
+    ((typeof GameData !== 'undefined' && GameData.statuses) || []).forEach(function (st) {
+      STATUS_KIND[st.id] = st.kind;
+    });
+  }
+  return STATUS_KIND[id];
+}
+
 /** 把 Unit.statuses 转成卡面标记用的数组 */
 function statusList(u) {
   var out = [];
@@ -70,7 +91,10 @@ function statusList(u) {
   Object.keys(sts).forEach(function (id) {
     var inst = sts[id];
     if (!inst || !inst.stacks) return;
-    out.push({ id: id, name: statusName(id), stacks: inst.stacks, turns: inst.turns });
+    // kind 用来把**减益**徽章挪到卡外上方（ADR-116）—— card-render 自己不该依赖
+    // GameData，所以在这里查好、作为数据传下去。
+    out.push({ id: id, name: statusName(id), stacks: inst.stacks, turns: inst.turns,
+               kind: statusKind(id) });
   });
   // 关键词里带状态的（如架盾/圣盾）也标出来
   (u.kw || []).forEach(function (k) {
@@ -128,7 +152,7 @@ function newGame() {
     if (busy) skipAnimation();
     var test = CardTest.createSession(Core, GD, TEST_CONFIG);
     session = { state: test.state, ctx: test.ctx, meta: test.meta };
-    sel = null; drag = null; pendingSkill = null; pendingPick = null; pendingPlay = null; busy = false; queuedEndTurn = false;
+    sel = null; drag = null; pendingSkill = null; pendingPick = null; pendingPlay = null; pendingUpgrade = null; busy = false; queuedEndTurn = false;
     logClear();
     logEvents(test.events);
     renderAll();
@@ -219,11 +243,14 @@ function renderLords(st) {
     var canUse = side === 'own' && st.active === 'own' && !l.skillUsedThisTurn
               && st.sides.own.command.cur >= skillCost;
     bar.className = 'lord-bar ' + side;
+    // 布局：[名 血量] [头像] [主公技]（ADR-116）—— 头像居中，作为主公的**可点击实体**。
+    // 点击整条 = 选主公（监听绑在 bar 上），所以点头像即可攻击/指定主公。
     bar.innerHTML =
-      '<span class="lb-portrait f-' + (l.faction || 'neutral') + '">' + (l.name || '').charAt(0) + '</span>' +
       '<span class="lb-name">' + l.name + '</span>' +
       '<span class="lb-hp">♥' + l.hp + '</span>' +
       (l.armor ? '<span class="lb-armor">◈' + l.armor + '</span>' : '') +
+      '<span class="lb-portrait f-' + (l.faction || 'neutral') + '" title="' + l.name + '：点击选中主公">'
+        + (l.name || '').charAt(0) + '</span>' +
       (l.skill
         ? '<span class="lb-skill' + (canUse ? '' : ' is-disabled') + '" title="主公技：' + l.skill +
           '　' + skillTextOf(l.skillDef) + '（消耗 ' + skillCost + ' 统率 / 每回合 1 次）">'
@@ -387,7 +414,7 @@ function renderBoard(st) {
             wrap.addEventListener('pointerdown', function (e) {
               // 战技/战吼/主公技选目标期间，目标单位的 pointerdown 只能交给选择流程，
               // 不能启动普通攻击拖拽；否则松手时会把目标点击误判成另一张单位的普攻。
-              if (pendingPick || pendingPlay || (pendingSkill && pendingSkill.targets)) {
+              if (pendingPick || pendingPlay || pendingUpgrade || (pendingSkill && pendingSkill.targets)) {
                 e.preventDefault();
                 e.stopPropagation();
                 return;
@@ -1623,6 +1650,7 @@ function onSlotClick(ev) {
     cancelPick();
     return;
   }
+  if (pendingUpgrade) { pendingUpgrade = null; clearMarks(); return; }   // 点空白 = 放弃这次升变
   if (pendingPlay) { cancelPlay(); return; }   // 点空白 = 放弃这次出牌
   // 空格子 / 卡与卡之间的缝隙：只要**靠近**合法目标就打过去。
   // 这是"点不到敌人"最直接的兜底 —— 格间距只有 4px，真人很难精准点中卡面。
@@ -1763,6 +1791,23 @@ function onUnitClick(side, row, col, ev) {
     }
     if (ev) ev.stopPropagation();
     return;                                   // 点到非目标：保持待选，不乱取消
+  }
+
+  // ⓪ 升变待选战吼目标（ADR-116，虎步军「越水」）—— 与出牌选目标同级。
+  if (pendingUpgrade) {
+    if (ev) { ev.preventDefault(); ev.stopPropagation(); }
+    if (playChoiceHit(pendingUpgrade.choice, side, row, col)) {
+      var pu = pendingUpgrade;
+      pendingUpgrade = null;
+      clearMarks();
+      var upAction = { type: 'UPGRADE_UNIT', row: pu.row, col: pu.col, toCardId: pu.toCardId };
+      upAction.target = { side: side, row: row, col: col };
+      doAction(upAction);
+      return;
+    }
+    showDetail('请选择战吼目标', '当前点击的不是合法目标',
+      '「' + (pendingUpgrade.card.name || '') + '」的战吼需要指定目标；点空白处可取消升变');
+    return;
   }
 
   // ⓪ 出牌待选目标（战吼 / 卡级效果，BACKLOG §3）—— 优先级最高。
@@ -1991,9 +2036,38 @@ function showUpgradePicker(row, col, status) {
   el.innerHTML = html;
   el.classList.add('show');
   el.querySelectorAll('[data-upgrade-id]').forEach(function (btn) {
-    btn.addEventListener('click', function () {
+    btn.addEventListener('click', function (e) {
+      // ⚠️ 必须 stopPropagation：升变面板浮在棋盘上，点击会冒泡到 onSlotClick，
+      // 而那里有「待选升变目标时点空白 = 取消」的分支 —— 会把刚设好的 pendingUpgrade
+      // 在同一次点击里清掉（症状：提示语出现了，但棋盘上一个高亮都没有）。
+      if (e) { e.preventDefault(); e.stopPropagation(); }
       var id = btn.getAttribute('data-upgrade-id');
+      var card = status.options.filter(function (c) { return c.id === id; })[0];
       closeUpgradePicker();
+      // ADR-116：新形态若带**指向性战吼**（如虎步军「越水」），先让玩家选目标，
+      // 再把 target 一并交给 UPGRADE_UNIT。不这样做的话引擎只会走
+      // narrowByMode 的兜底（"第一个合法目标"），玩家无法指定 —— 而升变
+      // 恰恰是获得特种兵的主要途径。
+      var plan = card ? Core.playTargetPlan(session.state, 'own', card, 0) : null;
+      var choice = plan && plan.choices.filter(function (c) { return c.targets.length; })[0];
+      if (choice) {
+        pendingUpgrade = { row: row, col: col, toCardId: id, card: card, choice: choice };
+        clearMarks();
+        choice.targets.forEach(function (t) {
+          if (t.kind === 'lord') {
+            var le = lordEl(t.side);
+            if (le) le.classList.add('is-target');
+            return;
+          }
+          var te = document.querySelector('.slot[data-side="' + t.side + '"][data-row="' + t.row +
+            '"][data-col="' + t.col + '"] .unit-wrap');
+          if (te) te.classList.add('is-target');
+        });
+        showDetail('选择战吼目标', card.name + '：请选择目标',
+          '点高亮的' + choice.label + '结算「' + (card.skills && card.skills[0] ? card.skills[0].name : '战吼')
+          + '」；点空白处可取消升变');
+        return;
+      }
       doAction({ type: 'UPGRADE_UNIT', row: row, col: col, toCardId: id });
     });
   });
@@ -2411,8 +2485,22 @@ function flyCardBack(fromEl, toEl) {
  */
 function mountCard(wrap, card) {
   wrap.appendChild(card);
+  // 这两样都要**移出卡外**，因为 `.cr-card` 是 `overflow: hidden`（card-render.css:48），
+  // 留在卡里会被裁掉：
+  //   · 披坚护罩（ADR-115）：inset:-7px，要跨出卡边
+  //   · 减益带（ADR-116）：`bottom:100%`，整条在卡的上方外侧
+  // wrap 与卡同尺寸（.unit-wrap{inset:0} + .cr-card{width/height:100%}），
+  // 所以两者的定位结果与留在卡里完全一致。
   var halo = card.querySelector('.cr-shield-glass');
   if (halo) wrap.appendChild(halo);
+  var debuffs = card.querySelector('.cr-status-top');
+  if (debuffs) {
+    wrap.appendChild(debuffs);
+    // 减益带要向上压过行间隔、甚至伸到主公条上，而 `.lord-bar` 是 `z-index: 4`、
+    // `.row` 没有 z-index —— 不抬高的话带子会被主公条盖住（看起来发暗、读不清）。
+    // 只给**带减益的单位**抬层级，不动 `.row` 的全局层级，避免影响其他浮层。
+    wrap.style.zIndex = '6';
+  }
   return card;
 }
 

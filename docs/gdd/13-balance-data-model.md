@@ -474,6 +474,15 @@ condition: { lord_full_hp: { side: self, value: true } }
 目标过滤器的 `damaged: true` 表示当前生命低于生命上限；`damage_type: fire`
 用于标记火攻伤害。`discover_to: deck_top` 表示发现后将所选牌置于己方牌库顶。
 
+**`damage_type` 的四个取值**（ADR-108 / **ADR-117**）：
+
+| 取值 | 含义 | 与藤甲（`reduce_physical` / `vulnerable_fire`）的关系 |
+|---|---|---|
+| 省略 / `physical` | 普通攻击、无属性效果伤害 | **减 N**（1 点会被完全减成 0） |
+| `fire` | 火攻 | **加 N**（「遇火即燃」） |
+| `water` | 水攻 | 原样结算（且吃 `water_damage` 加成） |
+| **`poison`** | **毒攻**（ADR-117 新增，无当飞军「毒箭」） | **原样结算** —— 藤甲挡箭不挡毒 |
+
 #### ④ 新增动作
 
 | action | 参数 | 说明 |
@@ -793,6 +802,24 @@ condition:
   （反扫**主帅身上**的守护状态，用 `srcUid` 找替他挨打的人）；
 - 光环施加的状态**不带 `turns`**，生命周期交给光环（每次 `recomputeAuras` 先清后加）。
   否则它会在**自己回合结束**时被"回合到期"清掉，而护主要挡的恰恰是对手回合的伤害。
+
+#### ⑩ 层数上限 `max_stacks`（ADR-117，中毒）
+
+`StatusDef.max_stacks`：数值型状态的**层数上限**，未声明 = 不封顶。
+
+```ts
+zhong_du: { name: '中毒', kind: 'debuff', numeric: true, duration: 'turns',
+            caps: ['dot_poison'], max_stacks: 3, note: '…' },
+```
+
+| 规则 | 说明 |
+|---|---|
+| 夹紧时机 | **`applyStatus` 里施加时夹**（`Math.min(prev + stacks, max_stacks)`），不是结算时夹 |
+| 为什么 | 卡面减益徽章**直接显示层数**（ADR-116 实测 `["水困2","震慑","中毒3"]`）；徽章写 5 而结算 3，玩家算不出这一下掉多少血 |
+| 不声明 | 灼烧 / 水困 / 振奋等保持**不封顶**，行为不变 |
+| 与 DoT 的关系 | `dot_*` 系列按**层数**结算伤害，所以封顶 = 每回合伤害封顶 |
+
+> 中毒的三条轴定位、设计者原案（二次增长）与修正过程见 `10-skills-statuses.md` §3.2.3。
 
 ## 7.10 平衡的基本等式（ADR-043）
 

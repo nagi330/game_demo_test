@@ -56,7 +56,7 @@ import {
   canPlayCard, canUseLordSkill, canUseUnitSkill, legalTargets,
 } from './rules.ts';
 import {
-  discardOverflow, drawCard, effectiveCost, expireHandMods, expireMods, expireStatuses,
+  dealDamage, discardOverflow, drawCard, effectiveCost, expireHandMods, expireMods, expireStatuses,
   gainArmor, isBanned, lordRef,
   resolveTurnEndStatuses, resolveTurnStartStatuses, unitRef, type TargetRef,
 } from './mutate.ts';
@@ -217,10 +217,17 @@ function upgradeUnit(
   // 注意：**不能**把这类技能改成 aura 来绕开 —— 光环每次重算都会重挂，
   // 披坚被消耗后会在下一次重算时被重新加上，等于永久免疫。
   const onPlay = (toCard.skills ?? []).filter((sk) => sk.trigger === 'on_play');
+  // ADR-116：指向性战吼（如虎步军「越水」）需要玩家选目标。UI 会在升变前把选中的目标
+  // 一并放进 action.target；没有传则退回 narrowByMode 的兜底（AI / 测试路径）。
+  const upgradeChosen: TargetRef | undefined = action.target
+    ? action.target.row !== undefined
+      ? unitRef(action.target.side, action.target.row, action.target.col as number)
+      : lordRef(action.target.side)
+    : undefined;
   for (const sk of onPlay) {
     emitSkillTriggered(state, side, u, sk, 'on_play', events);
     runEffects(state, ctx.cards, sk.effects ?? [],
-      { side, source: u, chosenRow: action.row, chosenCol: action.col }, rng, events);
+      { side, source: u, chosen: upgradeChosen, chosenRow: action.row, chosenCol: action.col }, rng, events);
   }
   // 战吼可能挂了状态 / 改了属性 → 再重算一次光环，让卡面（含徽章与光圈）与状态一致。
   recomputeAuras(state, ctx.cards, rng, events);
@@ -595,6 +602,33 @@ function playCard(
    攻击
    ============================================================ */
 
+/**
+ * 「水困」行动税（ADR-116）
+ *
+ * 火惩罚「**存在**」（每回合结束掉血），水惩罚「**行动**」（动就掉血）——
+ * 这是水火两条持续轴的分野，也是水困不会沦为"又一个 DoT"的原因。
+ *
+ * 三条硬约束：
+ *   ① **固定 1 点**，不随水困层数增长 —— 否则 3 层时行动一次掉 4 点，数值爆炸；
+ *   ② 只由**主动行动**（普通攻击 / 主动技）触发，**不含**反击、触发技、光环
+ *      —— 那些不是玩家的选择，惩罚它们等于随机削血；
+ *   ③ **不设每回合上限** —— 连击 / 强制攻击单位本就越强，水困正好是它的克制。
+ *
+ * 在行动**结算完成后**扣：让玩家先完成这次行动再吃税，
+ * 避免"因为被水困所以这次攻击没了"的挫败感（且单位若已阵亡则不再扣）。
+ */
+function chargeWaterTax(
+  state: MatchState, ctx: EngineContext, side: Side, row: Row, col: number,
+  events: GameEvent[],
+): void {
+  const u = getUnit(state, side, row, col);
+  if (!u || u.hp <= 0) return;                       // 已阵亡（如被反击打死）则不扣
+  if (capStacks(u.statuses, 'damage_on_action') <= 0) return;
+  // damageType = 'water'，因此水攻强化（water_damage）也能正确加成
+  dealDamage(state, ctx.cards, unitRef(side, row, col), 1, events, '水困',
+    0, undefined, undefined, 'water');
+}
+
 function attack(
   state: MatchState, ctx: EngineContext,
   action: Extract<Action, { type: 'ATTACK' }>,
@@ -623,6 +657,7 @@ function attack(
   resolveAttack(state, ctx.cards, side, from,
     target as { kind: 'unit'; row: Row; col: number } | { kind: 'lord' },
     events, rng, { consumeAttack: true });
+  chargeWaterTax(state, ctx, side, from.row, from.col, events);   // 水困：行动税
   return true;
 }
 
@@ -663,5 +698,6 @@ function useUnitSkill(
   // 抉择（ADR-071）：主动技同样支持 modes
   runEffects(state, ctx.cards, effectsOf(skill, action.modeIndex),
              { side, source: u, chosen: target, handIndex: action.handIndex, modeIndex: action.modeIndex }, rng, events);
+  chargeWaterTax(state, ctx, side, action.row, action.col, events);   // 水困：行动税
   return true;
 }

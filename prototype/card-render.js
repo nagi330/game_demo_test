@@ -138,17 +138,38 @@ window.CardRender = (function () {
   }
 
   /* ---------- 状态标记（卡头） ---------- */
-  /** opts.statuses = [{ id, name, stacks, turns }]，在名称行右侧显示 */
+  /**
+   * opts.statuses = [{ id, name, stacks, turns, kind }]
+   *
+   * ADR-116：**减益（`kind === 'debuff'`）列到卡外上方**，增益仍留在卡内。
+   * 理由：卡内那行只有 8px、又夹在名称与立绘之间，减益很难被注意到；
+   * 而"这个单位正在受什么罪"是玩家最需要一眼看到的信息 ——
+   * 挪到卡外上方后既不挤占卡面，也天然形成一条"受难标记带"。
+   * `kind` 由调用方（battlefield.engine.js 的 statusList）查好传进来，
+   * card-render 自身不依赖 GameData；缺省按增益处理（留在卡内，向后兼容）。
+   */
   function statusHTML(opts) {
     var list = opts.statuses || [];
     if (!list.length) return '';
-    var html = list.map(function (st) {
-      var n = st.stacks > 1 ? st.stacks : '';
-      var t = st.turns != null ? '（剩 ' + st.turns + ' 回合）' : '';
-      return '<i class="cr-st" data-st="' + st.id + '" title="' + st.name + t + '">'
-        + st.name + n + '</i>';
-    }).join('');
-    return '<div class="cr-status">' + html + '</div>';
+    function badges(items) {
+      return items.map(function (st) {
+        var n = st.stacks > 1 ? st.stacks : '';
+        var t = st.turns != null ? '（剩 ' + st.turns + ' 回合）' : '';
+        return '<i class="cr-st" data-st="' + st.id + '" title="' + st.name + t + '">'
+          + st.name + n + '</i>';
+      }).join('');
+    }
+    var debuffs = list.filter(function (st) { return st.kind === 'debuff'; });
+    var rest = list.filter(function (st) { return st.kind !== 'debuff'; });
+    var html = '';
+    // ⚠️ 只有**已上场的卡**（`opts.board`，即 CR.mini 走的路径）才画卡外减益带。
+    // 手牌用的是 CR.big（既没有 board 也没有 statuses）—— 牌在手时你本来就看不到
+    // 对方的牌是什么，更不该把"受什么 debuff"画到还没上场的卡上。
+    // 这里写成**显式守卫**而不是依赖"调用方碰巧不传 statuses"，免得日后有人给
+    // 手牌传 statuses 时把整条带子漏到手上。
+    if (opts.board && debuffs.length) html += '<div class="cr-status-top">' + badges(debuffs) + '</div>';
+    if (rest.length) html += '<div class="cr-status">' + badges(rest) + '</div>';
+    return html;
   }
 
   /* ---------- 卡背（翻面，ADR-059） ---------- */

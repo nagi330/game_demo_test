@@ -205,8 +205,12 @@ const matchesFilter = (
   if (f.faction && u.faction !== f.faction) return false;
   if (f.row && row !== f.row) return false;
   if (typeof f.health_max === 'number' && u.hp > f.health_max) return false;
-  if (f.damaged === true && u.hp >= u.maxHp) return false;
+  // ⚠️ 原先只处理 `=== true`，写 `damaged: false` 等于**不生效**（静默失效）。
+  // 越骑「厉志」需要 `{source:true, filter:{damaged:false}}` 表达「自身未受伤」。
+  if (f.damaged !== undefined && f.damaged !== (u.hp < u.maxHp)) return false;
   if (f.has_status && !((u.statuses[f.has_status]?.stacks ?? 0) > 0)) return false;
+  // 攻击力上限（与 cost_max 对称）——越骑「厉志」靠它做 +3 的硬上限
+  if (typeof f.attack_max === 'number' && u.atk > f.attack_max) return false;
   if (typeof f.cost_max === 'number' && u.cost > f.cost_max) return false;
   if (typeof f.cost_min === 'number' && u.cost < f.cost_min) return false;
   if (f.troopKind && u.troopKind !== f.troopKind) return false;   // 兵种过滤（ADR-042）
@@ -625,7 +629,13 @@ export function resolveTargets(
     if (!src) return [];
     for (const r of BOARD.ROWS) {
       for (let c = 0; c < BOARD.COLS; c++) {
-        if (state.sides[ctx.side].rows[r][c]?.uid === src.uid) return [unitRef(ctx.side, r, c)];
+        const u = state.sides[ctx.side].rows[r][c];
+        if (u?.uid !== src.uid) continue;
+        // ⚠️ 原先这里**直接 return，完全忽略 filter** —— 全池 42 处 `source:true`
+        // 都没带 filter，所以这个洞从未暴露。越骑「厉志」需要
+        // `{source:true, filter:{damaged:false}}` 表达「自身未受伤」，故补上。
+        if (selector.filter && !matchesFilter(u, selector.filter, r, src.cost, src.atk, src.uid)) return [];
+        return [unitRef(ctx.side, r, c)];
       }
     }
     return [];
@@ -1062,7 +1072,12 @@ export function runEffects(
         break;
       }
       case 'draw': {
-        for (let i = 0; i < (dynVal ?? eff.value ?? 1); i++) drawCard(state, cards, ctx.side, events);
+        // ⚠️ 原先无条件 `drawCard(..., ctx.side, ...)` —— **完全忽略 `eff.target`**。
+        // 于是五谷丰登（名义「双方各抽 2 张」）实际变成**自己抽 4 张**，1 费抽 4 张，
+        // 远超全库「3 费抽 2」的标准档，而且与卡面文案不符。
+        // 这里与引擎其它动作保持一致：`target.side === 'enemy'` → 抽给对手。
+        const who: Side = eff.target?.side === 'enemy' ? other(ctx.side) : ctx.side;
+        for (let i = 0; i < (dynVal ?? eff.value ?? 1); i++) drawCard(state, cards, who, events);
         break;
       }
       case 'discover': {

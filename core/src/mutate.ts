@@ -598,7 +598,10 @@ export function applyStatus(
 
   const numeric = def?.numeric ?? true;
   const prev = u.statuses[status];
-  const nextStacks = numeric ? (prev?.stacks ?? 0) + stacks : Math.max(1, stacks);
+  // 层数上限（ADR-117）：在**施加时**夹紧，而不是结算时夹 —— 卡面徽章直接显示层数，
+  // 若徽章写「中毒 5」而实际只结算 3 点，玩家无法从界面推断这一下会掉多少血。
+  const rawStacks = numeric ? (prev?.stacks ?? 0) + stacks : Math.max(1, stacks);
+  const nextStacks = def?.max_stacks !== undefined ? Math.min(rawStacks, def.max_stacks) : rawStacks;
   // 持续时间：调用方指定优先；否则按状态定义（permanent → 永久）。
   // 光环施加的状态同上：交给光环管生命周期，不吃回合到期（ADR-071）。
   const nextTurns = auraId !== undefined && turns === undefined ? undefined
@@ -730,13 +733,27 @@ export function resolveTurnEndStatuses(
   events: GameEvent[],
 ): void {
   for (const ref of allUnits(state, side)) {
-    const poison = statusStacks(ref.unit, 'zhong_du');
-    if (poison > 0) {
-      // ADR-108：`zhong_du` 在卡池里**只被火属性卡用作「灼烧」**（荀攸乌巢袭粮 /
-      // 陆逊策火流云 / 董卓暴虐），故按 fire 结算 —— 藤甲的「遇火即燃」要能吃到它。
-      // 走 dealDamage 的最后一位参数，语义与普通火攻伤害一致。
-      dealDamage(state, cards, unitRef(ref.side, ref.row, ref.col), poison, events, '灼烧',
-        0, undefined, undefined, 'fire');
+    // ⚠️ 别退回「按状态 id 硬编码」的写法。
+    // 原先这里写死 `statusStacks(u, 'zhong_du')`，于是新增任何持续伤害状态都得回来改这一行
+    // —— 水困（ADR-116）就是这么被漏掉的。改为按**状态定义的 cap** 驱动：
+    // 只要状态表里标了 `dot_fire` / `dot_water` / `dot_poison`，回合末自动结算。
+    for (const [id, inst] of Object.entries(ref.unit.statuses)) {
+      if (inst.stacks <= 0) continue;
+      const caps = STATUSES[id]?.caps ?? [];
+      const dotCap = caps.includes('dot_fire') ? 'dot_fire'
+        : caps.includes('dot_water') ? 'dot_water'
+        : caps.includes('dot_poison') ? 'dot_poison' : null;
+      if (!dotCap) continue;
+      // 三条 DoT 各自带**自己的伤害属性**，这样受伤侧的减伤/易伤（藤甲）才能正确判定：
+      //   · 灼烧 `zhuo_shao` → fire（藤甲「遇火即燃」要吃到它，ADR-108）
+      //   · 水困 `shui_kun`  → water（也吃到水攻强化）
+      //   · 中毒 `zhong_du`  → poison（ADR-117：毒攻**不吃** reduce_physical，藤甲挡箭不挡毒）
+      const dotType = dotCap === 'dot_fire' ? 'fire'
+        : dotCap === 'dot_water' ? 'water' : 'poison';
+      const dotName = dotCap === 'dot_fire' ? '灼烧'
+        : dotCap === 'dot_water' ? '水困' : '中毒';
+      dealDamage(state, cards, unitRef(ref.side, ref.row, ref.col), inst.stacks, events,
+        dotName, 0, undefined, undefined, dotType);
     }
   }
 }

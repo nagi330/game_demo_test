@@ -590,8 +590,22 @@
             }
           },
           {
+            "action": "apply_status",
+            "status": "shui_kun",
+            "stacks": 1,
+            "duration": 2,
+            "target": {
+              "side": "enemy",
+              "filter": {
+                "type": "character"
+              },
+              "count": "all"
+            }
+          },
+          {
             "action": "damage",
             "value": 1,
+            "damage_type": "water",
             "target": {
               "side": "enemy",
               "filter": {
@@ -601,7 +615,7 @@
             }
           }
         ],
-        "text": "使对方所有场上人物技能禁用一回合,并对其造成一点水攻伤害."
+        "text": "使对方所有场上人物技能禁用一回合，并对其造成 1 点水攻伤害、施加「水困」（2 回合）。"
       }
     ],
     "flavor": ""
@@ -2180,7 +2194,7 @@
           },
           {
             "action": "apply_status",
-            "status": "zhong_du",
+            "status": "zhuo_shao",
             "stacks": 1,
             "duration": 1,
             "target": {
@@ -3270,7 +3284,7 @@
           },
           {
             "action": "apply_status",
-            "status": "zhong_du",
+            "status": "zhuo_shao",
             "stacks": 1,
             "duration": 1,
             "target": {
@@ -3793,7 +3807,7 @@
           },
           {
             "action": "apply_status",
-            "status": "zhong_du",
+            "status": "zhuo_shao",
             "stacks": 1,
             "duration": 2,
             "target": {
@@ -5077,24 +5091,25 @@
     "faction": "neutral",
     "type": "event",
     "cost": 1,
-    "memo": "双方各抽 2 张",
+    "memo": "双方各抽 1 张",
+    "note": "原先写的是「双方各抽 2 张」，但引擎的 `draw` 动作**完全忽略 `target`** （永远抽给 `ctx.side`），于是实际效果是**自己抽 4 张** —— 1 费抽 4 张， 远超全库「3 费抽 2」的标准档（ADR-116 已同时修好引擎）。 现按设计者定为 **1 费、双方各抽 1 张**。",
     "gender": "unknown",
     "keywords": [],
     "skills": [
       {
         "id": "",
         "name": "",
-        "text": "全体可从各自卡池中抽取 2 张卡牌。"
+        "text": "双方各从自己的卡池中抽取 1 张卡牌。"
       }
     ],
     "effects": [
       {
         "action": "draw",
-        "value": 2
+        "value": 1
       },
       {
         "action": "draw",
-        "value": 2,
+        "value": 1,
         "target": {
           "side": "enemy"
         }
@@ -6252,53 +6267,21 @@
     "keywords": [
       "xian_gong"
     ],
-    "memo": "先攻步兵",
+    "memo": "先攻；战吼对指定敌方人物造成 1 点水攻并施加「水困」（1 回合）",
+    "note": "史实据《水经注》卷十八引《诸葛亮表》「臣遣**虎步监**孟琰据武功水东，司马懿因水长攻琰营，臣作**竹桥**，**越水射之**，桥成驰去」。旧技能「攻击并消灭敌方单位后获得一次额外攻击」**无任何史实依据**，已改为「越水」。水困的完整规则见 GDD 10 §3.2.2（ADR-116）。",
     "skills": [
       {
-        "id": "hubu_zhuiji",
-        "name": "虎步",
+        "id": "yue_shui",
+        "name": "越水",
         "kind": "trigger",
-        "trigger": "on_attack",
-        "text": "攻击并消灭敌方单位后，获得一次额外攻击。",
+        "trigger": "on_play",
+        "text": "战吼：对指定**敌方人物或主将**造成 1 点水攻伤害，并使其获得「水困」（持续 1 回合：该回合结束时受 1 点水攻伤害，且主动行动时额外受 1 点）。",
         "effects": [
           {
-            "action": "extra_attack",
-            "condition": {
-              "event": "killed"
-            },
-            "target": {
-              "source": true
-            }
-          }
-        ]
-      }
-    ]
-  },
-  {
-    "id": "shu_xiliangtieqi",
-    "name": "西凉铁骑",
-    "faction": "shu",
-    "type": "troop",
-    "cost": 2,
-    "attack": 3,
-    "health": 3,
-    "troopKind": "cavalry",
-    "upgradeFrom": "cavalry",
-    "keywords": [
-      "xian_gong",
-      "zhan_ji"
-    ],
-    "memo": "先攻；战技「放箭」随机对敌方单位造成1点伤害",
-    "skills": [
-      {
-        "id": "shu_xiliang_fangjian",
-        "name": "放箭",
-        "kind": "active",
-        "frequency": "once_per_turn",
-        "effects": [
-          {
-            "action": "damage",
-            "value": 1,
+            "action": "apply_status",
+            "status": "shui_kun",
+            "stacks": 1,
+            "duration": 1,
             "target": {
               "side": "enemy",
               "filter": {
@@ -6306,105 +6289,80 @@
                 "include_lord": true
               },
               "count": 1,
-              "mode": "random"
+              "mode": "choose"
             }
-          }
-        ]
-      }
-    ]
-  },
-  {
-    "id": "shu_muniuliuma",
-    "name": "木牛流马",
-    "faction": "shu",
-    "type": "troop",
-    "cost": 2,
-    "attack": 0,
-    "health": 6,
-    "troopKind": "cavalry",
-    "upgradeFrom": "cavalry",
-    "keywords": [
-      "zhan_ji"
-    ],
-    "memo": "战技抽牌并治疗一名友军",
-    "skills": [
-      {
-        "id": "mu_niu",
-        "name": "木牛流马",
-        "kind": "active",
-        "frequency": "once_per_turn",
-        "target": {
-          "side": "ally",
-          "filter": {
-            "type": "character"
           },
-          "count": 1,
-          "mode": "choose"
-        },
-        "effects": [
-          {
-            "action": "draw",
-            "value": 1
-          },
-          {
-            "action": "heal",
-            "value": 3
-          }
-        ]
-      }
-    ]
-  },
-  {
-    "id": "shu_yuanrongnubing",
-    "name": "元戎弩兵",
-    "faction": "shu",
-    "type": "troop",
-    "cost": 2,
-    "attack": 2,
-    "health": 2,
-    "troopKind": "archer",
-    "upgradeFrom": "archer",
-    "keywords": [
-      "zhan_ji"
-    ],
-    "memo": "战技对所有敌方单位造成1点伤害",
-    "skills": [
-      {
-        "id": "yuanrong_qi",
-        "name": "元戎",
-        "kind": "active",
-        "frequency": "once_per_turn",
-        "effects": [
           {
             "action": "damage",
             "value": 1,
+            "damage_type": "water",
             "target": {
               "side": "enemy",
               "filter": {
-                "type": "character"
+                "type": "character",
+                "include_lord": true
               },
-              "count": "all"
+              "count": 1,
+              "mode": "choose"
             }
           }
         ]
       }
-    ]
+    ],
+    "flavor": "所领虎步，据武功水东；越水而射，桥成驰去。"
+  },
+  {
+    "id": "shu_xiliangtieqi",
+    "name": "西凉铁骑",
+    "faction": "shu",
+    "type": "troop",
+    "cost": 4,
+    "attack": 4,
+    "health": 3,
+    "troopKind": "cavalry",
+    "upgradeFrom": "cavalry",
+    "keywords": [
+      "xian_gong"
+    ],
+    "memo": "先攻；攻击主将时攻击力 +2",
+    "note": "与群雄版「西凉铁骑」是**同一支凉州铁骑的两个时期**（ADR-116）：马腾「州郡募发民中有勇力者…署为军从事，典领部众」 是**创业期**（打武将/谋臣 +2），马超「领腾部曲」后「将兵径到城下」带兵入蜀是**突击期**（直取主将 +2）。 旧技能「放箭」是**弓兵「神射」**的具体化（见 keywords.yaml 神射条目），放在骑兵身上张冠李戴，且与马超毫无关系，已替换。",
+    "skills": [
+      {
+        "id": "shu_xiliang_tuzhen",
+        "name": "突阵",
+        "kind": "trigger",
+        "trigger": "on_attack",
+        "text": "攻击主将时，攻击力 +2。",
+        "effects": [
+          {
+            "action": "attack_bonus",
+            "value": 2,
+            "condition": {
+              "attack_target": {
+                "type": "lord"
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "flavor": "超负其多力，阴欲突前捉曹公；马儿不死，吾无葬地。"
   },
   {
     "id": "shu_wudangfeijun",
     "name": "无当飞军",
     "faction": "shu",
     "type": "troop",
-    "cost": 2,
+    "cost": 3,
     "attack": 0,
     "health": 2,
     "troopKind": "archer",
     "upgradeFrom": "archer",
     "keywords": [
-      "ju_du",
       "zhan_ji"
     ],
-    "memo": "剧毒弓兵；战技「放箭」随机对敌方单位造成1点伤害",
+    "memo": "毒箭弓兵；战技「毒箭」指定一名敌方单位，造成 1 点毒攻并施加中毒",
+    "note": "ADR-117 定稿。① **3 费**：弓兵特种兵费用下限 = 基础弓兵 2 费 + 1（ADR-112）。 ② **去掉「剧毒」关键词**：剧毒定义是「该单位造成伤害并实际命中后直接消灭目标」， 而它的伤害来源包含**战技**——于是旧版「放箭」（随机 1 点）实际是 「每回合随机秒掉一个敌方单位」，是全池最强的解场，且全库只此一张在用、零测试。 设计者裁定 **剧毒另立卡牌**，无当飞军只做普通毒。 ③ **毒箭取代放箭**：随机 → **指定目标**（毒要能配合，随机目标无法规划； 且 12-randomness 规则一禁止「单次随机决定胜负」，斩杀类效果更不能随机）。 ④ **毒＝第三条 DoT 轴**：火惩罚「存在」（永久、不封顶），水惩罚「行动」（行动税、1~2 回合）， 毒惩罚「拖」——**层数 = 每回合毒伤、封顶 3**，每次施加把时长**重置为 2 回合（不累加）**， 断供 2 回合自然结束。设计者原案是「第 N 回合 N 点伤害、续毒再 +1 回合」， 经推算为二次增长（1/3/6/10/15，主公 8 回合必死），故**只保留一份收益**： 续毒加伤、不加时（见 GDD 10 §3.2.3）。 ⑤ **毒攻是新伤害属性 `poison`**：不吃藤甲的 `reduce_physical`（藤甲挡箭不挡毒）。 ⑥ **效果顺序刻意「先挂状态、再造成伤害」**（ADR-116 教训）：反过来的话， 若这 1 点伤害打死了目标，第二个效果的目标不在合法池里，`resolveTargets` 会退回兜底把中毒挂到**另一个**敌人身上。 ⑦ **毒不含主公**（`filter` 不写 `include_lord`）：30 血主将 + 递增 DoT 会变成 无需攻击的自动胜利线（GDD 12 规则一）。 ⑧ ⚠️ **「毒箭」零史料依据**：《三国志》《裴注》《华阳国志》中，南中兵、叟兵、 青羌兵**没有一条**用毒（详见 `docs/research/shu-wudang-feijun.md` §1③）。 唯一沾边的原文是《后汉书·南蛮西南夷列传》越巂邛都夷「多釀毒酒，欲先以勞軍， 因襲擊尙」——但那是公元 43 年夷帅长贵诈降刘尚的一次性诡计，不是编制、不是弓箭。 本条属**游戏化设计（D 级）**，不作史料引用。\n",
     "skills": [
       {
         "id": "wudang_jin_gong",
@@ -6421,27 +6379,35 @@
         ]
       },
       {
-        "id": "shu_wudang_fangjian",
-        "name": "放箭",
+        "id": "shu_wudang_dujian",
+        "name": "毒箭",
         "kind": "active",
         "frequency": "once_per_turn",
+        "target": {
+          "side": "enemy",
+          "filter": {
+            "type": "character"
+          },
+          "count": 1,
+          "mode": "choose"
+        },
+        "text": "战技：指定一名敌方单位，施加中毒（层数 = 每回合毒伤，封顶 3，持续 2 回合），并造成 1 点毒攻伤害。",
         "effects": [
+          {
+            "action": "apply_status",
+            "status": "zhong_du",
+            "stacks": 1,
+            "duration": 2
+          },
           {
             "action": "damage",
             "value": 1,
-            "target": {
-              "side": "enemy",
-              "filter": {
-                "type": "character",
-                "include_lord": true
-              },
-              "count": 1,
-              "mode": "random"
-            }
+            "damage_type": "poison"
           }
         ]
       }
-    ]
+    ],
+    "flavor": "南中勁卒，號爲飛軍；所當無前。"
   },
   {
     "id": "token_wunan_right",
@@ -7083,5 +7049,223 @@
         ]
       }
     ]
+  },
+  {
+    "id": "tactic_muniuliuma",
+    "name": "木牛流马",
+    "faction": "shu",
+    "type": "tactic",
+    "cost": 3,
+    "memo": "抽 2 张牌",
+    "note": "原为「蜀国特种兵·骑兵 0/6」——**归类完全错误**，已改为战法卡（ADR-116）。 史料：《三国志·蜀书五·诸葛亮传》「**九年**，亮复出祁山，**以木牛运**…粮尽退军」、 「**十二年春**，亮悉大众由斜谷出，**以流马运**」——它是**运粮的器械**； 陈寿把它定性为诸葛亮的发明：「亮性长于巧思，**损益连弩，木牛流马，皆出其意**」； 裴松之注引《亮集》甚至载有完整的《作木牛流马法》机械尺寸（「方腹曲头，一脚四足… 载一岁粮，日行二十里，而人不大劳」）。与「元戎弩」同属陈寿所谓「工械技巧，物究其极」， **不是兵种**。 效果取「运粮 = 补给资源」：北伐的痛点原文写得很清楚——「亮每患**粮不继**，使己志不申」， 故设计为**抽 2 张牌**。旧描述的「治疗友军」无任何依据（它运的是粮草，不是救人）。 **3 费**：全库「抽 2 张」的标准档就是 3 费（屯田 / 瞒天过海 / 马谡），2 费抽 2 张低于曲线。",
+    "gender": "unknown",
+    "keywords": [],
+    "skills": [
+      {
+        "id": "",
+        "name": "",
+        "text": "抽 2 张牌。"
+      }
+    ],
+    "effects": [
+      {
+        "action": "draw",
+        "value": 2
+      }
+    ],
+    "flavor": "木牛之奇，则非般模；载一岁粮，日行二十里，而人不大劳。"
+  },
+  {
+    "id": "shu_yueqi",
+    "name": "越骑",
+    "faction": "shu",
+    "type": "troop",
+    "cost": 4,
+    "attack": 3,
+    "health": 3,
+    "troopKind": "cavalry",
+    "upgradeFrom": "cavalry",
+    "keywords": [
+      "xian_gong"
+    ],
+    "memo": "先攻；未受伤则每回合 +1 攻（最多 +3）",
+    "note": "史实（A 级）：《三国志·蜀书十一·杨洪传》正文「复为蜀郡太守、忠节将军，**后为越骑校尉**，领郡如故」； 杨戏《季汉辅臣赞》赞杨季休「**越骑惟忠，厉志自祗，职于内外，念公忘私**」（《三国志·蜀书十五》）。 「越骑」是**北军五校**之一（屯骑/越骑/步兵/长水/射声），校尉统一个**营** —— 故它既是官名也是**部队名**， 与「车骑」这种纯位号不同（这是选它而非「车骑」的真正理由）。 技能名「**蓄锐**」取成语「养精蓄锐」——保持完好、锐气自增。 （赞辞原词是「厉志**自祗**」，但「祗」字生僻且与「祇/衹」形近易混，故取义不取字。） 设计取舍（ADR-116）：初版是\"不行动攻击就 +1 攻\"，但 3 回合不打 = 少打 9 点伤害， 换 +3 攻要**再打 3 回合才回本**（6 回合内都是亏的），且\"什么都不做\"体验消极、对手无从应对。 改为\"**未受伤**才成长\"后：① 它可以正常攻击，零机会成本；② **对手打它一下就能打断成长**， 从独角戏变成双方博弈；③ 决策从\"打不打\"变成\"**怎么保住它**\"。 上限 +3（最终 6/3）由新增的 `attack_max` 过滤器实现。",
+    "gender": "male",
+    "skills": [
+      {
+        "id": "shu_yueqi_xurui",
+        "name": "蓄锐",
+        "kind": "trigger",
+        "trigger": "turn_end",
+        "text": "己方回合结束时，若自身未受伤，攻击力永久 +1（最多 +3）。",
+        "effects": [
+          {
+            "action": "modify",
+            "attack": 1,
+            "target": {
+              "source": true
+            },
+            "condition": {
+              "all_of": [
+                {
+                  "count": {
+                    "selector": {
+                      "source": true,
+                      "filter": {
+                        "damaged": false
+                      }
+                    },
+                    "op": "==",
+                    "value": 1
+                  }
+                },
+                {
+                  "count": {
+                    "selector": {
+                      "source": true,
+                      "filter": {
+                        "attack_max": 5
+                      }
+                    },
+                    "op": "==",
+                    "value": 1
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    ],
+    "flavor": "越骑惟忠，厉志自祗，职于内外，念公忘私。"
+  },
+  {
+    "id": "shu_liannushi",
+    "name": "连弩士",
+    "faction": "shu",
+    "type": "troop",
+    "cost": 2,
+    "attack": 1,
+    "health": 2,
+    "troopKind": "archer",
+    "upgradeFrom": "archer",
+    "keywords": [
+      "zhan_ji"
+    ],
+    "memo": "战技「连弩」：对指定敌方人物造成 1 点伤害，触发两次",
+    "note": "兵器**连弩**是史料词：《三国志·蜀书五·诸葛亮传》裴松之注引《魏氏春秋》 「又**损益连弩**，谓之元戎，以铁为矢，矢长八寸，**一弩十矢俱发**」。 「一弩十矢俱发」= 一次发射十支 —— 技能做成**两次 1 点**即取此意（多段而非单次大伤害）。 ✅ **「连弩士」是史料里的真实编制**（此前一版 note 误写为\"零依据\"，那是只查了《三国志》所致）： 《华阳国志·卷一·巴志》**涪陵郡**：「汉时赤甲军常取其民，**蜀丞相亮亦发其劲卒三千人为连弩士**， 遂移家汉中。」——**诸葛亮**把涪陵劲卒三千人编为连弩士，这是蜀汉真实存在的一支弩兵（B 级）。 ⚠️ 但要知道两点：① 他们是**巴郡南鄙涪陵的獽、蜑之民**，与「无当飞军」的南中叟／青羌 **不是同一批人**，史书也没有任何一条把「连弩士」和「无当／飞军」联起来；② 这支部队后随 移家汉中。本卡只取「连弩士」本身，不碰无当飞军。 ⚠️ **不要写成\"以连弩射杀张郃\"**：张郃死于木门道是硬史实（卷17正文「飞矢中郃右膝，薨」； 裴注引《魏略》「蜀军乘高布伏，**弓弩乱发**」），但原文只用通名「飞矢」「弓弩乱发」， **从未出现「元戎」或「连弩」**，射手姓名正史无载。 旧卡「元戎弩兵」已删除 —— 那个名字是 **KOEI《三国志10》的兵种名**，正史零依据； 且其技能「每回合免费对全体敌方 1 点」严重超模（同效果的「万箭齐发」是 0 费一次性）。",
+    "skills": [
+      {
+        "id": "shu_liannu_qifa",
+        "name": "连弩",
+        "kind": "active",
+        "frequency": "once_per_turn",
+        "text": "每回合一次：对指定敌方人物造成 1 点伤害，触发两次。",
+        "effects": [
+          {
+            "action": "damage",
+            "value": 1,
+            "target": {
+              "side": "enemy",
+              "filter": {
+                "type": "character"
+              },
+              "count": 1,
+              "mode": "choose"
+            }
+          },
+          {
+            "action": "damage",
+            "value": 1,
+            "target": {
+              "side": "enemy",
+              "filter": {
+                "type": "character"
+              },
+              "count": 1,
+              "mode": "choose"
+            }
+          }
+        ]
+      }
+    ],
+    "flavor": "损益连弩，谓之元戎，以铁为矢，矢长八寸，一弩十矢俱发。"
+  },
+  {
+    "id": "tactic_yuanrongnushe",
+    "name": "元戎弩射",
+    "faction": "shu",
+    "type": "tactic",
+    "cost": 1,
+    "memo": "3 支箭随机打敌方人物或主将各 1 点；己方场上有连弩士则多 1 支",
+    "note": "「元戎」是**弩的名字**，不是兵种 —— 《魏氏春秋》（裴注引）「损益连弩，**谓之元戎**， 以铁为矢，矢长八寸，**一弩十矢俱发**」；《三国志》全书「元戎」仅 3 次，另两次 （卷33「董督元戎」、卷38「整饬元戎」）都是泛指大军。词源为《诗经·小雅·六月》 「**元戎十乘，以先启行**」（本义大兵车），诸葛亮是**用典**命名。 故名正言顺地把它做成**战法卡**（同「木牛流马」的处理），而不是兵种。 与连弩士联动：发射的箭矢数量 +1。 ⚠️ 按 **ADR-087**「范围/随机伤害默认含主公」，本卡的随机箭**会打到敌方主将** （卡面文案据此写明「人物或主将」）。这是有意为之 —— 否则敌方场上只剩主将时箭会全废。",
+    "gender": "unknown",
+    "keywords": [],
+    "skills": [
+      {
+        "id": "",
+        "name": "",
+        "text": "发出 3 支箭，随机对敌方**人物或主将**各造成 1 点伤害；若己方场上有连弩士，额外多发射 1 支。"
+      }
+    ],
+    "effects": [
+      {
+        "action": "damage",
+        "value": 1,
+        "target": {
+          "side": "enemy",
+          "filter": {
+            "type": "character"
+          },
+          "count": 1,
+          "mode": "random"
+        }
+      },
+      {
+        "action": "damage",
+        "value": 1,
+        "target": {
+          "side": "enemy",
+          "filter": {
+            "type": "character"
+          },
+          "count": 1,
+          "mode": "random"
+        }
+      },
+      {
+        "action": "damage",
+        "value": 1,
+        "target": {
+          "side": "enemy",
+          "filter": {
+            "type": "character"
+          },
+          "count": 1,
+          "mode": "random"
+        }
+      },
+      {
+        "action": "damage",
+        "value": 1,
+        "target": {
+          "side": "enemy",
+          "filter": {
+            "type": "character"
+          },
+          "count": 1,
+          "mode": "random"
+        },
+        "condition": {
+          "exists": {
+            "side": "self",
+            "filter": {
+              "card_id": "shu_liannushi"
+            }
+          }
+        }
+      }
+    ],
+    "flavor": "元戎十乘，以先启行。"
   }
 ]

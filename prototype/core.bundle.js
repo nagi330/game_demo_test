@@ -259,7 +259,7 @@ var Core = (() => {
     ju_du: {
       name: "\u5267\u6BD2",
       implemented: true,
-      note: "\u8BE5\u5355\u4F4D\u9020\u6210\u4F24\u5BB3\u5E76\u5B9E\u9645\u547D\u4E2D\u540E\uFF0C\u76F4\u63A5\u6D88\u706D\u53D7\u4F24\u5355\u4F4D"
+      note: "\u8BE5\u5355\u4F4D\u9020\u6210\u4F24\u5BB3\u5E76\u5B9E\u9645\u547D\u4E2D\u540E\uFF0C\u76F4\u63A5\u6D88\u706D\u53D7\u4F24\u5355\u4F4D\uFF08\u53EA\u5BF9\u573A\u4E0A\u5355\u4F4D\u751F\u6548\uFF0C**\u5BF9\u4E3B\u5C06\u65E0\u6548**\uFF09"
     }
   };
   var RETIRED_KEYWORDS = {
@@ -449,6 +449,14 @@ var Core = (() => {
       caps: ["thorns"],
       note: "\u53D7\u5230**\u666E\u901A\u653B\u51FB**\u5E76\u5B9E\u9645\u53D7\u4F24\u540E\uFF0C\u5BF9\u653B\u51FB\u8005\u989D\u5916\u9020\u6210 N \u70B9\u4F24\u5BB3\uFF08\u4E0E\u81EA\u52A8\u53CD\u51FB\u5206\u5F00\u7ED3\u7B97\uFF1B\u6280\u80FD\u4F24\u5BB3\u4E0D\u89E6\u53D1\uFF09\u3002ADR-110 \u91CA\u653E\u7684 thorns cap \u7684\u9996\u4E2A\u4F7F\u7528\u8005"
     },
+    shui_kun: {
+      name: "\u6C34\u56F0",
+      kind: "debuff",
+      numeric: true,
+      duration: "turns",
+      caps: ["damage_on_action", "dot_water"],
+      note: "\u2460 \u56DE\u5408\u7ED3\u675F\u65F6\u53D7 N \u70B9\u6C34\u653B\u4F24\u5BB3 \u2461 \u4E3B\u52A8\u884C\u52A8\uFF08\u666E\u653B/\u4E3B\u52A8\u6280\uFF09\u65F6\u989D\u5916\u53D7 1 \u70B9\u6C34\u653B\u4F24\u5BB3\uFF08\u56FA\u5B9A 1\uFF0C\u4E0D\u968F\u5C42\u6570\u589E\u957F\uFF09\u3002\u6301\u7EED 2 \u56DE\u5408 \u2014\u2014 \u4E0E\u6C38\u4E45\u707C\u70E7\u7684\u5BF9\u7167\u89C1 GDD 10 \xA73.2.2\uFF08ADR-116\uFF09"
+    },
     mian_shang: { name: "\u514D\u4F24", kind: "buff", numeric: false, duration: "this_turn", caps: ["immune_all_damage"], scope: "lord", note: "\u5F53\u524D\u56DE\u5408\u514D\u75AB\u6240\u6709\u4F24\u5BB3" },
     mian_yi: {
       name: "\u514D\u75AB",
@@ -466,7 +474,25 @@ var Core = (() => {
       caps: ["block_action", "untargetable"],
       note: "\u88AB\u7FFB\u9762\uFF1A\u5F53\u56DE\u5408\u4E0D\u80FD\u884C\u52A8\u3001\u4E0D\u80FD\u88AB\u6307\u5B9A\u4E3A\u76EE\u6807\uFF1B\u81EA\u5DF1\u7684\u4E0B\u4E2A\u56DE\u5408\u5F00\u59CB\u65F6\u7FFB\u56DE\u6B63\u9762\uFF08ADR-059\uFF09"
     },
-    zhong_du: { name: "\u4E2D\u6BD2", kind: "debuff", numeric: true, duration: "permanent", note: "\u56DE\u5408\u7ED3\u675F\u5931\u53BB N \u751F\u547D" },
+    // ADR-117：原先 zhong_du（显示名「中毒」）被三张火卡当灼烧用，名字与语义已经对不上，
+    // 现拆成两个状态：zhuo_shao = 火（永久、不封顶），zhong_du = 毒（限时、封顶 3）。
+    zhuo_shao: {
+      name: "\u707C\u70E7",
+      kind: "debuff",
+      numeric: true,
+      duration: "permanent",
+      caps: ["dot_fire"],
+      note: "\u56DE\u5408\u7ED3\u675F\u65F6\u53D7 N \u70B9\u706B\u5C5E\u6027\u4F24\u5BB3\uFF08ADR-108 \u8D77\u6309 fire \u7ED3\u7B97\uFF1BADR-116 \u8D77\u7531 dot_fire \u80FD\u529B\u9A71\u52A8\uFF1BADR-117 \u7531 zhong_du \u6539\u540D\u800C\u6765\uFF09"
+    },
+    zhong_du: {
+      name: "\u4E2D\u6BD2",
+      kind: "debuff",
+      numeric: true,
+      duration: "turns",
+      caps: ["dot_poison"],
+      max_stacks: 3,
+      note: "\u56DE\u5408\u7ED3\u675F\u65F6\u53D7 N \u70B9\u6BD2\u5C5E\u6027\u4F24\u5BB3\uFF0C**\u5C42\u6570 = \u6BCF\u56DE\u5408\u4F24\u5BB3\u3001\u5C01\u9876 3**\uFF1B\u6BCF\u6B21\u65BD\u52A0\u628A\u65F6\u957F\u91CD\u7F6E\u4E3A 2 \u56DE\u5408\uFF08\u4E0D\u7D2F\u52A0\uFF09\uFF0C\u65AD\u4F9B 2 \u56DE\u5408\u81EA\u7136\u7ED3\u675F\uFF08ADR-117\uFF09"
+    },
     xu_ruo: { name: "\u865A\u5F31", kind: "debuff", numeric: true, duration: "turns", note: "\u653B\u51FB \u2212N" },
     duan_liang: { name: "\u65AD\u7CAE", kind: "debuff", numeric: true, duration: "turns", scope: "lord", note: "\u7EDF\u7387\u4E0A\u9650 \u2212N" }
   };
@@ -1206,7 +1232,8 @@ var Core = (() => {
     }
     const numeric = def?.numeric ?? true;
     const prev = u.statuses[status];
-    const nextStacks = numeric ? (prev?.stacks ?? 0) + stacks : Math.max(1, stacks);
+    const rawStacks = numeric ? (prev?.stacks ?? 0) + stacks : Math.max(1, stacks);
+    const nextStacks = def?.max_stacks !== void 0 ? Math.min(rawStacks, def.max_stacks) : rawStacks;
     const nextTurns = auraId !== void 0 && turns === void 0 ? void 0 : turns !== void 0 ? turns : prev?.turns !== void 0 ? Math.max(prev.turns, 1) : def?.duration === "permanent" || def?.duration === "until_consumed" ? void 0 : def?.duration === "turns" || def?.duration === "this_turn" ? 1 : void 0;
     u.statuses[status] = {
       stacks: nextStacks,
@@ -1270,19 +1297,24 @@ var Core = (() => {
   }
   function resolveTurnEndStatuses(state, cards, side, events) {
     for (const ref of allUnits(state, side)) {
-      const poison = statusStacks(ref.unit, "zhong_du");
-      if (poison > 0) {
+      for (const [id, inst] of Object.entries(ref.unit.statuses)) {
+        if (inst.stacks <= 0) continue;
+        const caps = STATUSES[id]?.caps ?? [];
+        const dotCap = caps.includes("dot_fire") ? "dot_fire" : caps.includes("dot_water") ? "dot_water" : caps.includes("dot_poison") ? "dot_poison" : null;
+        if (!dotCap) continue;
+        const dotType = dotCap === "dot_fire" ? "fire" : dotCap === "dot_water" ? "water" : "poison";
+        const dotName = dotCap === "dot_fire" ? "\u707C\u70E7" : dotCap === "dot_water" ? "\u6C34\u56F0" : "\u4E2D\u6BD2";
         dealDamage(
           state,
           cards,
           unitRef(ref.side, ref.row, ref.col),
-          poison,
+          inst.stacks,
           events,
-          "\u707C\u70E7",
+          dotName,
           0,
           void 0,
           void 0,
-          "fire"
+          dotType
         );
       }
     }
@@ -1473,8 +1505,9 @@ var Core = (() => {
     if (f.faction && u.faction !== f.faction) return false;
     if (f.row && row !== f.row) return false;
     if (typeof f.health_max === "number" && u.hp > f.health_max) return false;
-    if (f.damaged === true && u.hp >= u.maxHp) return false;
+    if (f.damaged !== void 0 && f.damaged !== u.hp < u.maxHp) return false;
     if (f.has_status && !((u.statuses[f.has_status]?.stacks ?? 0) > 0)) return false;
+    if (typeof f.attack_max === "number" && u.atk > f.attack_max) return false;
     if (typeof f.cost_max === "number" && u.cost > f.cost_max) return false;
     if (typeof f.cost_min === "number" && u.cost < f.cost_min) return false;
     if (f.troopKind && u.troopKind !== f.troopKind) return false;
@@ -1779,7 +1812,10 @@ var Core = (() => {
       if (!src) return [];
       for (const r of BOARD.ROWS) {
         for (let c = 0; c < BOARD.COLS; c++) {
-          if (state.sides[ctx.side].rows[r][c]?.uid === src.uid) return [unitRef(ctx.side, r, c)];
+          const u = state.sides[ctx.side].rows[r][c];
+          if (u?.uid !== src.uid) continue;
+          if (selector.filter && !matchesFilter(u, selector.filter, r, src.cost, src.atk, src.uid)) return [];
+          return [unitRef(ctx.side, r, c)];
         }
       }
       return [];
@@ -2051,7 +2087,8 @@ var Core = (() => {
           break;
         }
         case "draw": {
-          for (let i = 0; i < (dynVal ?? eff.value ?? 1); i++) drawCard(state, cards, ctx.side, events);
+          const who = eff.target?.side === "enemy" ? other(ctx.side) : ctx.side;
+          for (let i = 0; i < (dynVal ?? eff.value ?? 1); i++) drawCard(state, cards, who, events);
           break;
         }
         case "discover": {
@@ -2712,13 +2749,14 @@ var Core = (() => {
     recomputeAuras(state, ctx.cards, rng, events);
     delete u.upgradeProgress;
     const onPlay = (toCard.skills ?? []).filter((sk) => sk.trigger === "on_play");
+    const upgradeChosen = action.target ? action.target.row !== void 0 ? unitRef(action.target.side, action.target.row, action.target.col) : lordRef(action.target.side) : void 0;
     for (const sk of onPlay) {
       emitSkillTriggered(state, side, u, sk, "on_play", events);
       runEffects(
         state,
         ctx.cards,
         sk.effects ?? [],
-        { side, source: u, chosenRow: action.row, chosenCol: action.col },
+        { side, source: u, chosen: upgradeChosen, chosenRow: action.row, chosenCol: action.col },
         rng,
         events
       );
@@ -2966,6 +3004,23 @@ var Core = (() => {
     }
     return true;
   }
+  function chargeWaterTax(state, ctx, side, row, col, events) {
+    const u = getUnit(state, side, row, col);
+    if (!u || u.hp <= 0) return;
+    if (capStacks(u.statuses, "damage_on_action") <= 0) return;
+    dealDamage(
+      state,
+      ctx.cards,
+      unitRef(side, row, col),
+      1,
+      events,
+      "\u6C34\u56F0",
+      0,
+      void 0,
+      void 0,
+      "water"
+    );
+  }
   function attack(state, ctx, action, events, rng) {
     const side = state.active;
     const { from, to } = action;
@@ -2990,6 +3045,7 @@ var Core = (() => {
       rng,
       { consumeAttack: true }
     );
+    chargeWaterTax(state, ctx, side, from.row, from.col, events);
     return true;
   }
   function useUnitSkill(state, ctx, action, events, rng) {
@@ -3016,6 +3072,7 @@ var Core = (() => {
       rng,
       events
     );
+    chargeWaterTax(state, ctx, side, action.row, action.col, events);
     return true;
   }
 
