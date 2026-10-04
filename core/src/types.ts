@@ -30,7 +30,7 @@ export interface EffectCondition {
   exists?: TargetSelector;                                   // 该集合非空
   count?: { selector: TargetSelector; op: CompareOp; value: number };   // 数量与定值比
   count_vs?: { left: TargetSelector; right: TargetSelector; op: CompareOp };  // 两集合互比
-  event?: 'killed' | 'clash_won' | 'clash_lost';             // 本次结算中的事件
+  event?: 'killed' | 'clash_won' | 'clash_lost' | 'damaged'; // 本次结算中的事件
   /** 所选目标属于哪一方（陈宫「忠烈」：选敌将 vs 选友将走不同分支，ADR-069） */
   chosen_side?: 'ally' | 'enemy';
   /** 完整回合数上限（马超「首回合击杀」= turn_max:1，ADR-070） */
@@ -51,7 +51,7 @@ export interface EffectCondition {
   /** 双方主公当前生命值比较；self 始终是效果来源方。 */
   lord_hp_vs_enemy?: CompareOp;
   /** 本次普通攻击的目标类别或固有关键词。 */
-  attack_target?: { type?: CardType | 'character' | 'lord'; keyword?: string };
+  attack_target?: { type?: CardType | 'character' | 'lord'; keyword?: string; damaged?: boolean };
   /**
    * 条件的**与 / 或**组合（ADR-074）
    *
@@ -77,6 +77,7 @@ export type DamageType = 'physical' | 'fire' | 'water';
 export interface CardEffect {
   action: string;
   value?: number;
+  bonus_vs_keyword?: { keyword: string; value: number };
   chance?: number;               // 概率 0–1（ADR-033）
   condition?: EffectCondition;   // 条件（ADR-033）
   clashMode?: 'roll' | 'cost';   // clash 的比法
@@ -85,6 +86,8 @@ export interface CardEffect {
   value_from_discarded?: 'cost' | 'health';   // 取「最近被弃牌」的属性作为数值（ADR-040）
   value_from_source?: 'attack' | 'health';    // 取来源单位当前攻/血作为数值
   damage_type?: DamageType;       // damage 专用：水攻/火攻伤害（缺省 physical，见 DamageType）
+  damage_origin?: 'reflected';    // 反射伤害不再触发主公受伤联动
+  copy_source_stats?: boolean;    // summon：复制来源当前攻血，不复制技能或状态
   discover_to?: 'hand' | 'deck_top'; // discover 专用：选择后进手牌或牌库顶
   value_from_flag?: string;                   // 取 flags 中 "<name>:N" 的 N 作为数值（ADR-041）        // apply_status 时把来源单位记为状态的 srcUid（ADR-039）
   attack_from?: TargetSelector;  // 动态取值：攻击 = 该集合数量
@@ -174,6 +177,7 @@ export interface TargetSelector {
   troopKind?: 'infantry' | 'shield' | 'cavalry' | 'archer';   // 兵种（进化卡按兵种选目标，ADR-042）
     has_status?: string;
     adjacent_to?: 'self' | 'chosen'; // 来源或玩家选定目标左右相邻的单位
+    offset_from_chosen?: number;   // 已选目标右侧固定格偏移，空格不压缩距离
     /** 排除来源单位自身（ADR-071，陆抗「手里**或**场上友方将领」：不能复制自己） */
     exclude_source?: boolean;
     include_lord?: boolean;        // 候选池额外纳入该方主将（ADR-051，弓兵射箭「含主将」）
@@ -281,6 +285,7 @@ export interface StatusInstance {
    * 置位后：本回合结束跳过第一次递减，从下一次起正常计时。
    */
   skipTick?: boolean;
+  expiresAtHalfTurn?: number;     // 当前行动方回合结束时清除，不按状态拥有方递减
 }
 
 /** 属性修正项（ADR-037）：最终属性 = 基础值 + Σ mods */

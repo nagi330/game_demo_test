@@ -5770,24 +5770,24 @@
     "type": "troop",
     "cost": 3,
     "attack": 1,
-    "health": 6,
+    "health": 5,
     "troopKind": "shield",
     "upgradeFrom": "shield",
     "keywords": [
       "jia_dun"
     ],
-    "memo": "架盾；阵亡时为主公恢复3点生命",
-    "note": "原「虎卫军（盾）」。1/7 → 1/6 且 2 费 → 3 费：7 血 + 架盾强制嘲讽 + 亡语回血是三重叠加，几乎无法被解；费用按「特种兵 ≥ 基础兵 +1」的下限规则（盾兵 2 费 → 3 费）",
+    "memo": "架盾；以身护主，亡语使己方主公本回合免疫伤害",
     "skills": [
       {
         "id": "wei_wei",
-        "name": "卫主",
+        "name": "以身护主",
         "kind": "trigger",
         "trigger": "on_death",
+        "text": "亡语：本回合己方主公免疫所有伤害。",
         "effects": [
           {
-            "action": "heal",
-            "value": 3,
+            "action": "apply_status",
+            "status": "mian_shang",
             "target": {
               "side": "self",
               "lord": true
@@ -5840,33 +5840,24 @@
     "type": "troop",
     "cost": 2,
     "attack": 3,
-    "health": 3,
+    "health": 2,
     "troopKind": "infantry",
     "upgradeFrom": "infantry",
     "keywords": [],
-    "memo": "主公血量更高时攻击主公额外造成2点伤害",
+    "memo": "普攻造成伤害并存活后，夺取敌方牌库顶部一张牌",
     "skills": [
       {
         "id": "qingzhou_zhan",
-        "name": "青州突骑",
+        "name": "劫掠",
         "kind": "trigger",
-        "trigger": "on_attack",
-        "text": "己方主公血量高于敌方时，攻击敌方主公的伤害+2。",
+        "trigger": "after_attack",
+        "text": "普通攻击造成伤害并存活后，将敌方牌库顶部一张牌置入己方手牌。",
         "effects": [
           {
-            "action": "attack_bonus",
-            "value": 2,
+            "action": "steal_card",
+            "from_deck": "top",
             "condition": {
-              "all_of": [
-                {
-                  "attack_target": {
-                    "type": "lord"
-                  }
-                },
-                {
-                  "lord_hp_vs_enemy": ">"
-                }
-              ]
+              "event": "damaged"
             }
           }
         ]
@@ -5884,14 +5875,14 @@
     "troopKind": "infantry",
     "upgradeFrom": "infantry",
     "keywords": [],
-    "memo": "上场获得「披坚」（免疫一次伤害）",
+    "memo": "上场使自己和己方主公获得披坚",
     "skills": [
       {
         "id": "hu_shi",
         "name": "虎士",
         "kind": "trigger",
         "trigger": "on_play",
-        "text": "上场时获得「披坚」（免疫一次伤害）。",
+        "text": "上场时，使自己和己方主公获得「披坚」（免疫一次伤害）。",
         "effects": [
           {
             "action": "apply_status",
@@ -5900,6 +5891,15 @@
             "target": {
               "source": true
             }
+          },
+          {
+            "action": "apply_status",
+            "status": "sheng_dun_status",
+            "stacks": 1,
+            "target": {
+              "side": "ally",
+              "lord": true
+            }
           }
         ]
       }
@@ -5907,32 +5907,53 @@
   },
   {
     "id": "wei_hubaoki_hu",
-    "name": "虎豹骑",
+    "name": "虎骑营",
     "faction": "wei",
     "type": "troop",
-    "cost": 2,
-    "attack": 5,
-    "health": 4,
+    "cost": 4,
+    "attack": 3,
+    "health": 5,
     "troopKind": "cavalry",
     "upgradeFrom": "cavalry",
     "keywords": [
       "xian_gong"
     ],
-    "memo": "攻击后封锁敌方主公技一回合",
+    "memo": "先攻；攻击满血单位本次攻击+1，击杀敌方单位永久+1/+1",
     "skills": [
       {
-        "id": "hubao_jin_yan",
+        "id": "huqi_weishi",
         "name": "虎骑威势",
         "kind": "trigger",
         "trigger": "on_attack",
+        "text": "攻击满生命值的敌方单位时，本次攻击力+1。",
         "effects": [
           {
-            "action": "apply_status",
-            "status": "jin_yan",
-            "duration": "until_next_turn",
+            "action": "attack_bonus",
+            "value": 1,
+            "condition": {
+              "attack_target": {
+                "damaged": false
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "huqi_zhan_gong",
+        "name": "斩功",
+        "kind": "trigger",
+        "trigger": "on_attack",
+        "text": "普通攻击击杀敌方单位并存活后，永久获得+1攻击力和+1生命。",
+        "effects": [
+          {
+            "action": "modify",
+            "attack": 1,
+            "health": 1,
+            "condition": {
+              "event": "killed"
+            },
             "target": {
-              "side": "enemy",
-              "lord": true
+              "source": true
             }
           }
         ]
@@ -5944,7 +5965,7 @@
     "name": "豹骑营",
     "faction": "wei",
     "type": "troop",
-    "cost": 2,
+    "cost": 4,
     "attack": 4,
     "health": 3,
     "troopKind": "cavalry",
@@ -5952,16 +5973,45 @@
     "keywords": [
       "xian_gong"
     ],
-    "memo": "入场当回合即可攻击"
+    "memo": "先攻；攻击受伤单位本次攻击+1，击杀敌方单位可再次攻击",
+    "skills": [
+      {
+        "id": "bao_qi_xiji",
+        "name": "豹袭",
+        "kind": "trigger",
+        "trigger": "on_attack",
+        "text": "攻击受伤的敌方单位时，本次攻击力+1；攻击并消灭敌方单位后，获得一次额外攻击。",
+        "effects": [
+          {
+            "action": "attack_bonus",
+            "value": 1,
+            "condition": {
+              "attack_target": {
+                "damaged": true
+              }
+            }
+          },
+          {
+            "action": "extra_attack",
+            "condition": {
+              "event": "killed"
+            },
+            "target": {
+              "source": true
+            }
+          }
+        ]
+      }
+    ]
   },
   {
     "id": "wei_qiangnuying",
     "name": "强弩营",
     "faction": "wei",
     "type": "troop",
-    "cost": 2,
-    "attack": 2,
-    "health": 2,
+    "cost": 3,
+    "attack": 1,
+    "health": 3,
     "troopKind": "archer",
     "upgradeFrom": "archer",
     "keywords": [
@@ -5973,6 +6023,7 @@
         "id": "qiangnu_jin_gong",
         "name": "强弩",
         "kind": "aura",
+        "text": "无法普通攻击。",
         "effects": [
           {
             "action": "apply_status",
@@ -5988,6 +6039,7 @@
         "name": "强弩",
         "kind": "active",
         "frequency": "once_per_turn",
+        "text": "战技：对一个敌方单位造成4点伤害。",
         "target": {
           "side": "enemy",
           "filter": {
@@ -6010,20 +6062,21 @@
     "name": "霹雳车",
     "faction": "wei",
     "type": "troop",
-    "cost": 2,
-    "attack": 2,
-    "health": 2,
+    "cost": 3,
+    "attack": 0,
+    "health": 3,
     "troopKind": "archer",
     "upgradeFrom": "archer",
     "keywords": [
       "zhan_ji"
     ],
-    "memo": "无法普通攻击；战技对目标及相邻单位造成2点伤害",
+    "memo": "无法普通攻击；战技对目标及左右相邻单位各造成2点伤害，架盾额外1点",
     "skills": [
       {
         "id": "pili_jin_gong",
         "name": "车阵",
         "kind": "aura",
+        "text": "无法普通攻击。",
         "effects": [
           {
             "action": "apply_status",
@@ -6039,6 +6092,7 @@
         "name": "霹雳",
         "kind": "active",
         "frequency": "once_per_turn",
+        "text": "战技：对目标及左右相邻单位各造成2点伤害；拥有架盾的目标改为单次受到3点伤害。",
         "target": {
           "side": "enemy",
           "filter": {
@@ -6050,15 +6104,24 @@
         "effects": [
           {
             "action": "damage",
-            "value": 2
+            "value": 2,
+            "bonus_vs_keyword": {
+              "keyword": "jia_dun",
+              "value": 1
+            }
           },
           {
             "action": "damage",
             "value": 2,
+            "bonus_vs_keyword": {
+              "keyword": "jia_dun",
+              "value": 1
+            },
             "target": {
               "side": "enemy",
               "filter": {
                 "type": "character",
+                "include_lord": false,
                 "adjacent_to": "chosen"
               },
               "count": "all"
@@ -6381,36 +6444,63 @@
     ]
   },
   {
+    "id": "token_wunan_right",
+    "name": "无难右部",
+    "faction": "wu",
+    "type": "token",
+    "cost": 0,
+    "attack": 2,
+    "health": 3,
+    "troopKind": "shield",
+    "keywords": [
+      "jia_dun"
+    ],
+    "memo": "无难兵召唤的右部，攻血取召唤者当前数值",
+    "note": "ADR-117 衍生物基础数值对应无难兵，实际召唤由copy_source_stats覆盖，不进卡组。"
+  },
+  {
+    "id": "token_jiefan_right",
+    "name": "解烦右部",
+    "faction": "wu",
+    "type": "token",
+    "cost": 0,
+    "attack": 2,
+    "health": 1,
+    "troopKind": "infantry",
+    "keywords": [
+      "xian_gong"
+    ],
+    "memo": "解烦兵召唤的右部，攻血取召唤者当前数值",
+    "note": "ADR-117 衍生物基础数值对应解烦兵，实际召唤由copy_source_stats覆盖，不进卡组。"
+  },
+  {
     "id": "wu_wunan_bing",
     "name": "无难兵",
     "faction": "wu",
     "type": "troop",
     "cost": 3,
     "attack": 2,
-    "health": 4,
+    "health": 3,
     "troopKind": "shield",
     "upgradeFrom": "shield",
     "keywords": [
       "jia_dun"
     ],
-    "memo": "架盾；己方主公血量低于敌方时，自身由 2/4 变为 3/4",
-    "note": "「赴难」是**条件型光环**而非攻击时加成 —— 条件成立时把 +1 攻写进修正层，卡面直接显示 3/4（不再是\"只在打出那一下 +1\"）。依赖新增的「主公受伤后光环重算」挂载点（ADR-113），否则主将掉血后卡面要滞后到回合边界才刷新。",
+    "memo": "架盾；出场召唤同攻血的无难右部",
+    "note": "ADR-117 后续平衡修订为3费，保留双2/3架盾。",
     "skills": [
       {
         "id": "fu_nan",
         "name": "赴难",
-        "kind": "aura",
-        "text": "己方主公生命值低于敌方主公时，攻击力 +1（卡面由 2/4 变为 3/4）。",
+        "kind": "trigger",
+        "trigger": "on_play",
+        "text": "出场时，召唤攻击力和生命值与自身相同、拥有架盾的无难右部。",
         "effects": [
           {
-            "action": "modify",
-            "attack": 1,
-            "target": {
-              "source": true
-            },
-            "condition": {
-              "lord_hp_vs_enemy": "<"
-            }
+            "action": "summon",
+            "unit": "token_wunan_right",
+            "count": 1,
+            "copy_source_stats": true
           }
         ]
       }
@@ -6423,34 +6513,27 @@
     "faction": "wu",
     "type": "troop",
     "cost": 2,
-    "attack": 3,
+    "attack": 2,
     "health": 1,
     "troopKind": "infantry",
     "upgradeFrom": "infantry",
     "keywords": [
-      "xian_gong",
-      "zhan_ji"
+      "xian_gong"
     ],
-    "memo": "先攻；战技造成1点水攻伤害",
+    "memo": "先攻；出场召唤同攻血的解烦右部",
     "skills": [
       {
         "id": "jiefan_shui",
         "name": "解烦",
-        "kind": "active",
-        "frequency": "once_per_turn",
-        "target": {
-          "side": "enemy",
-          "filter": {
-            "type": "character"
-          },
-          "count": 1,
-          "mode": "choose"
-        },
+        "kind": "trigger",
+        "trigger": "on_play",
+        "text": "出场时，召唤攻击力和生命值与自身相同、拥有先攻的解烦右部。",
         "effects": [
           {
-            "action": "damage",
-            "value": 1,
-            "damage_type": "water"
+            "action": "summon",
+            "unit": "token_jiefan_right",
+            "count": 1,
+            "copy_source_stats": true
           }
         ]
       }
@@ -6463,24 +6546,47 @@
     "type": "troop",
     "cost": 2,
     "attack": 2,
-    "health": 2,
+    "health": 3,
     "troopKind": "infantry",
     "upgradeFrom": "infantry",
     "keywords": [],
-    "memo": "亡语对敌方主公造成2点伤害",
+    "memo": "上场获得披坚；亡语随机对敌方角色造成2点水攻",
     "skills": [
+      {
+        "id": "gansi_pi_jian",
+        "name": "披坚",
+        "kind": "trigger",
+        "trigger": "on_play",
+        "text": "上场时获得披坚（免疫一次伤害）。",
+        "effects": [
+          {
+            "action": "apply_status",
+            "status": "sheng_dun_status",
+            "target": {
+              "source": true
+            }
+          }
+        ]
+      },
       {
         "id": "gansi",
         "name": "敢死",
         "kind": "trigger",
         "trigger": "on_death",
+        "text": "亡语：随机对一个敌方角色（含主公）造成2点水攻伤害。",
         "effects": [
           {
             "action": "damage",
             "value": 2,
+            "damage_type": "water",
             "target": {
               "side": "enemy",
-              "lord": true
+              "filter": {
+                "type": "character",
+                "include_lord": true
+              },
+              "count": 1,
+              "mode": "random"
             }
           }
         ]
@@ -6492,25 +6598,28 @@
     "name": "车下虎士",
     "faction": "wu",
     "type": "troop",
-    "cost": 2,
+    "cost": 3,
     "attack": 3,
     "health": 4,
     "troopKind": "shield",
     "upgradeFrom": "shield",
     "keywords": [],
-    "memo": "承担主公受到的伤害",
+    "memo": "己方主公实际受伤时，对敌方主公造成等量伤害",
+    "note": "ADR-117 最终设计未指定身材，保留3/4，费用按盾兵+1设为3。",
     "skills": [
       {
         "id": "chexia_huzhu",
         "name": "护主",
-        "kind": "aura",
+        "kind": "trigger",
+        "trigger": "on_lord_damaged",
+        "text": "己方主公受到生命伤害时，对敌方主公造成等量伤害；反射伤害不再次触发此效果。",
         "effects": [
           {
-            "action": "apply_status",
-            "status": "hu_zhu",
-            "status_source": "self",
+            "action": "damage",
+            "value_from_flag": "lord_damage",
+            "damage_origin": "reflected",
             "target": {
-              "side": "ally",
+              "side": "enemy",
               "lord": true
             }
           }
@@ -6523,8 +6632,8 @@
     "name": "东吴精骑",
     "faction": "wu",
     "type": "troop",
-    "cost": 2,
-    "attack": 3,
+    "cost": 4,
+    "attack": 4,
     "health": 3,
     "troopKind": "cavalry",
     "upgradeFrom": "cavalry",
@@ -6539,6 +6648,7 @@
         "name": "激励",
         "kind": "trigger",
         "trigger": "on_lord_skill_used",
+        "text": "己方使用主公技后，获得一次额外攻击。",
         "effects": [
           {
             "action": "extra_attack",
@@ -6555,7 +6665,7 @@
     "name": "楼船军",
     "faction": "wu",
     "type": "troop",
-    "cost": 2,
+    "cost": 3,
     "attack": 2,
     "health": 4,
     "troopKind": "archer",
@@ -6570,10 +6680,12 @@
         "name": "楼船",
         "kind": "active",
         "frequency": "once_per_turn",
+        "text": "战技：对一个非主公敌方单位造成2点水攻伤害，再对敌方主公造成2点水攻伤害。",
         "target": {
           "side": "enemy",
           "filter": {
-            "type": "character"
+            "type": "character",
+            "include_lord": false
           },
           "count": 1,
           "mode": "choose"
@@ -6602,25 +6714,27 @@
     "name": "蒙冲斗舰",
     "faction": "wu",
     "type": "troop",
-    "cost": 2,
-    "attack": 2,
-    "health": 4,
+    "cost": 3,
+    "attack": 0,
+    "health": 3,
     "troopKind": "archer",
     "upgradeFrom": "archer",
     "keywords": [
       "zhan_ji"
     ],
-    "memo": "战技造成火攻并波及目标相邻单位",
+    "memo": "战技向目标及右侧两格依次造成3/2/1火攻，自身受2点火攻",
     "skills": [
       {
         "id": "mengchong_huo",
         "name": "蒙冲",
         "kind": "active",
         "frequency": "once_per_turn",
+        "text": "战技：选择一个非主公敌方单位，对其及其右侧第1、第2格单位依次造成3、2、1点火攻伤害；空格跳过。然后自身受到2点火攻伤害。",
         "target": {
           "side": "enemy",
           "filter": {
-            "type": "character"
+            "type": "character",
+            "include_lord": false
           },
           "count": 1,
           "mode": "choose"
@@ -6628,8 +6742,22 @@
         "effects": [
           {
             "action": "damage",
-            "value": 2,
+            "value": 3,
             "damage_type": "fire"
+          },
+          {
+            "action": "damage",
+            "value": 2,
+            "damage_type": "fire",
+            "target": {
+              "side": "enemy",
+              "filter": {
+                "type": "character",
+                "include_lord": false,
+                "offset_from_chosen": 1
+              },
+              "count": "all"
+            }
           },
           {
             "action": "damage",
@@ -6639,9 +6767,18 @@
               "side": "enemy",
               "filter": {
                 "type": "character",
-                "adjacent_to": "chosen"
+                "include_lord": false,
+                "offset_from_chosen": 2
               },
               "count": "all"
+            }
+          },
+          {
+            "action": "damage",
+            "value": 2,
+            "damage_type": "fire",
+            "target": {
+              "source": true
             }
           }
         ]

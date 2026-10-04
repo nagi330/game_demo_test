@@ -219,7 +219,9 @@ test('ADR-073：真实卡池里不存在「文案提到关键词但卡上没实�
     const applied = new Set(effs.filter((e) => e.action === 'apply_status').map((e) => e.status));
     for (const [cn, kw] of Object.entries(KW_CN)) {
       if (!text.includes(cn)) continue;
-      if (kws.has(kw) || applied.has(`${kw}_status`) || applied.has(kw)) continue;
+      // 关键词也可作为伤害目标的筛选条件，例如霹雳车额外伤害针对架盾单位。
+      const referenced = effs.some(e => e.target?.filter?.keyword === kw || e.bonus_vs_keyword?.keyword === kw);
+      if (kws.has(kw) || applied.has(`${kw}_status`) || applied.has(kw) || referenced) continue;
       offenders.push(`${c.id}（${c.name}）文案提到「${cn}」`);
     }
   }

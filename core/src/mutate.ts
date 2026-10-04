@@ -173,6 +173,7 @@ export function registerOnDeathResolver(fn: OnDeathResolver): void {
  */
 export type AfterLordDamagedResolver = (
   state: MatchState, cards: Map<string, CardDef>, events: GameEvent[],
+  side: Side, actualDamage: number, reflected: boolean,
 ) => void;
 
 let afterLordDamagedResolver: AfterLordDamagedResolver | null = null;
@@ -286,12 +287,20 @@ export function dealDamage(
    * 导致「藤甲：火 +1 / 其余 −1」这类减伤效果无法实现（见 GDD 18 §3）。
    */
   damageType: DamageType = 'physical',
+  reflected = false,
 ): number {
   if (amount <= 0 || !refAlive(state, ref)) return 0;
 
   if (ref.kind === 'lord') {
     const lord = state.sides[ref.side].lord;
     const hpBefore = lord.hp;
+    if (hasCapOn(lord.statuses, 'immune_all_damage')) return 0;
+    const shield = Object.keys(lord.statuses ?? {}).find(k => STATUSES[k]?.caps?.includes('immune_damage'));
+    if (shield) {
+      delete lord.statuses![shield];
+      events.push({ type: 'LORD_STATUS_EXPIRED', side: ref.side, status: shield });
+      return 0;
+    }
     // 「护主」守护（ADR-071，祖茂「替主」）：主帅的伤害转由守护者承受。
     // 必须在扣护甲/扣血之前判定 —— 否则主帅已经掉了血，转移就成了补刀。
     const lguard = findLordGuard(state, ref.side);
@@ -299,7 +308,7 @@ export function dealDamage(
       events.push({ type: 'DAMAGE_REDIRECTED', side: ref.side, lord: true,
                     to: lguard.side, guardName: lguard.unit.name });
       return dealDamage(state, cards, unitRef(lguard.side, lguard.row, lguard.col),
-                        amount, events, source, depth + 1, killerRef, sourceUnit);
+                        amount, events, source, depth + 1, killerRef, sourceUnit, damageType, reflected);
     }
     let dmg = amount;
     if (lord.armor > 0) {
@@ -321,8 +330,8 @@ export function dealDamage(
     }
     // 主公血量变了 → 条件型光环（如无难兵「赴难」比较双方主公血量）必须立刻重算，
     // 否则卡面要滞后到下一个回合边界才更新。见 registerAfterLordDamagedResolver。
-    if (dmg > 0) afterLordDamagedResolver?.(state, cards, events);
-    return amount;
+    if (actual > 0) afterLordDamagedResolver?.(state, cards, events, ref.side, actual, reflected);
+    return actual;
   }
 
   if (ref.kind !== 'unit') return 0;                // 手牌不受伤害（ADR-038）
@@ -335,12 +344,13 @@ export function dealDamage(
     events.push({ type: 'DAMAGE_REDIRECTED', side: ref.side, row: ref.row, col: ref.col,
                   to: guard.side, guardName: guard.unit.name });
     return dealDamage(state, cards, unitRef(guard.side, guard.row, guard.col),
-                      amount, events, source, depth + 1, killerRef, sourceUnit);
+                      amount, events, source, depth + 1, killerRef, sourceUnit, damageType, reflected);
   }
 
   // 免疫伤害（圣盾）：既支持效果施加的 sheng_dun_status，也支持卡牌固有的
   // sheng_dun 关键词。两种载体都只消耗一次，且都产生同样的过期事件。
   const shieldStatus = Object.keys(u.statuses).find((k) => STATUSES[k]?.caps?.includes('immune_damage'));
+  if (hasCap(u, 'immune_all_damage')) return 0;
   const shieldKeyword = u.kw.includes('sheng_dun');
   if (shieldStatus || shieldKeyword) {
     if (shieldStatus) delete u.statuses[shieldStatus];
@@ -570,6 +580,7 @@ export function applyStatus(
     lord.statuses[status] = {
       stacks: numericL ? (prevL?.stacks ?? 0) + stacks : Math.max(1, stacks),
       turns: turnsL, srcUid, auraId,
+      ...(def?.duration === 'this_turn' && auraId === undefined ? { expiresAtHalfTurn: state.halfTurn } : {}),
       ...(skipTick && turnsL !== undefined ? { skipTick: true } : {}),
     };
     if (auraId === undefined) events.push({ type: 'STATUS_APPLIED', side: ref.side, status, stacks, turns: turnsL });
@@ -598,6 +609,7 @@ export function applyStatus(
     : undefined;
   u.statuses[status] = {
     stacks: nextStacks, turns: nextTurns, srcUid, auraId,
+    ...(def?.duration === 'this_turn' && auraId === undefined ? { expiresAtHalfTurn: state.halfTurn } : {}),
     ...(skipTick && nextTurns !== undefined ? { skipTick: true } : {}),
   };
   if (auraId === undefined) events.push({ type: 'STATUS_APPLIED', side: ref.side, row: ref.row, col: ref.col, status, stacks, turns: nextTurns });
@@ -778,6 +790,23 @@ export function expireStatuses(
   side: Side,
   events: GameEvent[],
 ): void {
+  for (const owner of ['own', 'enemy'] as Side[]) {
+    const lordStatuses = state.sides[owner].lord.statuses ?? {};
+    for (const [id, inst] of Object.entries(lordStatuses)) {
+      if (inst.expiresAtHalfTurn !== undefined && inst.expiresAtHalfTurn <= state.halfTurn) {
+        delete lordStatuses[id];
+        events.push({ type: 'LORD_STATUS_EXPIRED', side: owner, status: id });
+      }
+    }
+    for (const ref of allUnits(state, owner)) {
+      for (const [id, inst] of Object.entries(ref.unit.statuses)) {
+        if (inst.expiresAtHalfTurn !== undefined && inst.expiresAtHalfTurn <= state.halfTurn) {
+          delete ref.unit.statuses[id];
+          events.push({ type: 'STATUS_EXPIRED', side: owner, row: ref.row, col: ref.col, status: id });
+        }
+      }
+    }
+  }
   // 主公状态递减（ADR-040）
   const lord = state.sides[side].lord;
   if (lord.statuses) {
