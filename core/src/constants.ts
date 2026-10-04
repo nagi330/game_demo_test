@@ -123,6 +123,7 @@ export type StatusCap =
   | 'random_target'     // 攻击与技能的目标在**全场**随机（混乱）
   | 'immune_debuff'     // 免疫负面状态（负面 debuff 施加无效）
   | 'immune_damage'     // 免疫伤害（一次性，触发后消耗）
+  | 'immune_all_damage' // 当前回合免疫所有伤害，不消耗
   | 'redirect_damage'   // 伤害重定向：伤害转由状态的 srcUid 承受（ADR-039）
   | 'block_lord_skill'  // 该方主帅不能使用主公技（ADR-040）
   | 'extra_lord_skill'   // 该方主帅每回合主公技次数 +stacks（ADR-040）
@@ -208,6 +209,7 @@ export const STATUSES: Record<string, StatusDef> = {
   zhong_yong_status: { name: '忠勇', kind: 'buff', numeric: true, duration: 'permanent',
                 caps: ['thorns'],
                 note: '受到**普通攻击**并实际受伤后，对攻击者额外造成 N 点伤害（与自动反击分开结算；技能伤害不触发）。ADR-110 释放的 thorns cap 的首个使用者' },
+  mian_shang: { name: '免伤', kind: 'buff', numeric: false, duration: 'this_turn', caps: ['immune_all_damage'], scope: 'lord', note: '当前回合免疫所有伤害' },
   mian_yi:    { name: '免疫', kind: 'buff',   numeric: false, duration: 'turns', caps: ['immune_debuff', 'untargetable'],
                 note: '免疫负面状态，且不能被指定为目标' },
   fan_mian:   { name: '翻面', kind: 'debuff', numeric: false, duration: 'conditional',
@@ -227,6 +229,8 @@ export const TIMING = {
   TURN_END: 'turn_end',
   ENEMY_TURN_END: 'enemy_turn_end',
   ON_ATTACK: 'on_attack',
+  AFTER_ATTACK: 'after_attack',
+  ON_LORD_DAMAGED: 'on_lord_damaged',
   ON_DEFEND: 'on_defend',
   ON_LETHAL: 'on_lethal',
   ON_CARD_PLAYED: 'on_card_played',

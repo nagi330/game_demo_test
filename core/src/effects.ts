@@ -70,8 +70,17 @@ registerAfterDeathResolver((state, cards, events) => {
 
 // 「主公受伤后光环重算」挂载点（ADR-113）：条件型光环若依赖**双方主公血量**
 // （无难兵「赴难」），主公掉血必须立刻重算，否则卡面滞后到回合边界才更新。
-registerAfterLordDamagedResolver((state, cards, events) => {
+registerAfterLordDamagedResolver((state, cards, events, side, amount, reflected) => {
   recomputeAuras(state, cards, createRng(state.rngState), events);
+  if (reflected) return;
+  const rng = createRng(state.rngState);
+  for (const ref of allUnits(state, side)) {
+    if (ref.unit.hp <= 0) continue;
+    for (const sk of (ref.unit.skills ?? []).filter(sk => sk.trigger === TIMING.ON_LORD_DAMAGED)) {
+      emitSkillTriggered(state, side, ref.unit, sk, 'trigger', events);
+      runEffects(state, cards, effectsOf(sk), { side, source: ref.unit, flags: [`lord_damage:${amount}`] }, rng, events);
+    }
+  }
 });
 
 // 「标记阵亡」挂载点（ADR-087）：仇敌 / 阵亡标记的结算（runMarkDeath 从此真正被调用）
@@ -249,6 +258,7 @@ function checkCondition(
       if (!target) return false;
       if (cond.attack_target.type && !matchesCardType(target.type, cond.attack_target.type)) return false;
       if (cond.attack_target.keyword && !hasTrait(target, cond.attack_target.keyword)) return false;
+      if (cond.attack_target.damaged !== undefined && (target.hp < target.maxHp) !== cond.attack_target.damaged) return false;
     }
   }
   if (cond.lord_full_hp) {
@@ -269,15 +279,12 @@ function checkCondition(
     const r = resolveTargets(state, { ...cond.count_vs.right, count: 'all' }, ctx, rng).length;
     return cmp(l, cond.count_vs.op, r);
   }
-  if (cond.event) return (ctx.flags ?? []).includes(cond.event);
+  if (cond.event && !(ctx.flags ?? []).includes(cond.event)) return false;
   // 按「所选目标属于哪一方」分支：ctx 的 side 是施法方，chosen.side 是目标方
   if (typeof cond.turn_max === 'number' && state.turn > cond.turn_max) return false;
   if (cond.victim_type) {
-    const v = ctx.eventVictim;
-    if (!v) return false;
-    // eventVictim 只带了 name/side/坐标，类型需要从场上或阵亡前记录里取；
-    // 由 ctx 传入 victimType（见 mutate.killUnit 的 on_kill 调用）
-    if ((ctx as { victimType?: string }).victimType !== cond.victim_type) return false;
+    // 类型由阵亡前记录传入，目标离场后不可再查询其格子。
+    if (ctx.victimType !== cond.victim_type) return false;
   }
   if (cond.chosen_side) {
     const t = ctx.chosen;
@@ -676,6 +683,12 @@ export function resolveTargets(
       t.kind === 'unit' && t.side === chosen.side && t.row === chosen.row
       && Math.abs(t.col - chosen.col) === 1) : [];
   }
+  if (selector.filter?.offset_from_chosen !== undefined) {
+    const chosen = pickOf(ctx, selector);
+    const offset = selector.filter.offset_from_chosen;
+    finalPool = chosen?.kind === 'unit' ? finalPool.filter(t => t.kind === 'unit'
+      && t.side === chosen.side && t.row === chosen.row && t.col === chosen.col + offset) : [];
+  }
 
   const sel: TargetSelector = confused ? { ...selector, mode: 'random' } : selector;
   const pick = pickOf(ctx, sel);
@@ -732,6 +745,7 @@ export function runOnAttackPhase(
   /** 本次击杀的溢出伤害（ADR-088）——以 `overflow:N` 事件标记交给 DSL 的 `value_from_flag` */
   overflow = 0,
   attackTarget?: TargetRef,
+  victimType?: string,
 ): number {
   if (attacker.hp <= 0) return 0;
   const side = findSide(state, attacker.uid);
@@ -742,7 +756,7 @@ export function runOnAttackPhase(
       phase === 'after'
         ? e.condition?.event === 'killed'
         : e.condition?.event !== 'killed');
-    const ctx: EffectContext = { side, source: attacker, attackTarget,
+    const ctx: EffectContext = { side, source: attacker, attackTarget, victimType,
       flags: killed ? ['killed', ...(overflow > 0 ? [`overflow:${overflow}`] : [])] : [] };
     const applicable = effs.filter((e) => checkCondition(state, e.condition, ctx, rng));
     if (!applicable.length) continue;
@@ -793,6 +807,7 @@ export function resolveAttack(
   // 加成从**下一次**攻击才开始生效（还没写 duration 时会永久累积）。
   // 带 `condition: {event: killed}` 的效果**不在这里**跑 —— 见 8½-after。
   const attackTarget = to.kind === 'lord' ? lordRef(foe) : unitRef(foe, to.row, to.col);
+  const victimType = to.kind === 'lord' ? 'lord' : getUnit(state, foe, to.row, to.col)?.type;
   const attackBonus = runOnAttackPhase(state, cards, attacker, 'before', false, rng, events, 0, attackTarget);
 
   // 触发技可能把攻击者自己弄死（如张苞连环普攻途中被反击带走）
@@ -882,7 +897,13 @@ export function resolveAttack(
   //    立刻又被这次攻击的记账加回去，额外行动等于白给（这条被测试抓到过）。
   const survivor = getUnit(state, side, from.row, from.col);
   if (survivor && survivor.hp > 0) {
-    runOnAttackPhase(state, cards, survivor, 'after', killed, rng, events, overflow, attackTarget);
+    runOnAttackPhase(state, cards, survivor, 'after', killed, rng, events, overflow, attackTarget, victimType);
+    for (const sk of (survivor.skills ?? []).filter(sk => sk.trigger === TIMING.AFTER_ATTACK)) {
+      const ctx: EffectContext = { side, source: survivor, flags: dealtTotal > 0 ? ['damaged'] : [] };
+      if (!(sk.effects ?? []).some(e => checkCondition(state, e.condition, ctx, rng))) continue;
+      emitSkillTriggered(state, side, survivor, sk, 'trigger', events);
+      runEffects(state, cards, effectsOf(sk), ctx, rng, events);
+    }
   }
   return true;
 }
@@ -969,6 +990,7 @@ export function runEffects(
 
   /** 该效果「没有解析出目标」时的兜底：取 pick 对应的玩家选择（ADR-071） */
   const chosenFor = (sel?: TargetSelector): TargetRef[] => {
+    if (sel) return []; // 显式目标池为空时不能退回原选择，尤其是相邻/偏移格。
     const p = pickOf(ctx, sel);
     return p ? [p] : [];
   };
@@ -1015,8 +1037,10 @@ export function runEffects(
             const waterBonus = eff.damage_type === 'water'
               ? allUnits(state, ctx.side).reduce((sum, ref) => sum + capStacks(ref.unit.statuses, 'water_damage'), 0)
               : 0;
-            dealDamage(state, cards, t, val + waterBonus, events, ctx.source?.name ?? '效果', 0, undefined, ctx.source,
-              eff.damage_type ?? 'physical');
+            const keywordBonus = victim && eff.bonus_vs_keyword && hasTrait(victim, eff.bonus_vs_keyword.keyword)
+              ? eff.bonus_vs_keyword.value : 0;
+            dealDamage(state, cards, t, val + waterBonus + keywordBonus, events, ctx.source?.name ?? '效果', 0, undefined, ctx.source,
+              eff.damage_type ?? 'physical', eff.damage_origin === 'reflected');
             // 记录"本次造成了击杀"，供同一张卡的后续效果做条件判定
             if (before > 0 && hpOf(state, t) <= 0) {
               ctx.flags = ctx.flags ?? [];
@@ -1082,7 +1106,13 @@ export function runEffects(
         for (let i = 0; i < n && empties.length; i++) {
           const idx = eff.position === 'random' ? rng.int(empties.length) : 0;
           const slot = empties.splice(idx, 1)[0]!;
-          if (eff.unit) summonUnit(state, cards, ctx.side, slot.row, slot.col, eff.unit, events);
+          if (eff.unit) {
+            const u = summonUnit(state, cards, ctx.side, slot.row, slot.col, eff.unit, events);
+            if (u && eff.copy_source_stats && ctx.source) {
+              u.atk = u.baseAtk = ctx.source.atk;
+              u.hp = u.maxHp = u.baseMaxHp = ctx.source.hp;
+            }
+          }
         }
         break;
       }
@@ -1217,6 +1247,18 @@ export function runEffects(
         break;
       }
       case 'steal_card': {
+        if (eff.from_deck === 'top') {
+          const from = other(ctx.side);
+          for (let i = 0; i < (eff.count ?? 1); i++) {
+            const id = state.sides[from].deck.pop();
+            if (!id) break;
+            const card = cards.get(id);
+            if (!card) continue;
+            state.sides[ctx.side].hand.push({ card, mods: [] });
+            events.push({ type: 'CARD_STOLEN', from, to: ctx.side, card });
+          }
+          break;
+        }
         // 夺取手牌（ADR-038）：从目标方手牌随机取一张，收进己方手牌或强制上场
         const from: Side = eff.target?.side === 'self' || eff.target?.side === 'ally'
           ? ctx.side : other(ctx.side);

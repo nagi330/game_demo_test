@@ -643,6 +643,12 @@ function useUnitSkill(
   if (!check.ok) return false;
   const skill = check.skill!;
 
+  const choice = unitSkillTargetPlan(state, side, action.row, action.col, action.modeIndex, action.skillId).choices[0];
+  if (action.target && choice && !choice.targets.some(t =>
+    t.side === action.target!.side && (t.kind === 'lord'
+      ? action.target!.row === undefined
+      : t.row === action.target!.row && t.col === action.target!.col))) return false;
+
   const key = skill.id || skill.name || '0';
   u.skillUsesThisTurn[key] = (u.skillUsesThisTurn[key] ?? 0) + 1;
   u.actedThisTurn = true;                       // ADR-074：司马懿要判"本回合有没有行动"

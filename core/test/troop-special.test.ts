@@ -22,6 +22,77 @@ function realTroop(id: string): CardDef {
   return { ...c, keywords: c.keywords ?? [], skills: c.skills ?? [] };
 }
 
+test('虎骑营：攻击满血单位本次+1，受伤单位不加成', () => {
+  const { state, ctx } = scenario({});
+  const tiger = realTroop('wei_hubaoki_hu');
+  const general: CardDef = { id: 'test_target_general', name: '敌将', faction: 'shu', type: 'general', cost: 2, attack: 0, health: 10, memo: '测试' };
+  const troop: CardDef = { id: 'test_target_troop', name: '敌兵', faction: 'shu', type: 'troop', cost: 1, attack: 0, health: 10, troopKind: 'infantry', memo: '测试' };
+  ctx.cards.set(tiger.id, tiger);
+  ctx.cards.set(general.id, general);
+  ctx.cards.set(troop.id, troop);
+  setUnit(state, 'own', 'front', 0, makeUnit(tiger, 0, 1101));
+  setUnit(state, 'enemy', 'front', 0, makeUnit(general, 0, 1102));
+  const vsGeneral = applyAction(state, ctx, { type: 'ATTACK', from: { row: 'front', col: 0 }, to: { kind: 'unit', row: 'front', col: 0 } });
+  assert.equal(vsGeneral.ok, true);
+  assert.equal(getUnit(vsGeneral.state, 'enemy', 'front', 0)?.hp, 10 - (tiger.attack! + 1));
+
+  const next = scenario({});
+  next.ctx.cards.set(tiger.id, tiger);
+  next.ctx.cards.set(troop.id, troop);
+  setUnit(next.state, 'own', 'front', 0, makeUnit(tiger, 0, 1103));
+  setUnit(next.state, 'enemy', 'front', 0, makeUnit(troop, 0, 1104));
+  getUnit(next.state, 'enemy', 'front', 0)!.hp = 9;
+  const vsTroop = applyAction(next.state, next.ctx, { type: 'ATTACK', from: { row: 'front', col: 0 }, to: { kind: 'unit', row: 'front', col: 0 } });
+  assert.equal(vsTroop.ok, true);
+  assert.equal(getUnit(vsTroop.state, 'enemy', 'front', 0)?.hp, 9 - tiger.attack!);
+});
+
+for (const type of ['general', 'strategist'] as const) {
+  test(`虎骑营：攻击${type}后不永久提高攻击力`, () => {
+    const { state, ctx } = scenario({});
+    const tiger = realTroop('wei_hubaoki_hu');
+    const target: CardDef = { id: 'test_person', name: '人物', faction: 'shu', type, cost: 2, attack: 0, health: 10, memo: '测试' };
+    ctx.cards.set(tiger.id, tiger);
+    ctx.cards.set(target.id, target);
+    setUnit(state, 'own', 'front', 0, makeUnit(tiger, 0, 1105));
+    setUnit(state, 'enemy', 'front', 0, makeUnit(target, 0, 1106));
+    const result = applyAction(state, ctx, { type: 'ATTACK', from: { row: 'front', col: 0 }, to: { kind: 'unit', row: 'front', col: 0 } });
+    assert.equal(result.ok, true);
+    assert.equal(getUnit(result.state, 'enemy', 'front', 0)?.hp, 10 - (tiger.attack! + 1));
+    assert.equal(getUnit(result.state, 'own', 'front', 0)?.atk, tiger.attack);
+  });
+}
+
+for (const [type, health] of [['troop', 10], ['general', 10]] as const) {
+  test(`豹骑营：攻击${health}血${type}不返还攻击`, () => {
+    const { state, ctx } = scenario({});
+    const leopard = realTroop('wei_hubaoki_bao');
+    const target: CardDef = { id: 'test_no_reward', name: '目标', faction: 'shu', type, cost: 2, attack: 0, health, memo: '测试' };
+    ctx.cards.set(leopard.id, leopard);
+    ctx.cards.set(target.id, target);
+    setUnit(state, 'own', 'front', 0, makeUnit(leopard, 0, 1113));
+    setUnit(state, 'enemy', 'front', 0, makeUnit(target, 0, 1114));
+    const result = applyAction(state, ctx, { type: 'ATTACK', from: { row: 'front', col: 0 }, to: { kind: 'unit', row: 'front', col: 0 } });
+    assert.equal(result.ok, true);
+    assert.equal(getUnit(result.state, 'own', 'front', 0)?.attackedThisTurn, 1);
+    assert.ok(!result.events.some(e => e.type === 'EXTRA_ATTACK'));
+  });
+}
+
+test('豹骑营：击杀敌方普通兵后获得一次额外攻击', () => {
+  const { state, ctx } = scenario({});
+  const leopard = realTroop('wei_hubaoki_bao');
+  const infantry = realTroop('neutral_infantry');
+  ctx.cards.set(leopard.id, leopard);
+  ctx.cards.set(infantry.id, infantry);
+  setUnit(state, 'own', 'front', 0, makeUnit(leopard, 0, 1111));
+  setUnit(state, 'enemy', 'front', 0, makeUnit(infantry, 0, 1112));
+  const result = applyAction(state, ctx, { type: 'ATTACK', from: { row: 'front', col: 0 }, to: { kind: 'unit', row: 'front', col: 0 } });
+  assert.equal(result.ok, true);
+  assert.equal(getUnit(result.state, 'enemy', 'front', 0), null, '豹骑营应击杀普通兵');
+  assert.equal(getUnit(result.state, 'own', 'front', 0)?.attackedThisTurn, 0, '击杀普通兵后应返还一次攻击机会');
+});
+
 
 test('攻击目标条件：青州兵只在己方主公血量更高时强化主公伤害', () => {
   const { state, ctx } = scenario({});
@@ -303,9 +374,17 @@ test('ADR-108 藤甲盾：无藤甲状态的单位不受影响（能力是状态
  * 内联夹具会在数据改动后静默脱节（本组此前的 `on_attack` 版本就是这么漂移的）。
  * ===================================================================== */
 
-const WUNAN = realTroop('wu_wunan_bing');
+// 无难兵在 ADR-117 改为召唤右部；旧用例保留为通用主公血量光环回归，
+// 不再声称覆盖当前无难兵设计。真实卡效果由 troop-final-design.test.ts 验证。
+const WUNAN: CardDef = {
+  id: 'test_lord_hp_aura', name: '血量光环', faction: 'wu', type: 'troop', cost: 3,
+  attack: 2, health: 4, memo: '通用条件光环测试',
+  skills: [{ id: 'fu_nan', name: '血量光环', kind: 'aura', effects: [
+    { action: 'modify', attack: 1, target: { source: true }, condition: { lord_hp_vs_enemy: '<' } },
+  ] }],
+};
 
-test('无难兵 赴难：**真实卡数据**是条件型光环（防夹具漂移）', () => {
+test('通用主公血量光环：条件写入修正层', () => {
   const sk = (WUNAN.skills ?? []).find((x) => x.id === 'fu_nan');
   assert.ok(sk, '应存在赴难技能');
   assert.equal(sk.kind, 'aura', '必须是光环 —— 否则卡面不会显示 3/4');
@@ -314,7 +393,7 @@ test('无难兵 赴难：**真实卡数据**是条件型光环（防夹具漂移
   assert.deepEqual(sk.effects?.[0]?.condition, { lord_hp_vs_enemy: '<' });
 });
 
-test('无难兵 赴难：逆风时卡面由 2/4 变为 3/4', () => {
+test('通用主公血量光环：逆风时卡面由 2/4 变为 3/4', () => {
   const { state, ctx } = scenario({});
   ctx.cards.set(WUNAN.id, WUNAN);
   setUnit(state, 'own', 'front', 0, makeUnit(WUNAN, 0, 501));
@@ -326,7 +405,7 @@ test('无难兵 赴难：逆风时卡面由 2/4 变为 3/4', () => {
   assert.equal(u.hp, 4, '生命值不变');
 });
 
-test('无难兵 赴难：顺风时保持 2/4', () => {
+test('通用主公血量光环：顺风时保持 2/4', () => {
   const { state, ctx } = scenario({});
   ctx.cards.set(WUNAN.id, WUNAN);
   setUnit(state, 'own', 'front', 0, makeUnit(WUNAN, 0, 502));
@@ -336,7 +415,7 @@ test('无难兵 赴难：顺风时保持 2/4', () => {
   assert.equal(getUnit(state, 'own', 'front', 0)!.atk, 2, '顺风时无加成');
 });
 
-test('无难兵 赴难：主公掉血后**立即**重算，不必等到回合边界', () => {
+test('通用主公血量光环：主公掉血后立即重算', () => {
   const { state, ctx } = scenario({});
   ctx.cards.set(WUNAN.id, WUNAN);
   setUnit(state, 'own', 'front', 0, makeUnit(WUNAN, 0, 503));

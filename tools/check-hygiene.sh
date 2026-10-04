@@ -64,9 +64,11 @@ ALLOWED_EXT='ts|mjs|cjs|js|json|yaml|yml|md|html|css|sh|py|sql|txt|gitignore|git
 ALLOWED_NOEXT='LICENSE|Makefile|Dockerfile'
 # `.githooks/` 下的一切都放行：git 的钩子按约定就是无扩展名的脚本（pre-commit / post-merge …）。
 # 逐个枚举钩子名会变成"每加一个新钩子就被拦一次"的维护负担。
-suspect=$(git ls-files \
+# 原始设计表仅在归档目录放行，不允许任意目录提交xlsx。
+suspect=$(git -c core.quotepath=false ls-files \
   | grep -vE "\.($ALLOWED_EXT)$" \
   | grep -vE "(^|/)($ALLOWED_NOEXT)$" \
+  | grep -vE '^docs/design-archives/[^/]+\.xlsx$' \
   | grep -vE '^\.githooks/[^/]+$' || true)
 if [ -n "$suspect" ]; then
   n_s=$(printf '%s\n' "$suspect" | wc -l | tr -d ' ')
@@ -81,7 +83,7 @@ fi
 
 # ---------- ④ 依赖安装特征 ----------
 DEP_SIG='(^|/)(site-packages|__pycache__|node_modules)/|\.(dist-info|egg-info)/|(^|/)(INSTALLER|RECORD|METADATA|WHEEL)$'
-deps=$(git ls-files | grep -E "$DEP_SIG" || true)
+deps=$(git -c core.quotepath=false ls-files | grep -E "$DEP_SIG" || true)
 if [ -n "$deps" ]; then
   n_d=$(printf '%s\n' "$deps" | wc -l | tr -d ' ')
   echo "✗ 有 $n_d 个路径带「依赖安装特征」—— 依赖不该装进仓库："
@@ -98,7 +100,7 @@ fi
 # 2026-09-30 的 .codex-pyyaml/ 是这个形状，把它改名成 mydeps/ 也一样能拦。
 # 加新的顶层目录时在这里补一项（这是本脚本第二处、也是最后一处需要维护的地方）。
 ALLOWED_TOP='\.githooks|core|data|docs|prototype|server|tools'
-bad_top=$(git ls-files | awk -F/ 'NF>1{print $1}' | sort -u | grep -vE "^($ALLOWED_TOP)$" || true)
+bad_top=$(git -c core.quotepath=false ls-files | awk -F/ 'NF>1{print $1}' | sort -u | grep -vE "^($ALLOWED_TOP)$" || true)
 if [ -n "$bad_top" ]; then
   n_t=$(printf '%s\n' "$bad_top" | wc -l | tr -d ' ')
   echo "✗ 出现了 $n_t 个白名单外的顶层目录 —— 基本可以肯定是误装进来的东西："

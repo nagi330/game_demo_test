@@ -335,6 +335,19 @@
     "memo": "受到普通/无属性伤害 −N（最低 0）；受到火属性伤害 +N（ADR-108 藤甲兵；ADR-110 删反伤层）"
   },
   {
+    "id": "mian_shang",
+    "name": "免伤",
+    "kind": "buff",
+    "numeric": false,
+    "scope": "lord",
+    "timing": 10,
+    "duration": "this_turn",
+    "caps": [
+      "immune_all_damage"
+    ],
+    "memo": "当前回合免疫所有伤害，回合结束清除，不消耗披坚"
+  },
+  {
     "id": "zhong_yong_status",
     "name": "忠勇",
     "kind": "buff",
