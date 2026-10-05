@@ -274,6 +274,12 @@ var Core = (() => {
     xi_liang: { name: "\u897F\u51C9", note: "\u897F\u51C9\u51FA\u8EAB\uFF1A\u9A6C\u817E\u3001\u9A6C\u8D85\u3001\u9A6C\u5CB1" },
     man_zu: { name: "\u86EE\u65CF", note: "\u5357\u65B9\u5F02\u65CF\uFF1A\u6C99\u6469\u67EF" },
     huang_jin: { name: "\u9EC4\u5DFE", note: "\u9EC4\u5DFE\u519B\u51FA\u8EAB\u6216\u5176\u65E7\u90E8" },
+    // 黄巾统领：黄巾兵「黄巾众」按已方统领数量成长（ADR-120）。只算张角/张宝/张梁三位首领，
+    // 不含周仓、张燕等「黄巾旧部」—— 故不能复用 huang_jin 标签（黄巾兵自己就带它，会自我循环）。
+    huang_jin_tongling: { name: "\u9EC4\u5DFE\u7EDF\u9886", note: "\u9EC4\u5DFE\u9996\u9886\uFF1A\u5F20\u89D2\u3001\u5F20\u5B9D\u3001\u5F20\u6881" },
+    // 黄巾众：黄巾的兵众（黄巾兵衍生物 + 黄巾力士）—— 统领上场时给它们永久 +1/+1（ADR-121）。
+    // 与 huang_jin 分开：统领自己也带 huang_jin，不能拿它当「被统领带领的兵」的判据。
+    huang_jin_zhong: { name: "\u9EC4\u5DFE\u4F17", note: "\u9EC4\u5DFE\u5175\u884D\u751F\u7269\u4E0E\u9EC4\u5DFE\u529B\u58EB" },
     shi_zu: { name: "\u58EB\u65CF", note: "\u58EB\u65CF\u95E8\u9600\uFF1A\u8881\u7ECD\u53CA\u5176\u58EB\u65CF\u5175" },
     cao_clan: { name: "\u66F9\u6C0F\u5B97\u4EB2", note: "\u66F9\u64CD\u5B97\u65CF\u4EBA\u7269\uFF1A\u66F9\u6602\u3001\u66F9\u4F11\u3001\u66F9\u5F70\u3001\u66F9\u4EC1\u3001\u66F9\u4E15\u7B49" }
   };
@@ -1777,6 +1783,9 @@ var Core = (() => {
     return pool.slice(0, n);
   }
   function resolveTargets(state, selector, ctx, rng) {
+    if (selector?.attack_target) {
+      return ctx.attackTarget ? [ctx.attackTarget] : [];
+    }
     if (selector?.event) {
       const k = selector.event === "killer" ? ctx.killer : ctx.eventVictim;
       if (!k) return [];
@@ -2137,6 +2146,12 @@ var Core = (() => {
               if (u && eff.copy_source_stats && ctx.source) {
                 u.atk = u.baseAtk = ctx.source.atk;
                 u.hp = u.maxHp = u.baseMaxHp = ctx.source.hp;
+              }
+              if (u) {
+                for (const sk of (u.skills ?? []).filter((s) => s.trigger === "on_play")) {
+                  emitSkillTriggered(state, ctx.side, u, sk, "on_play", events);
+                  runEffects(state, cards, effectsOf(sk), { side: ctx.side, source: u }, rng, events);
+                }
               }
             }
           }
@@ -2743,9 +2758,6 @@ var Core = (() => {
     u.gender = toCard.gender;
     applyMods(u);
     u.hp = u.maxHp;
-    if (hasTrait(u, "xian_gong") && u.attackedThisTurn > 0) {
-      u.attackedThisTurn -= 1;
-    }
     recomputeAuras(state, ctx.cards, rng, events);
     delete u.upgradeProgress;
     const onPlay = (toCard.skills ?? []).filter((sk) => sk.trigger === "on_play");
@@ -2755,13 +2767,16 @@ var Core = (() => {
       runEffects(
         state,
         ctx.cards,
-        sk.effects ?? [],
+        effectsOf(sk, action.modeIndex),
         { side, source: u, chosen: upgradeChosen, chosenRow: action.row, chosenCol: action.col },
         rng,
         events
       );
     }
     recomputeAuras(state, ctx.cards, rng, events);
+    if (hasTrait(u, "xian_gong") && u.attackedThisTurn > 0) {
+      u.attackedThisTurn -= 1;
+    }
     events.push({ type: "UNIT_UPGRADED", side, row: action.row, col: action.col, from, to: toCard.id, unit: u });
     return true;
   }

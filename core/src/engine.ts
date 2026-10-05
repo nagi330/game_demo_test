@@ -196,12 +196,6 @@ function upgradeUnit(
   u.gender = toCard.gender;
   applyMods(u);
   u.hp = u.maxHp;
-  // 只要升变后的形态拥有先攻，就返还本回合已经消耗的一次普攻机会。
-  // 即使原形态本身也是先攻兵，也必须获得这次额外机会；只返还一次，
-  // 避免连击单位因升变被错误地重置为完整攻击次数。
-  if (hasTrait(u, 'xian_gong') && u.attackedThisTurn > 0) {
-    u.attackedThisTurn -= 1;
-  }
   // 升变目标可能带“无法攻击”等光环技能；形态替换后立即重算，避免新单位
   // 在本回合错误获得普通攻击能力。
   recomputeAuras(state, ctx.cards, rng, events);
@@ -226,11 +220,23 @@ function upgradeUnit(
     : undefined;
   for (const sk of onPlay) {
     emitSkillTriggered(state, side, u, sk, 'on_play', events);
-    runEffects(state, ctx.cards, sk.effects ?? [],
+    // ADR-127：走 `effectsOf(sk, modeIndex)` 而不是 `sk.effects` —— 有「抉择（modes）」的战吼
+    // 本身没有 effects，只写 modes；原先这里直接读 `sk.effects` → **抉择战吼在升变路径整个不执行**
+    // （陷阵营「架盾／先攻」选了也白选），只有从手牌打出才会生效。
+    runEffects(state, ctx.cards, effectsOf(sk, action.modeIndex),
       { side, source: u, chosen: upgradeChosen, chosenRow: action.row, chosenCol: action.col }, rng, events);
   }
   // 战吼可能挂了状态 / 改了属性 → 再重算一次光环，让卡面（含徽章与光圈）与状态一致。
   recomputeAuras(state, ctx.cards, rng, events);
+
+  // ADR-127：**先攻的返还必须在「战吼」之后判定** —— 有些形态的先攻不是卡面关键词，
+  // 而是升变时的**抉择战吼**用 `apply_status: xian_gong_status` 现授予的（陷阵营「陷阵」形态）。
+  // 原先这段检查放在派发战吼**之前**，于是「升变选先攻」拿不到这次额外普攻 ——
+  // 玩家看到的先攻是残缺的（同一个形态，打出来的能再打一次、升变来的不能）。
+  // 语义不变：只返还一次，避免连击单位被错误地重置为完整攻击次数。
+  if (hasTrait(u, 'xian_gong') && u.attackedThisTurn > 0) {
+    u.attackedThisTurn -= 1;
+  }
 
   events.push({ type: 'UNIT_UPGRADED', side, row: action.row, col: action.col, from, to: toCard.id, unit: u });
   return true;

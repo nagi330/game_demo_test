@@ -24,12 +24,34 @@
       "id": "huang_jin",
       "name": "黄巾",
       "value": 0,
-      "memo": "黄巾军出身或其旧部：张宝、张梁、周仓、张燕",
+      "memo": "黄巾军出身或其旧部：张宝、张梁、周仓、张燕、黄巾力士",
       "used_by": [
         "qun_zhangbao",
         "qun_zhangliang",
+        "qun_huangjinlishi",
         "shu_zhoucang",
         "wei_zhangyan"
+      ]
+    },
+    {
+      "id": "huang_jin_tongling",
+      "name": "黄巾统领",
+      "value": 0,
+      "memo": "黄巾军的首领（大贤良师与天公/地公/人公将军）：张角、张宝、张梁 —— 黄巾兵「黄巾众」按统领数量成长（ADR-120）",
+      "used_by": [
+        "qun_zhangjiao",
+        "qun_zhangbao",
+        "qun_zhangliang"
+      ]
+    },
+    {
+      "id": "huang_jin_zhong",
+      "name": "黄巾众",
+      "value": 0,
+      "memo": "黄巾的兵众（黄巾兵衍生物 + 黄巾力士）—— 统领上场时给它们永久 +1/+1（ADR-121）",
+      "used_by": [
+        "token_huangjin_bing",
+        "qun_huangjinlishi"
       ]
     },
     {

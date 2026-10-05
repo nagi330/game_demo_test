@@ -152,6 +152,14 @@ export interface TargetSelector {
   /** 作用区域，默认 board（ADR-038）。'both' = 手牌 + 场上都算候选（ADR-071，陆抗） */
   zone?: 'board' | 'hand' | 'both';
   source?: boolean;              // true = 只选「来源单位自身」（ADR-033）
+  /**
+   * true = 只选「**本次普通攻击的目标**」（ADR-130，象兵「象阵」）。
+   *
+   * 与 `condition.attack_target` 的区别：那个只能**读**攻击目标用于条件判断
+   * （西凉铁骑「突骑」＝打武将/谋臣 +2），这个是**以攻击目标为作用对象**
+   * （"打谁就给谁挂状态"：震慑、破甲、标记…）。
+   */
+  attack_target?: boolean;
   /** 本次事件里的另一方单位（华雄亡语：使**击杀者**获得 +1/+1，ADR-070） */
   event?: 'killer' | 'victim';
   lord?: boolean;                // true = 选该方主帅（ADR-036）
@@ -442,7 +450,7 @@ export type Action =
    *
    * 形状与 `USE_SKILL` 一致（`row` 省略 = 指向该方主帅）。
    */
-  | { type: 'UPGRADE_UNIT'; row: Row; col: number; toCardId: string; target?: { side: Side; row?: Row; col?: number } }
+  | { type: 'UPGRADE_UNIT'; row: Row; col: number; toCardId: string; target?: { side: Side; row?: Row; col?: number }; modeIndex?: number }
   | { type: 'ATTACK'; from: { row: Row; col: number }; to: { kind: 'unit'; row: Row; col: number } | { kind: 'lord' } }
   | { type: 'USE_LORD_SKILL'; target?: { side: Side; row?: Row; col?: number }; handIndex?: number; modeIndex?: number }
   | { type: 'USE_SKILL'; row: Row; col: number; target?: { side: Side; row?: Row; col?: number }; handIndex?: number; modeIndex?: number; skillId?: string }

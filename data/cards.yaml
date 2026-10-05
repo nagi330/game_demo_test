@@ -2506,6 +2506,7 @@
   health: 2
   tags:
   - huang_jin
+  - huang_jin_tongling
   memo: 与张梁同场召 2 个黄巾兵，三兄弟齐全翻倍
   gender: male
   type_explicit: true
@@ -2515,8 +2516,14 @@
     name: 黄天当立
     kind: trigger
     trigger: on_play
-    text: 战吼：张宝与张梁同时在场时召唤 2 个黄巾兵；张氏三兄弟同时在场时再召唤 2 个（共 4 个）。
+    text: 战吼：己方所有黄巾众（黄巾兵与黄巾力士）永久 +1/+1；张宝与张梁同时在场时召唤 2 个黄巾兵；张氏三兄弟同时在场时再召唤 2 个（共 4 个）。
     effects:
+    # ⚠️ 顺序要紧：先 buff 场上的黄巾众，**再**召唤 —— 本次召唤出来的兵由它们自己的
+    #    「黄巾众」在落地时按当时的统领数结算；若反过来，同一名统领会被算两次。
+    - action: modify
+      attack: 1
+      health: 1
+      target: { side: ally, filter: { tag: huang_jin_zhong }, count: all }
     - action: summon
       unit: token_huangjin_bing
       count: 2
@@ -2551,6 +2558,7 @@
   health: 2
   tags:
   - huang_jin
+  - huang_jin_tongling
   memo: 与张宝同场召 2 个黄巾兵，三兄弟齐全翻倍
   gender: male
   keywords: []
@@ -2559,8 +2567,14 @@
     name: 黄天当立
     kind: trigger
     trigger: on_play
-    text: 战吼：张宝与张梁同时在场时召唤 2 个黄巾兵；张氏三兄弟同时在场时再召唤 2 个（共 4 个）。
+    text: 战吼：己方所有黄巾众（黄巾兵与黄巾力士）永久 +1/+1；张宝与张梁同时在场时召唤 2 个黄巾兵；张氏三兄弟同时在场时再召唤 2 个（共 4 个）。
     effects:
+    # ⚠️ 顺序要紧：先 buff 场上的黄巾众，**再**召唤 —— 本次召唤出来的兵由它们自己的
+    #    「黄巾众」在落地时按当时的统领数结算；若反过来，同一名统领会被算两次。
+    - action: modify
+      attack: 1
+      health: 1
+      target: { side: ally, filter: { tag: huang_jin_zhong }, count: all }
     - action: summon
       unit: token_huangjin_bing
       count: 2
@@ -2622,7 +2636,7 @@
   cost: 4
   attack: 2
   health: 2
-  memo: 召唤 2 个弓兵，并把全场弓兵进化成白马义从
+  memo: 召唤 1 个弓兵，并把全场弓兵进化成白马义从
   gender: male
   keywords: []
   skills:
@@ -2643,7 +2657,7 @@
         filter:
           troopKind: archer
         count: all
-    text: 召唤 2 个弓兵，并将场上所有弓兵进化为白马义从（1 攻 2 血，每回合造成 2 点伤害）。
+    text: 召唤 1 个弓兵，并将场上所有弓兵进化为白马义从（1 攻 2 血，每回合造成 2 点伤害）。
   flavor: ''
 - id: qun_mateng
   name: 马腾
@@ -2973,10 +2987,21 @@
   health: 5
   tags:
   - huang_jin
+  - huang_jin_tongling
   memo: 回合结束 5 道雷，半数震慑，雷死敌人就召黄巾兵
   gender: male
   keywords: []
   skills:
+  - id: da_xian_liang_shi
+    name: 大贤良师
+    kind: trigger
+    trigger: on_play
+    text: 战吼：己方所有黄巾众（黄巾兵与黄巾力士）永久 +1/+1。
+    effects:
+    - action: modify
+      attack: 1
+      health: 1
+      target: { side: ally, filter: { tag: huang_jin_zhong }, count: all }
   - id: wu_lei_hong_ding
     name: 五雷轰顶
     kind: trigger
@@ -3091,9 +3116,44 @@
   health: 1
   tags:
   - huang_jin
-  memo: 黄巾系召唤的 1/1 衍生物
+  - huang_jin_zhong
+  memo: 黄巾系召唤的 1/1 衍生物，落地按统领数永久成长
   gender: male
   keywords: []
+  skills:
+  - id: huangjin_zhong
+    name: 黄巾众
+    kind: trigger
+    trigger: on_play
+    text: 上场时，每有一名己方黄巾统领（张角、张宝、张梁）永久 +1/+1；己方场上有黄巾力士时再永久 +1/+1。
+    effects:
+    # ① 每有一名己方统领 +1/+1（`attack_from`/`health_from` 取值 = 命中集合的大小，同沙摩柯「胡王」）。
+    #    非光环分支 → 写成 **permanent** 修正，**永不回落**（ADR-121：这是"当前场次永久"的关键）。
+    - action: modify
+      attack_from: { side: ally, filter: { tag: huang_jin_tongling } }
+      health_from: { side: ally, filter: { tag: huang_jin_tongling } }
+      target: { source: true }
+      condition:
+        exists:
+          side: ally
+          filter: { tag: huang_jin_tongling }
+    # ② 场上有黄巾力士时再 +1/+1（N 张力士只算一次，故用 exists 门控 + 固定值，而不是计数）
+    - action: modify
+      attack: 1
+      health: 1
+      target: { source: true }
+      condition:
+        exists:
+          side: ally
+          filter: { card_id: qun_huangjinlishi }
+    note: >-
+      口径（ADR-121，设计者定）：**落地时按当时的局面结算一次，之后永久保留** ——
+      黄巾兵是**召唤**出来的，所以这条 `on_play` 能跑起来靠的是引擎补上的
+      「召唤也派发战吼」（ADR-121；与 ADR-114 给升变补 on_play 同理）。
+      **只作用于自身**（`target: { source: true }`）：每个黄巾兵各算各的，不互相增益，
+      所以不存在「全体光环按同名份数叠加」那类问题；上限被"统领只有 3 名"锁死（最高 1＋3＋1＝5/5）。
+      统领的判定用标签 `huang_jin_tongling`（张角／张宝／张梁），**不含**周仓、张燕等「黄巾旧部」。
+      ⚠️ 与旧版（ADR-120 的光环）的差别：**统领阵亡不会让黄巾兵缩回去** —— 增长是单向棘轮。
   flavor: ''
 - id: token_jia_ren
   name: 假人
@@ -4722,116 +4782,277 @@
   name: 陷阵营
   faction: qun
   type: troop
-  cost: 2
-  attack: 3
+  cost: 4
+  attack: 2
   health: 5
   troopKind: shield
   upgradeFrom: shield
-  keywords: [jia_dun]
-  memo: 架盾；每个敌方回合结束时攻击和生命各+1
+  keywords: []
+  memo: 战吼二选一：架盾 2/7，或先攻 4/5；打盾墙 +2
+  note: >-
+    **史实（A/B 级，原文均已回取）**：《英雄记》（裴注引《三国志·魏书七·吕布传》，
+    《御定駢字類編》卷 166 亦引，三处互见）「順為人**清白有威嚴**，**不飲酒，不受饋遺**。
+    **所將七百餘兵，號為千人**，**鎧甲鬬具皆精練齊整**，**每所攻擊無不破者**，名為「**陷陣營**」……
+    布知其忠，然不能用」；《三国志·魏书七》正文「建安三年……**遣高順攻劉備於沛，破之**。
+    太祖**遣夏侯惇救備，為順所敗**」。→ 陷阵营是吕布军最精锐的**攻坚**部队。
+    **技能口径（ADR-127，设计者提案：抉择）**：**4 费 2/5，战吼二选一** ——
+    **① 架盾：获得「架盾」，生命 +2（2/7）**；**② 先攻：获得「先攻」，攻击 +2（4/5）**。
+    **两个方向都有史料**：① ←「**鎧甲鬬具皆精練齊整**」（甲械精良）；② ←「**每所攻擊無不破者**」「陷陣」（攻坚）。
+    主题是"**同一支部队，你选这一局当甲还是当锋**"。
+    **数值**：基础 2/5 ＝ 7 点（明显低于 4 费基准 9），**两个分支各补 3 点**回来 ——
+    2/7 架盾 ＝ 9＋1 ＝ 10，4/5 先攻 ＝ 9＋1 ＝ 10，**两支对称、均为 +1**。
+    另外**两个分支都保留**「**无不破者**：攻击带「架盾」的单位 +2」（ADR-126 的身份不随部署形态改变 ——
+    抉择换的是"怎么用它"，不是"它是谁"）；含此条后两支各 ≈ **+1.5**。
+    **为什么用 modes 而不是别的手段**：本作已有「抉择」机制（魏·曹彰「猛袭」，ADR-071），
+    引擎按 `PLAY_CARD.modeIndex` 选分支、UI 会先弹选择；授予关键词走
+    `apply_status: jia_dun_status / xian_gong_status`（已有 6 处在用的成熟写法）。
+    **⚠️ 随本轮修掉的引擎缺口（ADR-127）**：① 升变路径原先把 on_play 跑成 `sk.effects`，
+    **没有走 `effectsOf(sk, modeIndex)`** → 抉择战吼在升变时会**整个不执行**；
+    ② 先攻的"返还一次普攻"检查原本在**派发战吼之前**，而本卡的先攻是战吼当场授予的 →
+    「升变选先攻」拿不到返还（同一个形态，打出来的能再打一次、升变来的不能）。
+    两处都已修，并写了测试钉死。
+    **⚠️ 与魏「霹雳车」同轴**：霹雳车战技对架盾 +1（0/3 不能攻击的炮台）；本卡普攻对架盾 +2（能打的 2/5）。
+    ⚠️ **并不绕过架盾**：嘲讽依然生效，本卡只是"打盾墙更疼"（团队开门牌）。
   skills:
-  - id: xianzhen_zengqiang
+  - id: xian_zhen_ying
     name: 陷阵
     kind: trigger
-    trigger: enemy_turn_end
-    text: 每个敌方回合结束时，攻击力和生命值各+1。
-    effects:
-    - action: modify
-      attack: 1
-      health: 1
-      target: { source: true }
-- id: qun_xiandengdun
-  name: 先登盾兵
-  faction: qun
-  type: troop
-  cost: 2
-  attack: 1
-  health: 7
-  troopKind: shield
-  upgradeFrom: shield
-  keywords: [jia_dun]
-  memo: 架盾，攻击时获得2点攻击
-  skills:
-  - id: xiandeng_dun
-    name: 先登
+    trigger: on_play
+    text: 战吼：选择一项 —— ① 架盾：获得「架盾」，生命 +2（2/7）；② 先攻：获得「先攻」，攻击 +2（4/5）。
+    modes:
+    - name: 架盾（生命 +2 → 2/7）
+      effects:
+      - action: apply_status
+        status: jia_dun_status
+        target: { source: true }
+      - action: modify
+        health: 2
+        target: { source: true }
+    - name: 先攻（攻击 +2 → 4/5）
+      effects:
+      - action: apply_status
+        status: xian_gong_status
+        target: { source: true }
+      - action: modify
+        attack: 2
+        target: { source: true }
+  - id: wu_bu_po_zhe
+    name: 无不破者
     kind: trigger
     trigger: on_attack
-    text: 攻击时攻击力+2。
+    text: 攻击带有「架盾」的单位时，攻击力 +2。
     effects:
     - action: attack_bonus
       value: 2
+      condition:
+        attack_target: { keyword: jia_dun }
+- id: qun_fudunshi
+  name: 伏楯士
+  faction: qun
+  type: troop
+  cost: 3
+  attack: 1
+  health: 6
+  troopKind: shield
+  upgradeFrom: shield
+  keywords: [jia_dun]
+  memo: 1/6 架盾；每个完整回合 +1 攻，涨到 6 攻停止
+  note: >-
+    **命名（ADR-125，替换「先登盾兵」）**：设计者指出「先登」二字会让玩家**误以为这张卡有先攻**，
+    故改用「**伏楯士**」—— 直接取自麹义先登军成名动作《英雄记》「義兵皆**伏楯下不動**」（「楯」即盾），
+    纯防御向、无先攻联想，且仍在那支部队的故事里（考证见 ADR-124 ①-⑤ 与 `docs/research/qun-xiandengsishi.md` §6）。
+    ⚠️ **为什么不叫「板楯蠻」**：《太平御览》卷 785 四夷部确有「板楯蠻」条、字面即木盾，但它是**巴郡賨人**，
+    属蜀或中立阵营 —— 群雄一旦改用它就没有盾兵了（ADR-124 ⑤ 的候选排查）。
+    ⚠️ **为什么不叫「大戟士」**（袁绍）：底本中**未找到原文**，疑似后世/游戏产物。
+    **技能「俱起」**：取自同句「乃**同時俱起**揚塵大叫，**直前衝突**」—— 蹲盾（伏楯）蓄势，起身（俱起）破阵。
+    即**卡名＝姿态，技能＝兑现**；「先登」不再是卡名，而是它长成 6/6 之后的结局。
+    **数值（ADR-125，设计者定）**：**3 费 1/6 架盾**。1＋6＋架盾≈1 ＝ 8 点，仅比 3 费基准（7）高 1 点 ——
+    而且 **1/6 是 3 费盾兵线里最小的身材**（同档有 3/5、2/6、1/7），成长就是它换来的东西。
+    **成长时点＝己方回合结束时**（`turn_end`）—— 设计者给的时序原话：
+    「当前放下的伏楯士是 1/6 盾兵，然后**他结束时变为 2 攻**，然后敌人行动。敌人行动完成后轮到我来行，
+    **此时还是 2 攻**，但是**结束后变为 3 攻**」。即：**每经过一个完整回合（我只在自己的回合结束涨一次）**
+    +1 攻，所以**敌人上来时面对的已经是涨过的数值**；到 6 攻停住。
+    ⚠️ 不要写成 `enemy_turn_end`（那会变成"敌人先挨 1 攻、它才涨"），与设计者给的时序不符。
+    上限 6 攻（1/6 → 6/6 对称），用 `attack_max` 过滤器实现（蜀「越骑·蓄锐」同款写法）：
+    `attack_max: 5` ＝"攻击力 ≤5 时才加"，加到 6 自然停住。
+    ⚠️ 与**陷阵营**（3 费 3/5 架盾 ＋ 每敌方回合结束 +1/+1、**无上限**）形状相同，必须分开：
+    成长机制归本卡（**有封顶**），**陷阵营应改成进攻向**（《英雄记》「順為人清白有威嚴……**每所攻擊無不破者**」，
+    下一次精修做）。
+  skills:
+  - id: ju_qi
+    name: 俱起
+    kind: trigger
+    trigger: turn_end
+    text: 己方回合结束时，攻击力永久 +1（最多 6）。
+    effects:
+    - action: modify
+      attack: 1
+      target: { source: true }
+      condition:
+        all_of:
+        # 未达上限：1 攻起涨，**涨到 6 就停**（`attack_max: 5` ＝"攻击力 ≤ 5 时才加"）
+        - count: { selector: { source: true, filter: { attack_max: 5 } }, op: '==', value: 1 }
 - id: qun_xiandengsishi
   name: 先登死士
   faction: qun
   type: troop
-  cost: 2
-  attack: 4
-  health: 3
+  cost: 3
+  attack: 3
+  health: 2
   troopKind: infantry
   upgradeFrom: infantry
-  keywords: []
-  memo: 亡语随机对敌方角色造成2点伤害
+  keywords: [xian_gong]
+  memo: 先攻；亡语对敌方主公造成2点伤害
+  note: >-
+    「先登」＝率先陷阵。出处：《三国志·魏书八·公孙瓒传》「绍军广川，令将麴义先登与瓒战，生禽纲」；
+    最详为裴松之注引《英雄记》所记界桥之战：「绍令麹义以八百兵为先登，强弩千张夹承之，绍自以步兵数万结阵于后。
+    义久在凉州，晓习羌斗，兵皆骁锐。瓒见其兵少，便放骑欲陵蹈之。义兵皆伏楯下不动，未至数十步，乃同时俱起，
+    扬尘大叫，直前冲突，强弩雷发，所中必倒，临阵斩瓒所署冀州刺史严纲，甲首千馀级。」
+    —— 八百死士破公孙瓒三万步骑与白马义从，阵斩其冀州刺史严纲，故技能取「冲进去、死了也要换掉主帅」：
+    **先攻 ＋ 亡语打敌方主公**。⚠️「先登死士」四字**不是史书原文**（史书只作「先登」，即率先登城／率先陷阵），
+    是「先登」＋「死士」的合成词，与「连弩士」「毒箭」同类处理（ADR-116/117）。
+    数值口径（ADR-119）：本作「先攻」＝**入场当回合即可攻击**（疾行），不是先发制人的伤害结算顺序；
+    而「4/3＋先攻」在本项目已被定价为 4 费（蜀西凉铁骑，ADR-118），所以给先攻必须付费 ——
+    由「2 费 4/3 ＋ 亡语随机对敌方角色 2 点」改为「**3 费 3/2 先攻 ＋ 亡语对敌方主公 2 点**」：
+    属性 3/2＝5 点（3 费基准 7）＋ 先攻 1 点，再由必定打主公的亡语补回缺口，落在 3 费曲线上。
+    本卡同名可放 3 张（`type: troop`，ADR-065），故数值必须贴线、不能按"独一无二的人物卡"给强度。
+    ⚠️ 实机要盯的一点：升变进先攻形态会**返还一次普攻**（ADR-100）——
+    1 费步兵打满 2 点伤害 → 免费升变（回满血）→ 当回合再打一次 2 点，单回合最多 3 点（步兵 1 ＋ 新形态 2）。
   skills:
   - id: xiandeng_si
     name: 死士
     kind: trigger
     trigger: on_death
+    text: 亡语：对敌方主公造成 2 点伤害。
     effects:
     - action: damage
       value: 2
-      target: { side: enemy, filter: { type: character }, count: 1, mode: random }
+      target: { side: enemy, lord: true }
 - id: qun_huangjinlishi
   name: 黄巾力士
   faction: qun
   type: troop
-  cost: 2
-  attack: 3
+  cost: 3
+  attack: 2
   health: 3
   troopKind: infantry
   upgradeFrom: infantry
+  tags: [huang_jin, huang_jin_zhong]
   keywords: []
-  memo: 亡语召唤两个黄巾兵
+  memo: 亡语召唤两个黄巾兵；自己也随统领永久变大
+  note: >-
+    ⚠️ 卡名考证：「黄巾力士」**不是三国兵种，是道教神将**。维基文库全文检索「黃巾力士」共 94 条命中，
+    全部出自神魔小说与道法场景（《封神演义》9 处、《水浒传》第 53 回、《三宝太监西洋记》《醒世恒言》《东度记》
+    《八仙得道》《红楼梦补》《西湖二集》《薛丁山征西》等），标准像是《水浒传》第 53 回：
+    「仿佛有一丈身材，縱橫有千斤氣力……**設在壇前護法，每來世上降魔**」；常见用法为「黃巾力士何在！」
+    「黃巾力士領法旨」。《三国志》《后汉书》里**没有这支部队**。保留卡名的理由：它是张角太平道体系里
+    唯一有群众认知度的「黄巾＋力士」形象，与张角（五雷轰顶）、张宝／张梁（黄天当立）同属一套宗教叙事。
+    效果（ADR-121，设计者定稿）：**3 费 2/3，亡语召唤两个黄巾兵**；自己与黄巾兵都会**按己方统领数永久 +1/+1**
+    （力士靠本条 `on_play` 在落地时快照，黄巾兵靠它们自己的「黄巾众」在召唤时快照；
+    统领上场时还会给场上所有黄巾众再 +1/+1）。**成长是单向棘轮：统领阵亡不会让任何单位缩回去。**
+    数值（设计者三轮收敛，最终裁定）：2 费 2/2（8 点 vs 基准 5 = +3）→ 2 费 2/1（7 点 = +2）→ **3 费 2/3**
+    ＝ 5 ＋ 4 ＝ **9 点 vs 3 费基准 7（+2）**。设计者取舍：**要一个能站住、能交换的身体，宁可亡语晚一点**；
+    备选 3 费 2/2 落在 +1（与张梁同价同量）。⚠️ 因此上限也随之上移：力士自身最高 2/3＋3 ＝ **5/6**。
+    ⚠️ 另注意：升变是**免费**的（ADR-099），所以改动印费只影响"从手牌直接打出"这一条路，
+    升变路线的收益完全由身体与那两个兵决定。
+    史实依据：《后汉书·卷七十一·皇甫嵩传》「遂置三十六方……**各立渠帥**」「**旬日之閒，天下向應，京師震動**」
+    —— 黄巾是有统领的庞大人群，统领越齐声势越大。
   skills:
-  - id: huangjin_li
+  - id: li_shi
     name: 力士
     kind: trigger
     trigger: on_death
+    text: 亡语：随机位置召唤两个黄巾兵。
     effects:
     - action: summon
       unit: token_huangjin_bing
       count: 2
       position: random
+  - id: huang_tian
+    name: 黄天
+    kind: trigger
+    trigger: on_play
+    text: 上场时，每有一名己方黄巾统领（张角、张宝、张梁）永久 +1/+1。
+    effects:
+    - action: modify
+      attack_from: { side: ally, filter: { tag: huang_jin_tongling } }
+      health_from: { side: ally, filter: { tag: huang_jin_tongling } }
+      target: { source: true }
+      condition:
+        exists:
+          side: ally
+          filter: { tag: huang_jin_tongling }
 - id: qun_baimayicong
   name: 白马义从
   faction: qun
   type: troop
-  cost: 2
+  cost: 4
   attack: 3
   health: 3
   troopKind: cavalry
   upgradeFrom: cavalry
-  keywords: [xian_gong, zhan_ji]
-  memo: 先攻；战技造成2点伤害
+  keywords: []
+  memo: 战吼一轮齐射：指定目标 2 点，左右相邻各 1 点
+  note: >-
+    **史料**（原文均已回取）：《英雄记》（裴注引《三国志·魏书八》，互见《太平御览》卷 279、卷 897）
+    「瓚每與虜戰，常乘白馬，**追不虛發，數獲戎捷**，虜相告云：『**當避白馬**。』因虜所忌，
+    **簡其白馬數千匹，選騎射之士，號為「白馬義從」**」；又「公孫瓚每聞邊警，輒厲色作氣如赴仇。
+    嘗乘白馬，又白馬數十匹，**選騎射之士，號為「白馬義從」，以為左右翼**，胡甚畏之，相告曰：
+    『**當避白馬長史**。』」《太平御覽》卷 279：「瓚征烏桓，**常與善騎射之士數十人，皆乘白馬，
+    以為左右翼，自號「白馬義從」**，烏桓更相告語：『避白馬長史。』乃**畫作瓚形，馳射之**，
+    中者咸稱萬歲。」《三国志·魏书八》界桥：「瓚步兵三萬餘人為方陳，騎為兩翼，左右各五千餘騎，
+    **白馬義從為中堅**，亦分作兩校，**左射右，右射左**，旌旗鎧甲，光照天地。」
+    → **结论：白马义从是明确的「骑射」部队**（原文即「選騎射之士」「善騎射之士」），
+    且有两个独有特征：**部署为左右两翼**、界桥之战**交叉对射（左射右，右射左）**。
+    **技能口径（ADR-123）**：**战吼「夹射」——对指定敌方人物 2 点伤害，并对其左右相邻的敌方单位
+    各造成 1 点伤害**（取「左射右，右射左」之意；引擎内建 `adjacent_to: chosen` 直接表达"左右相邻"）。
+    **⚠️ 不给先攻 —— 设计者裁定**：① 数值上战吼(≈3.5)＋先攻(1)＋3/3 身材(6) ≈ 10.5 点，
+    已超 4 费基准（9）1.5 点；② 群雄原有**两张 4 费 3/3 先攻骑兵**（白马义从／西凉铁骑）几乎同形，
+    去掉先攻正好把两张卡拆开：**西凉铁骑＝纯冲锋，白马义从＝到场先放一轮箭**；
+    ③ 主题上"骑兵里的弓兵、又不完全是骑兵上的弓兵"正用**没有先攻**表达（把机动性换成那一轮齐射）。
+    ⚠️ 与魏「霹雳车」的「霹雳」（战技：目标及左右相邻各 2 点，**每回合可重复**）**目标形状相同**，
+    但角色不同：霹雳车是 0/3 **不能普通攻击**的固定炮台，本卡是 3/3 能打的**一次性齐射＋站场**。
+    ⚠️ 主目标**不含主公**（"左右相邻"是棋盘概念，主公不在 8 列里）。
   skills:
-  - id: baima_ji
-    name: 白马
-    kind: active
-    frequency: once_per_turn
-    target: { side: enemy, filter: { type: character }, count: 1, mode: choose }
+  - id: baima_jia_she
+    name: 夹射
+    kind: trigger
+    trigger: on_play
+    text: 战吼：对指定敌方人物造成 2 点伤害，并对其左右相邻的敌方单位各造成 1 点伤害。
     effects:
     - action: damage
       value: 2
+      target: { side: enemy, filter: { type: character, include_lord: false }, count: 1, mode: choose }
+    - action: damage
+      value: 1
+      target: { side: enemy, filter: { type: character, include_lord: false, adjacent_to: chosen }, count: all }
 - id: qun_xiliangtieqi
   name: 西凉铁骑
   faction: qun
   type: troop
-  cost: 2
+  cost: 4
   attack: 3
   health: 3
   troopKind: cavalry
   upgradeFrom: cavalry
   keywords: [xian_gong]
-  memo: 先攻，攻击人物时获得额外攻击
+  memo: 先攻；打武将或谋臣时 +2 攻（马腾的凉州军团）
+  note: >-
+    **名称出处**：「西凉铁骑」这个名号成名于西晋 —— 洛阳童谣「**凉州大马，横行天下**」说的是 308–309 年
+    凉州刺史张轨遣北宫纯两次解洛阳之围（《晋书·张轨传》），比三国晚近百年；「西凉铁骑」是该童谣的别名。
+    但**凉州兵精悍在三国当时就有明确记载**（虞诩「关西出将」「凉州习兵壮勇，实过余州」；曹操「关西兵精悍」）。
+    本卡对应**马腾**这一支（「典领部众」创立者），蜀版对应**马超**继承后带进蜀汉的同一支军团
+    （《典略》「以超为偏将军……**领腾部曲**」）—— 两张卡是同一支凉州军团的两个时期（ADR-116）。
+    **马腾其人**（《典略》裴注引）：「騰字壽成，**馬援後也**……因留隴西，**與羌錯居**。家貧無妻，遂**娶羌女**，
+    生騰。騰少貧無產業，常從彰山中斫材木，負販詣城市，以自供給。**騰為人長八尺餘，身體洪大，面鼻雄異，
+    而性賢厚，人多敬之。**」《后汉书·董卓列传》：「馬騰……亦擁兵反叛，又漢陽王國，自號「合眾將軍」，
+    皆**與韓遂合**。**共推王國為主，悉令領其眾**。」《三国志·蜀书六》：「騰為**征西將軍**，遣屯郿……
+    **後騰與韓遂不和，求還京畿。於是徵為衛尉**，以超為偏將軍，封都亭侯，**領騰部曲**。」
+    **技能口径（ADR-122，设计者裁定：保留不改）**：保留「突骑：打武将或谋臣 +2」。
+    与蜀版「突阵：打主将 +2」构成对称 —— **群雄破敌将（马腾据关中、与诸将合众，先解敌方人物），
+    蜀版直取主帅（马超「陰欲突前捉曹公」）**。评估过但未采用的三个方向（留档，见 ADR-122）：
+    ①「合众：每有一名骑兵 +1 攻」；②「羌骑：上场召唤一个羌骑衍生物」；③ 与「西凉」标签联动
+    （**与马岱「西凉子弟」同轴，已排除**）。⚠️ 本卡同名可放 3 张，故「全体加属性」类光环一律不可用（ADR-120/121）。
   skills:
   - id: xiliang_tuji
     name: 突骑
@@ -4849,44 +5070,95 @@
   name: 乌桓突骑
   faction: qun
   type: troop
-  cost: 2
-  attack: 3
-  health: 4
-  troopKind: archer
-  upgradeFrom: archer
-  keywords: [xian_gong, zhan_ji]
-  memo: 先攻；战技「放箭」随机对敌方单位造成1点伤害
+  cost: 4
+  attack: 4
+  health: 3
+  troopKind: cavalry
+  upgradeFrom: cavalry
+  keywords: [xian_gong]
+  memo: 先攻；战吼对随机敌人 2 点射击伤害，结算两次
+  note: >-
+    **史实（A/B 级，原文均已回取）**：《后汉书·卷七十三·刘虞公孙瓒陶谦列传》
+    「後車騎將軍張溫討賊邊章等，**發幽州烏桓三千突騎**，而**牢稟逋懸，皆叛還本國**」——
+    **「乌桓突骑」是当时对这支劲骑的固定称呼**；且**群雄池里的公孙瓒就是督它的人**
+    （《三国志·魏书八·公孙瓒传》「光和中，涼州賊起，**發幽州突騎三千人**，假瓚都督行事傳，使將之」）。
+    《后汉书·乌桓传》（《通志·四夷传》引）「**烏桓者本東胡也**。漢初，匈奴冒頓滅其國，
+    餘類保**烏桓山**，因以為號焉。**俗善騎射**，弋獵禽獸為事」。
+    → 特点：① **北方游牧民族的精锐骑兵**（东胡余部、「俗善騎射」）；② **「突骑」＝冲击骑兵**（突＝冲）；
+    ③ **为汉/公孙瓒/袁绍/曹操所用的客军**（「牢稟逋懸，皆叛還本國」——粮饷接不上就叛走，本质是为钱而战）。
+    **技能口径（ADR-128，设计者提案）**：**4 费 4/3 骑兵 ＋ 先攻 ＋ 战吼「突骑」：对随机敌人造成 2 点射击伤害，结算两次**
+    （最多 4 点、随机分配，可命中主公 —— ADR-087「随机伤害默认含主公」）。
+    **定位：攻高、血少、灵活** —— 它到场就能「齐射＋冲锋」两件事都做（战技与普通攻击本就不互斥），
+    是弓马合一的游牧打法；随机分配对应游牧骑射的骚扰性（对比白马义从的**精准**夹射：一巧一野）。
+    **兵种修正**：原为 `archer`（ADR-118 留下的「弓兵的突骑形态」），但**「突骑」本就是骑兵**，
+    故改回 `cavalry`（upgradeFrom 同步改骑兵）。⚠️ 副作用：**群雄弓兵线**的升级目标只剩先登弩手一张。
+    **数值**：4/3 ＝ 7 点（4 费基准 9，**−1**）＋先攻（≈1）＝ 8；战吼（固定 4 点、随机分配，≈2）→ 合计 ≈ **10 ＝ +1** ✓ 贴线。
+    ⚠️ **与蜀·西凉铁骑同身材**（4 费 4/3 先攻）：区别在「突骑」是**随机齐射**（上限 4、可打主公）、
+    「突阵」是**打主将 +2**（稳定）；两者一随机一稳定。
+    ⚠️ ⚠️ 若实机觉得爆发偏高（到场最多 4 ＋ 攻击 4 ＝ 8 点节奏），最小的收敛是战吼改「随机两个各 1 点」或身体收 3/3。
   skills:
-  - id: qun_wuhuan_fangjian
-    name: 放箭
-    kind: active
-    frequency: once_per_turn
+  - id: tu_qi
+    name: 突骑
+    kind: trigger
+    trigger: on_play
+    text: 战吼：对随机敌人造成 2 点射击伤害，结算两次（可命中主公）。
     effects:
     - action: damage
-      value: 1
-      target: { side: enemy, filter: { type: character, include_lord: true }, count: 1, mode: random }
+      value: 2
+      count: 2
+      target:
+        side: enemy
+        filter:
+          type: character
+          include_lord: true
+        count: 1
+        mode: random
 - id: qun_xiandengnushou
   name: 先登弩手
   faction: qun
   type: troop
   cost: 2
-  attack: 2
-  health: 4
+  attack: 1
+  health: 2
   troopKind: archer
   upgradeFrom: archer
   keywords: [zhan_ji]
-  memo: 战技先消灭一个随机先攻士兵，再放箭随机对敌方单位造成1点伤害
+  memo: 每回合指定 2 点（可打主公）的强弩
+  note: >-
+    **史实（B 级，原文已回取）**：《袁绍传》（《太平御览》引）「紹討公孫瓚，**先令麴義領精兵八百，強弩千張，
+    以為前登**」；《英雄记》界桥「義兵皆伏楯下不動……乃同時俱起揚塵大叫，**直前衝突，強弩雷發，所中必倒**」。
+    → 先登营 ＝ 精兵八百（先登死士）＋ **强弩千张（本卡）**，而它对面冲过来的正是**白马义从**的骑兵。
+    **技能口径（ADR-129，设计者两轮定稿）**：**2 费 1/2 弓兵，战技「强弩」：每回合一次，
+    对指定敌方人物或主将造成 2 点伤害。**
+    **设计者给的基线（本轮的关键判断）**：「基础弓兵是每个自己回合 1 点**随机**乱射，特种兵若只能靠战吼打一次，
+    反而更弱」—— 故本卡做成**同一门手艺加倍**（1 → 2），且**每回合可持续**。
+    **与蜀·连弩士的区别（同为 2 费 1/2、同为每回合 2 点）**：连弩士是 **1 点 ×2、指定、不含主公**（精准清场、
+    可分开打两个目标、遇「披坚」只浪费 1 点）；本卡是 **2 点一次、指定、可打主公**（集中、能收人头）——
+    **一分散一集中，一场面一脸**。
+    ⚠️ **若改成"不含主公"会被连弩士完全压住**（同费用同身材、它更灵活且遇披坚损失更小），故**保留含主公**
+    （且基础弓兵「放箭」本就 `include_lord: true`，特种不能打脸反而是降级）。
+    ⚠️ **ADR-112 下限例外**：规则要求"特种兵 ≥ 对应基础兵 + 1"（弓兵 2 费 → 应 ≥3），本卡 **2 费**属**显式豁免**
+    （先例：**蜀·连弩士**同样是被豁免的 2 费弓兵）；好处是补上群雄特种兵缺的 2 费档（原为 3 费 4 张 / 4 费 4 张）。
+    ⚠️ **旧效果已移除**（原为「战技：消灭一个**随机**的敌方【先攻】部队，再 1 点随机伤害」）：
+    「**消灭**」是全池仅此一处的秒杀，**随机秒杀**接近 `12-randomness.md` 规则一禁止的"单次随机决定胜负"；
+    而设计者提过的"5 费、消灭随机先攻**人物**"变体反而更强 —— 因为**带先攻的人物恰是马超 5/5、甘宁 5/5、
+    张辽 5/4、凌统 4/5** 这一档大哥。改为**指定 + 纯伤害**后，既保住"抢先射杀冲锋敌骑"的意图，也去掉方差。
   skills:
-  - id: xiandeng_nu
-    name: 先登
+  - id: qiang_nu
+    name: 强弩
     kind: active
     frequency: once_per_turn
+    text: 每回合一次：对指定敌方人物或主将造成 2 点伤害。
     effects:
-    - action: destroy
-      target: { side: enemy, filter: { type: troop, keyword: xian_gong }, count: 1, mode: random }
     - action: damage
-      value: 1
-      target: { side: enemy, filter: { type: character, include_lord: true }, count: 1, mode: random }
+      value: 2
+      target:
+        side: enemy
+        filter:
+          type: character
+          include_lord: true
+        count: 1
+        mode: choose
 - id: tactic_muniuliuma
   name: 木牛流马
   faction: shu
@@ -4955,6 +5227,51 @@
         # ② 未达上限：基础 3 攻，涨到 6 为止（`attack_max` 为本卡新增的过滤器）
         - count: { selector: { source: true, filter: { attack_max: 5 } }, op: '==', value: 1 }
   flavor: '越骑惟忠，厉志自祗，职于内外，念公忘私。'
+- id: shu_xiangbing
+  name: 象兵
+  faction: shu
+  type: troop
+  cost: 4
+  attack: 3
+  health: 6
+  troopKind: cavalry
+  upgradeFrom: cavalry
+  keywords: []
+  memo: 无先攻；攻击时 50% 震慑目标
+  note: >-
+    **阵营（ADR-130，设计者定）**：归**蜀**。理由：① 象的产地与故事都在**南方**（蜀的南中、吴的交州）——
+    A 级《三国志·魏书·邓哀王冲传》「時**孫權曾致巨象**，太祖欲知其斤重」（曹冲称象）是三国最著名的象，
+    但它**是南方送来的贡物**；《后汉书·南蛮西南夷列传》记哀牢、掸国等**南方诸夷出犀、象**；
+    ② **池中先例**：同为演义南蛮出处的**藤甲兵**（乌戈国兀突骨）已在蜀；
+    ③ 结构上群雄骑兵线已满（白马义从／西凉铁骑／乌桓突骑三张 4 费骑兵），且群雄题材是北方与中原军阀，
+    **没有一头象的归属**。
+    ⚠️ **「象兵」作为部队**：⚠️ **未取到原文** —— 三国史料里查不到明确的"象兵/象阵"部队记载，
+    象在史料中多以**出产/贡物**出现；"象兵"主要出自演义与后世游戏（与南蛮绑定）。按考证纪律**不编造出处**，
+    归蜀的依据是**南中题材 ＋ 藤甲兵先例**。
+    **技能口径（ADR-130，设计者定）**：**4 费 3/6 骑兵（无先攻）＋「象阵」：攻击时，50% 概率使该目标获得「震慑」**。
+    · **无先攻**：象不是冲过去的，是碾过去的（设计者定）；3/6 ＝ 9 点 ＝ **正好 4 费基准**。
+    · **震慑**：全池此前只有张角用它（五雷轰顶每次雷击 50% 震慑），**没有任何部队会施加它** → 全新的部队轴，
+      与蜀的越骑（成长）、西凉铁骑（斩首）、藤甲兵（减伤）四轴分开。
+    · **50% 概率**：与张角同款写法（`chance: 0.5`），避免"每回合稳定点控"过强。
+    ⚠️ **时点口径**：DSL 的 `on_attack` **非击杀效果在伤害结算前执行**（只有 `condition.event === 'killed'`
+    的才延到伤害之后，见 `effects.ts:763-766`），所以卡面写「**攻击时**」而不是"造成伤害后" ——
+    效果等价（打谁震慑谁），但文案必须与实现一致。
+    ⚠️ **本轮为它新增的引擎能力（ADR-130）**：选择器 `attack_target: true` ——
+    此前 `ctx.attackTarget` **只能被条件读取**（`condition.attack_target`，西凉铁骑「突骑」在用），
+    **没有"以攻击目标为作用对象"的选择器**（选择器原只有 `source`／`event: killer|victim`／`chosen`／`lord` 等；
+    `event: victim` 在攻击语境里只在**目标阵亡**时有效，而死了就不必震慑了）。
+  skills:
+  - id: xiang_zhen
+    name: 象阵
+    kind: trigger
+    trigger: on_attack
+    text: 攻击时，50% 概率使该目标获得「震慑」（下回合无法攻击）。
+    effects:
+    - action: apply_status
+      status: zhen_she
+      duration: 1
+      chance: 0.5
+      target: { attack_target: true }
 - id: shu_liannushi
   name: 连弩士
   faction: shu

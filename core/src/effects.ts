@@ -584,6 +584,11 @@ export function resolveTargets(
   ctx: EffectContext,
   rng: Rng,
 ): TargetRef[] {
+  // 「本次普通攻击的目标」（ADR-130）：象兵「象阵」＝打谁就给谁挂状态。
+  // 攻击语境由 runOnAttackPhase 注入 ctx.attackTarget；其它语境取不到 → 空池（效果自然跳过）。
+  if (selector?.attack_target) {
+    return ctx.attackTarget ? [ctx.attackTarget] : [];
+  }
   // 「本次事件的另一方单位」：华雄亡语要指向击杀者（ADR-070）
   if (selector?.event) {
     const k = selector.event === 'killer' ? ctx.killer : ctx.eventVictim;
@@ -1126,6 +1131,22 @@ export function runEffects(
             if (u && eff.copy_source_stats && ctx.source) {
               u.atk = u.baseAtk = ctx.source.atk;
               u.hp = u.maxHp = u.baseMaxHp = ctx.source.hp;
+            }
+            if (u) {
+              // ADR-121：**召唤也是「上场」** —— 与 ADR-114 对升变的处理同理，
+              // 新单位自己的「战吼（on_play）」必须照样发动。此前只有 `playCard` 与
+              // `upgradeUnit` 派发 on_play，召唤出来的一律不派发。
+              //
+              // 影响面为零风险：改动前全池**没有任何**被召唤的单位带 on_play 技能
+              // （只有主动声明该触发技的衍生物才会受影响）。首个使用者是「黄巾兵」
+              // 的「黄巾众」：落地时按当时的己方统领数/是否有黄巾力士**永久**成长。
+              //
+              // 这里不额外 `recomputeAuras`：`modify` 分支自己会 `applyMods`，
+              // 而外层动作（出牌 / 阵亡 / 回合边界）本就会在效果结算完后重算光环。
+              for (const sk of (u.skills ?? []).filter((s) => s.trigger === 'on_play')) {
+                emitSkillTriggered(state, ctx.side, u, sk, 'on_play', events);
+                runEffects(state, cards, effectsOf(sk), { side: ctx.side, source: u }, rng, events);
+              }
             }
           }
         }

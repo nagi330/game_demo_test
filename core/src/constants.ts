@@ -102,6 +102,12 @@ export const TAGS: Record<string, { name: string; note: string }> = {
   xi_liang:  { name: '西凉', note: '西凉出身：马腾、马超、马岱' },
   man_zu:    { name: '蛮族', note: '南方异族：沙摩柯' },
   huang_jin: { name: '黄巾', note: '黄巾军出身或其旧部' },
+  // 黄巾统领：黄巾兵「黄巾众」按已方统领数量成长（ADR-120）。只算张角/张宝/张梁三位首领，
+  // 不含周仓、张燕等「黄巾旧部」—— 故不能复用 huang_jin 标签（黄巾兵自己就带它，会自我循环）。
+  huang_jin_tongling: { name: '黄巾统领', note: '黄巾首领：张角、张宝、张梁' },
+  // 黄巾众：黄巾的兵众（黄巾兵衍生物 + 黄巾力士）—— 统领上场时给它们永久 +1/+1（ADR-121）。
+  // 与 huang_jin 分开：统领自己也带 huang_jin，不能拿它当「被统领带领的兵」的判据。
+  huang_jin_zhong: { name: '黄巾众', note: '黄巾兵衍生物与黄巾力士' },
   shi_zu:    { name: '士族', note: '士族门阀：袁绍及其士族兵' },
   cao_clan:  { name: '曹氏宗亲', note: '曹操宗族人物：曹昂、曹休、曹彰、曹仁、曹丕等' },
 };

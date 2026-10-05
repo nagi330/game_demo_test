@@ -611,8 +611,11 @@ test('张角：5 费 1/5 谋臣「五雷轰顶」——5 次随机雷击 + 50% �
   assert.equal(zj!.attack, 1);
   assert.equal(zj!.health, 5);
   assert.equal(zj!.type, 'strategist');
-  const sk = zj!.skills![0]!;
-  assert.equal(sk.trigger, 'turn_end');
+  // 按 trigger 取，不按数组下标 —— ADR-121 给张角加了 on_play「大贤良师」，
+  // 写在五雷轰顶之前，按下标取会指错技能。
+  const sk = zj!.skills!.find((x) => x.trigger === 'turn_end')!;
+  assert.ok(sk, '五雷轰顶必须还在');
+  assert.ok(zj!.skills!.some((x) => x.trigger === 'on_play'), 'ADR-121：大贤良师（上场给黄巾众 +1/+1）');
   const dmg = sk.effects!.find((e) => e.action === 'damage')!;
   assert.equal(dmg.count, 5, '5 次雷击');
   assert.equal(dmg.value, 1);
