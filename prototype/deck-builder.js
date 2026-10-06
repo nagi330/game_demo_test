@@ -30,7 +30,7 @@
   // 转义 / 效果文案 / 名称映射统一来自 CardTile，本文件不再各写一份
   var esc = Tile.esc;
 
-  var TYPE_NAME = { troop: '兵种', general: '武将', strategist: '谋臣', tactic: '战法', event: '事件' };
+  var TYPE_NAME = { troop: '兵种', general: '武将', strategist: '谋臣', machine: '军械', tactic: '战法', event: '事件' };
   var FAC_NAME = { shu: '蜀', wei: '魏', wu: '吴', qun: '群雄', neutral: '中立' };
 
   var MAX = Core.DECK.SIZE;        // 张数也问引擎（core/src/constants.ts 的 DECK.SIZE）
@@ -80,7 +80,7 @@
   /* ---------- 渲染 ---------- */
 
   function renderFilters() {
-    var types = [['', '全部'], ['troop', '兵种'], ['general', '武将'], ['strategist', '谋臣'], ['tactic', '战法'], ['event', '事件']];
+    var types = [['', '全部'], ['troop', '兵种'], ['general', '武将'], ['strategist', '谋臣'], ['machine', '军械'], ['tactic', '战法'], ['event', '事件']];
     $('type-filters').innerHTML = types.map(function (t) {
       return '<button class="' + (state.typeFilter === t[0] ? 'active' : '') + '" data-type-filter="' + t[0] + '">' + t[1] + '</button>';
     }).join('');

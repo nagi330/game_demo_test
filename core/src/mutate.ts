@@ -136,7 +136,7 @@ export type OnDeathResolver = (
   unit: Unit, skills: SkillDef[], events: GameEvent[],
   rng: ReturnType<typeof createRng>,
   /** 击杀者（华雄「亡语：击杀华雄的角色获得 +1/+1」需要它，ADR-070） */
-  killer?: { side: Side; row: Row; col: number } | null,
+  killer?: { side: Side; row?: Row; col?: number } | null,
 ) => void;
 
 let onDeathResolver: OnDeathResolver | null = null;
@@ -288,6 +288,7 @@ export function dealDamage(
    */
   damageType: DamageType = 'physical',
   reflected = false,
+  deathSource?: { side: Side; row?: Row; col?: number },
 ): number {
   if (amount <= 0 || !refAlive(state, ref)) return 0;
 
@@ -308,12 +309,13 @@ export function dealDamage(
       events.push({ type: 'DAMAGE_REDIRECTED', side: ref.side, lord: true,
                     to: lguard.side, guardName: lguard.unit.name });
       return dealDamage(state, cards, unitRef(lguard.side, lguard.row, lguard.col),
-                        amount, events, source, depth + 1, killerRef, sourceUnit, damageType, reflected);
+                        amount, events, source, depth + 1, killerRef, sourceUnit, damageType, reflected, deathSource);
     }
     let dmg = amount;
     if (lord.armor > 0) {
       const absorbed = Math.min(lord.armor, dmg);
       lord.armor -= absorbed;
+      lord.temporaryArmor = Math.max(0, (lord.temporaryArmor ?? 0) - absorbed);
       dmg -= absorbed;
     }
     lord.hp -= dmg;
@@ -344,7 +346,7 @@ export function dealDamage(
     events.push({ type: 'DAMAGE_REDIRECTED', side: ref.side, row: ref.row, col: ref.col,
                   to: guard.side, guardName: guard.unit.name });
     return dealDamage(state, cards, unitRef(guard.side, guard.row, guard.col),
-                      amount, events, source, depth + 1, killerRef, sourceUnit, damageType, reflected);
+                      amount, events, source, depth + 1, killerRef, sourceUnit, damageType, reflected, deathSource);
   }
 
   // 免疫伤害（圣盾）：既支持效果施加的 sheng_dun_status，也支持卡牌固有的
@@ -393,7 +395,7 @@ export function dealDamage(
 
   // 剧毒是伤害来源单位的能力，不依赖额外牌组或状态；伤害至少命中 1 点后直接摧毁目标。
   if (actual > 0 && sourceUnit?.kw.includes('ju_du') && u.hp > 0) {
-    killUnit(state, cards, { side: ref.side, row: ref.row, col: ref.col, unit: u }, events, killerRef);
+    killUnit(state, cards, { side: ref.side, row: ref.row, col: ref.col, unit: u }, events, deathSource ?? killerRef);
     return actual;
   }
 
@@ -420,10 +422,16 @@ export function dealDamage(
     }
   }
 
+  // 主公普攻同样触发反伤；普通技能来源不会进入此分支。
+  if (actual > 0 && thorns > 0 && deathSource && deathSource.row === undefined) {
+    dealDamage(state, cards, lordRef(deathSource.side), thorns, events, u.name,
+      depth + 1, null, u, 'physical');
+  }
+
   // 免死判定（ADR-039）：致命伤害时按 on_lethal 技能掷骰，成功则以 1 血存活
   if (u.hp <= 0 && tryLethalSave(state, u, ref, events)) return finalAmount;
 
-  if (u.hp <= 0) killUnit(state, cards, { side: ref.side, row: ref.row, col: ref.col, unit: u }, events, killerRef);
+  if (u.hp <= 0) killUnit(state, cards, { side: ref.side, row: ref.row, col: ref.col, unit: u }, events, deathSource ?? killerRef);
   return finalAmount;
 }
 
@@ -713,13 +721,13 @@ export function killUnit(
   ref: UnitRefFull,
   events: GameEvent[],
   /** 击杀者（谁把它打死的）。供 on_kill 触发技与「亡语给击杀者加成」用（ADR-070） */
-  killer?: { side: Side; row: Row; col: number } | null,
+  killer?: { side: Side; row?: Row; col?: number } | null,
 ): void {
   const { side, row, col, unit } = ref;
   if (!getUnit(state, side, row, col)) return;
 
   // 骑兵升变进度：只统计击杀基础兵，或击杀武将/谋臣；特殊兵不算基础兵。
-  if (killer) {
+  if (killer?.row !== undefined && killer.col !== undefined) {
     const killerUnit = getUnit(state, killer.side, killer.row, killer.col);
     if (killerUnit?.troopKind === 'cavalry' && isBasicTroop(killerUnit)) {
       const p = upgradeProgress(killerUnit);
@@ -752,8 +760,8 @@ export function killUnit(
   // on_kill（ADR-070）：击杀者的「每次击杀时」触发技。
   // 华雄「威震四方」靠它每次击杀获得 +1/+1。
   // 走挂载点而不是直接 import runEffects —— 否则 mutate ↔ effects 形成循环依赖。
-  if (killer && onKillResolver) {
-    onKillResolver(state, cards, killer, { name: unit.name, side, row, col, type: unit.type }, events, createRng(state.rngState));
+  if (killer?.row !== undefined && killer.col !== undefined && onKillResolver) {
+    onKillResolver(state, cards, { side: killer.side, row: killer.row, col: killer.col }, { name: unit.name, side, row, col, type: unit.type }, events, createRng(state.rngState));
   }
 
   // 第 19 步：死亡后光环重算（ADR-087）—— 放在最后，让亡语/标记都结算完再重算一次

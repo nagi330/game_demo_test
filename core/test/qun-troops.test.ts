@@ -697,7 +697,9 @@ test('陷阵结算：打架盾目标 +2 攻，打不带架盾的目标不加，�
     '先攻分支 4 攻 ＋ 破盾 2 ＝ 6 点，6 血白毦兵被一击打死');
 
   const b = setup();
-  setUnit(b.state, 'enemy', 'front', 3, makeUnit(real('wei_hubaoki_hu'), 0, nextUidSeq(b.state)));
+  const bTarget = makeUnit(real('wei_hubaoki_hu'), 0, nextUidSeq(b.state));
+  bTarget.baseMaxHp = bTarget.maxHp = bTarget.hp = 5;
+  setUnit(b.state, 'enemy', 'front', 3, bTarget);
   b.state.sides.own.command.cur = 9;
   b.state.sides.own.hand = [{ card: real('qun_xianzhenying'), mods: [] }];
   const rb = applyAction(b.state, b.ctx, {
@@ -765,7 +767,7 @@ test('乌桓突骑结算：齐射随机打两个目标（固定 4 点总量）�
 
   const a = getUnit(r.state, 'enemy', 'front', 0)!;
   const b = getUnit(r.state, 'enemy', 'front', 2)!;
-  const dealt = (5 - a.hp) + (5 - b.hp);
+  const dealt = (4 - a.hp) + (4 - b.hp);
   const lord = hpBefore - r.state.sides.enemy.lord.hp;
   assert.equal(dealt + lord, 4, '齐射总量固定 4 点（2 点 × 2 次），只是随机分配');
   assert.ok(dealt >= 0 && lord >= 0);

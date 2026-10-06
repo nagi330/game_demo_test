@@ -4,7 +4,7 @@
   root.CardTest = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   var factions = ['shu', 'wei', 'wu'];
-  var types = ['troop', 'general', 'strategist', 'tactic', 'event'];
+  var types = ['troop', 'general', 'strategist', 'machine', 'tactic', 'event'];
   var testSequence = 0;
 
   function selectableCards(core, gameData) {
@@ -44,8 +44,9 @@
       return config.ids[index % config.ids.length];
     });
     var enemyDeck = Array(30).fill(dummy.id);
+    var sessionSeed = (Date.now() + (++testSequence * 0x9e3779b9)) >>> 0;
     var state = core.createMatch({
-      seed: 1, cards: data.cards, lords: data.lords,
+      seed: sessionSeed, cards: data.cards, lords: data.lords,
       decks: { own: ownDeck, enemy: enemyDeck }, firstSide: 'own', secondCompensation: 'none',
     });
     state.sides.own.command = { cur: 10, max: 10 };
@@ -59,8 +60,8 @@
     state.sides.own.rows.front[0] = core.makeUnit(dummy, state.turn, state.uidSeq);
     // 测试场景始终保留基础兵，同时随机放入一个敌方武将和一个谋臣，
     // 方便验证指向性技能、伤害目标和人物类型筛选。随机仍走 core RNG，
-    // 只用变化的测试序号作为种子，不把 Math.random 引入规则层。
-    var enemyRng = Core.createRng((Date.now() + (++testSequence * 0x9e3779b9)) >>> 0);
+    // 每次测试场景使用新的种子；随机仍走 core RNG，不把 Math.random 引入规则层。
+    var enemyRng = Core.createRng(sessionSeed ^ 0xa5a5a5a5);
     var enemyPool = data.cards instanceof Map ? Array.from(data.cards.values()) : gameData.cards;
     var enemyGeneral = enemyPool.filter(function (card) {
       return card.faction === config.enemyFaction && card.type === 'general'

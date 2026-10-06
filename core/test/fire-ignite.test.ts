@@ -185,7 +185,7 @@ test('潘璋「擒将」：3 点火攻 → 目标挂 1 层', () => {
   assert.equal(stacksOf(after), 1, '1 层灼烧');
 });
 
-test('蒙冲斗舰「蒙冲」：对敌 3 段各 1 层；**对自身的第 4 段不挂层**', () => {
+test('蒙冲斗舰「蒙冲」：只对指定单位造成 1 点水攻，不扩散也不挂灼烧', () => {
   const s = setup({});
   put(s, 'own', 0, 3, realCard('wu_mengchongdoujian'));
   put(s, 'enemy', 2, 10);
@@ -199,34 +199,10 @@ test('蒙冲斗舰「蒙冲」：对敌 3 段各 1 层；**对自身的第 4 段
   s.state = r.state;
 
   const [chosen, right1, right2] = [2, 3, 4].map((c) => unitAt(s, 'enemy', c));
-  const ship = unitAt(s, 'own', 0);
-  assert.deepEqual([10 - chosen!.hp, 10 - right1!.hp, 10 - right2!.hp], [3, 2, 1],
-    '目标及右侧两格依次 3/2/1 点火伤');
-  assert.equal(3 - ship!.hp, 2, '第 4 段火攻打自己（自损 2 点）');
-
-  assert.deepEqual([stacksOf(chosen), stacksOf(right1), stacksOf(right2)], [1, 1, 1],
-    '对敌的 3 段火攻各挂 1 层 —— 各段各算一次，且 3 点段也只 1 层（与伤害数值无关）');
-  assert.equal(stacksOf(ship), 0,
-    '**施法者自己绝不中灼烧**：第 4 段是"对自身"的火伤，只掉血、不挂层（ADR-134 的"只对敌人"）');
-  const total = [chosen, right1, right2, ship].reduce((n, u) => n + stacksOf(u), 0);
-  assert.equal(total, 3, '全场层数合计 = 3（对敌 3 段；自伤段不计）');
-});
-
-test('火攻打死目标：不给**已离场**的单位挂层，其余段照常', () => {
-  const s = setup({});
-  put(s, 'own', 0, 3, realCard('wu_mengchongdoujian'));
-  put(s, 'enemy', 2, 1);                      // 1 血目标：3 点火攻直接打死
-  put(s, 'enemy', 3, 10);
-
-  const r = applyAction(s.state, s.ctx, {
-    type: 'USE_SKILL', row: 'front', col: 0, target: { side: 'enemy', row: 'front', col: 2 },
-  });
-  assert.ok(r.ok, r.error ?? '蒙冲应能发动');
-  s.state = r.state;
-
-  assert.equal(getUnit(s.state, 'enemy', 'front', 2), null, '目标应已阵亡离场');
-  assert.equal(stacksOf(unitAt(s, 'enemy', 3)), 1, '右 1 格照常挂 1 层');
-  assert.equal(stacksOf(unitAt(s, 'own', 0)), 0, '自伤段本来就不挂层（只对敌人）');
+  assert.deepEqual([10 - chosen!.hp, 10 - right1!.hp, 10 - right2!.hp], [1, 0, 0],
+    '只有指定目标受到 1 点水攻');
+  assert.deepEqual([stacksOf(chosen), stacksOf(right1), stacksOf(right2)], [0, 0, 0],
+    '水攻不产生灼烧状态');
 });
 
 test('黄权「断后」：受创后对敌方全体 1 点火攻 → 每个敌方单位各 1 层', () => {

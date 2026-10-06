@@ -98,7 +98,7 @@ function computeStats(cards: CardDef[]): DeckStats {
   let units = 0;
   for (const c of cards) {
     curve[c.cost] = (curve[c.cost] ?? 0) + 1;
-    if (['troop', 'general', 'strategist'].includes(c.type)) units += 1;
+    if (['troop', 'general', 'strategist', 'machine'].includes(c.type)) units += 1;
   }
   const size = cards.length;
   return {

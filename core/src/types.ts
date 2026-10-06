@@ -15,7 +15,7 @@ export type Row = 'front' | 'back';
  */
 export type Gender = 'male' | 'female' | 'unknown';
 export type CardType =
-  | 'troop' | 'general' | 'strategist' | 'event' | 'tactic' | 'elite' | 'special'
+  | 'troop' | 'general' | 'strategist' | 'machine' | 'event' | 'tactic' | 'elite' | 'special'
   | 'lord'      // 主公卡（不进卡组，见 ADR-014）
   | 'token'     // 衍生物（召唤产生，不进卡组）
   | 'status';   // 属性/状态卡（如「架盾」）
@@ -27,6 +27,7 @@ export type Faction = 'shu' | 'wei' | 'wu' | 'qun' | 'neutral';
 
 /** 效果条件（ADR-033）：四种写法见 docs/gdd/13-balance-data-model.md §7.6 */
 export interface EffectCondition {
+  last_damage_target_not_type?: CardType;
   exists?: TargetSelector;                                   // 该集合非空
   count?: { selector: TargetSelector; op: CompareOp; value: number };   // 数量与定值比
   count_vs?: { left: TargetSelector; right: TargetSelector; op: CompareOp };  // 两集合互比
@@ -81,6 +82,7 @@ export interface CardEffect {
   action: string;
   value?: number;
   bonus_vs_keyword?: { keyword: string; value: number };
+  bonus_vs_troop_kind?: { troopKind: 'infantry' | 'shield' | 'cavalry' | 'archer'; value: number };
   chance?: number;               // 概率 0–1（ADR-033）
   condition?: EffectCondition;   // 条件（ADR-033）
   clashMode?: 'roll' | 'cost';   // clash 的比法
@@ -188,7 +190,7 @@ export interface TargetSelector {
     card_id?: string;              // 指定具体卡（关平亡语指定「关羽」）ADR-069
   troopKind?: 'infantry' | 'shield' | 'cavalry' | 'archer';   // 兵种（进化卡按兵种选目标，ADR-042）
     has_status?: string;
-    adjacent_to?: 'self' | 'chosen'; // 来源或玩家选定目标左右相邻的单位
+    adjacent_to?: 'self' | 'chosen' | 'killer'; // 来源、选定目标或击杀者的相邻单位
     offset_from_chosen?: number;   // 已选目标右侧固定格偏移，空格不压缩距离
     /** 排除来源单位自身（ADR-071，陆抗「手里**或**场上友方将领」：不能复制自己） */
     exclude_source?: boolean;
@@ -373,6 +375,9 @@ export interface Unit {
 }
 
 export interface Lord {
+  attackThisTurn?: number;
+  attackedThisTurn?: boolean;
+  temporaryArmor?: number;
   id: string;
   name: string;
   faction: Faction;
@@ -452,6 +457,7 @@ export type Action =
    */
   | { type: 'UPGRADE_UNIT'; row: Row; col: number; toCardId: string; target?: { side: Side; row?: Row; col?: number }; modeIndex?: number }
   | { type: 'ATTACK'; from: { row: Row; col: number }; to: { kind: 'unit'; row: Row; col: number } | { kind: 'lord' } }
+  | { type: 'LORD_ATTACK'; to: { kind: 'unit'; row: Row; col: number } | { kind: 'lord' } }
   | { type: 'USE_LORD_SKILL'; target?: { side: Side; row?: Row; col?: number }; handIndex?: number; modeIndex?: number }
   | { type: 'USE_SKILL'; row: Row; col: number; target?: { side: Side; row?: Row; col?: number }; handIndex?: number; modeIndex?: number; skillId?: string }
   | { type: 'END_TURN' };
@@ -461,6 +467,8 @@ export type Action =
    ============================================================ */
 
 export type GameEvent =
+  | { type: 'LORD_ATTACK_DECLARED'; side: Side; to: { kind: 'unit'; row: Row; col: number } | { kind: 'lord' } }
+  | { type: 'LORD_ATTACK_GAINED'; side: Side; attack: number }
   | { type: 'TURN_START'; side: Side; turn: number; halfTurn: number; command: { cur: number; max: number } }
   | { type: 'TURN_END'; side: Side; turn: number; halfTurn: number }
   | { type: 'CARD_DRAWN'; side: Side; card: CardDef; deckLeft: number }

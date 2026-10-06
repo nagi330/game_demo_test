@@ -15,8 +15,8 @@ const real = (id: string): CardDef => {
   assert.ok(card, id);
   return card;
 };
-function setup() {
-  const s = scenario({});
+function setup(seed = 1) {
+  const s = scenario({ seed });
   for (const c of cards) s.ctx.cards.set(c.id, c);
   return s;
 }
@@ -52,13 +52,69 @@ function play(s: ReturnType<typeof setup>, id: string) {
   return r;
 }
 
+test('武射吏：武将光环动态增减，战技为2或3点，移除先攻', () => {
+  const s = setup();
+  const u = place(s, 'wu_jiangdong_nushou');
+  victim(s, 0);
+  assert.ok(!u.kw.includes('xian_gong'));
+  assert.equal(getUnit(cast(s, 0).state, 'enemy', 'front', 0)!.hp, 8);
+  const general = makeUnit(real('wu_sunyi'), 0, nextUidSeq(s.state));
+  setUnit(s.state, 'own', 'front', 1, general);
+  recomputeAuras(s.state, s.ctx.cards, createRng(1), []);
+  assert.deepEqual([u.atk, u.maxHp], [4, 5]);
+  recomputeAuras(s.state, s.ctx.cards, createRng(1), []);
+  assert.deepEqual([u.atk, u.maxHp], [4, 5], '光环不能重复叠加');
+  assert.equal(getUnit(cast(s, 0).state, 'enemy', 'front', 0)!.hp, 7);
+  setUnit(s.state, 'own', 'front', 1, null);
+  recomputeAuras(s.state, s.ctx.cards, createRng(1), []);
+  assert.deepEqual([u.atk, u.maxHp], [3, 4]);
+});
+
+for (const type of ['troop', 'strategist', 'machine', 'token', 'general'] as const) {
+  test(`锦帆军：命中并击杀${type}，仅非武将夺取实际牌顶`, () => {
+    const s = setup();
+    place(s, 'wu_jinfanjun');
+    const target = victim(s, 0, 1);
+    target.type = type;
+    s.state.sides.enemy.deck = ['neutral_archer', 'neutral_infantry'];
+    const r = applyAction(s.state, s.ctx, { type: 'USE_SKILL', row: 'front', col: 0, skillId: 'jinfan_jieying' });
+    assert.ok(r.ok, r.error ?? '技能应成功');
+    assert.equal(getUnit(r.state, 'enemy', 'front', 0), null);
+    const stolen = r.events.filter(e => e.type === 'CARD_STOLEN');
+    assert.equal(stolen.length, type === 'general' ? 0 : 1);
+    if (type !== 'general') {
+      assert.equal(r.state.sides.own.hand.at(-1)!.card.id, 'neutral_infantry');
+      assert.deepEqual(r.state.sides.enemy.deck, ['neutral_archer']);
+    }
+  });
+}
+
+test('锦帆军：空牌库不夺牌，无场上单位不命中主公', () => {
+  const s = setup();
+  place(s, 'wu_jinfanjun');
+  const target = victim(s, 0, 1);
+  target.type = 'troop';
+  s.state.sides.enemy.deck = [];
+  const r = applyAction(s.state, s.ctx, { type: 'USE_SKILL', row: 'front', col: 0 });
+  assert.ok(r.ok);
+  assert.equal(r.events.filter(e => e.type === 'CARD_STOLEN').length, 0);
+  setUnit(s.state, 'enemy', 'front', 0, null);
+  const empty = applyAction(s.state, s.ctx, { type: 'USE_SKILL', row: 'front', col: 0 });
+  assert.equal(empty.state.sides.enemy.lord.hp, 30);
+});
+
+test('锦帆军：劫营夺牌概率为50%', () => {
+  const skill = real('wu_jinfanjun').skills?.find(s => s.id === 'jinfan_jieying');
+  assert.equal((skill?.effects ?? []).find(e => e.action === 'steal_card')?.chance, 0.5);
+});
+
 test('ADR-117：15种特殊兵费用与攻血逐项对应最终设计列', () => {
   const expected: Array<[string, number, number, number]> = [
     ['wei_huweidun', 3, 1, 5], ['wei_wuweiying', 3, 2, 5], ['wei_qingzhou_bing', 2, 3, 2],
-    ['wei_suwei_hushi', 2, 2, 3], ['wei_hubaoki_hu', 4, 3, 5], ['wei_hubaoki_bao', 4, 4, 3],
-    ['wei_qiangnuying', 3, 1, 3], ['wei_piliche', 3, 0, 3], ['wu_wunan_bing', 3, 2, 3],
-    ['wu_jiefanbing', 2, 2, 1], ['wu_gansiying', 2, 2, 3], ['wu_chexiahushi', 3, 3, 4],
-    ['wu_dongwujingqi', 4, 4, 3], ['wu_louchuanjun', 3, 2, 4], ['wu_mengchongdoujian', 3, 0, 3],
+    ['wei_suwei_hushi', 2, 2, 2], ['wei_hubaoki_hu', 4, 2, 4], ['wei_hubaoki_bao', 4, 3, 3],
+    ['wei_qiangnuying', 2, 1, 2], ['wei_piliche', 3, 0, 3], ['wu_wunan_bing', 3, 1, 3],
+    ['wu_jiefanbing', 3, 3, 3], ['wu_gansiying', 3, 2, 3], ['wu_chexiahushi', 3, 3, 4],
+    ['wu_dongwujingqi', 5, 4, 3], ['wu_louchuanjun', 3, 2, 4], ['wu_mengchongdoujian', 3, 1, 3],
   ];
   for (const [id, cost, atk, hp] of expected) {
     const c = real(id);
@@ -102,8 +158,9 @@ test('武卫营：护主仍有效，转移的火攻仍保留伤害属性', () =>
   assert.equal(getUnit(s.state, 'own', 'front', 0)!.hp, real('wei_wuweiying').health! - 2);
 });
 
-test('青州兵：伤害交换后存活才夺取牌顶，移走原牌而不是复制', () => {
+test('青州兵：伤害交换后存活且概率命中时夺取牌顶', () => {
   const s = setup();
+  s.state.rngState = 7;
   place(s, 'wei_qingzhou_bing');
   victim(s, 0, 10, 1);
   s.state.sides.enemy.deck = ['neutral_infantry', 'wei_caoxiu'];
@@ -173,7 +230,6 @@ test('豹骑营：受伤单位本次+1，击杀武将也返还攻击', () => {
 
 for (const [id, token, keyword] of [
   ['wu_wunan_bing', 'token_wunan_right', 'jia_dun'],
-  ['wu_jiefanbing', 'token_jiefan_right', 'xian_gong'],
 ] as const) {
   test(`${id}：上场召唤一个同攻血右部，保留关键词而不递归召唤`, () => {
     const s = setup();
@@ -216,13 +272,13 @@ for (const [id, token, keyword] of [
   });
 }
 
-test('解烦右部：先攻允许出场当回合攻击，旧水攻主动技能已删除', () => {
+test('解烦兵：不再召唤右部，战技对指定单位造成1点水攻', () => {
   const s = setup();
   const r = play(s, 'wu_jiefanbing');
-  const right = allUnits(r.state, 'own').find(ref => ref.unit.cardId === 'token_jiefan_right')!;
-  const r2 = applyAction(r.state, s.ctx, { type: 'ATTACK', from: { row: right.row, col: right.col }, to: { kind: 'lord' } });
-  assert.ok(r2.ok, r2.error ?? '右部应能攻击');
-  assert.equal(real('wu_jiefanbing').skills!.some(sk => sk.kind === 'active'), false);
+  assert.equal(allUnits(r.state, 'own').length, 1);
+  s.state = r.state;
+  victim(s, 0);
+  assert.equal(getUnit(cast(s, 0).state, 'enemy', 'front', 0)!.hp, 9);
 });
 
 test('敢死营：上场获得披坚，亡语按水攻属性受到蒋钦加成', () => {
@@ -236,27 +292,30 @@ test('敢死营：上场获得披坚，亡语按水攻属性受到蒋钦加成',
   assert.equal(s.state.sides.enemy.lord.hp, 25, '敌方仅主公在场，亡语为2+3水攻');
 });
 
-test('车下虎士：主公仍受伤，按护甲后实际扣血反射', () => {
+test('车下虎士：主公受伤不反射，亡语提供本回合攻甲', () => {
   const s = setup();
   const u = place(s, 'wu_chexiahushi');
   s.state.sides.own.lord.armor = 2;
   dealDamage(s.state, s.ctx.cards, lordRef('own'), 5, [], '测试');
   assert.equal(s.state.sides.own.lord.hp, 27);
-  assert.equal(s.state.sides.enemy.lord.hp, 27);
+  assert.equal(s.state.sides.enemy.lord.hp, 30);
   assert.equal(u.hp, real('wu_chexiahushi').health);
+  dealDamage(s.state, s.ctx.cards, unitRef('own', 'front', 0), 99, [], '测试');
+  assert.equal(s.state.sides.own.lord.attackThisTurn, 2);
+  assert.equal(s.state.sides.own.lord.temporaryArmor, 2);
 });
 
-test('车下虎士：双方在场不无限反射，披坚免伤不触发反射', () => {
+test('车下虎士：双方在场均不反射，披坚免伤不触发亡语', () => {
   const s = setup();
   place(s, 'wu_chexiahushi');
   place(s, 'wu_chexiahushi', 'enemy');
   const events: GameEvent[] = [];
   dealDamage(s.state, s.ctx.cards, lordRef('own'), 3, events, '测试');
-  assert.deepEqual([s.state.sides.own.lord.hp, s.state.sides.enemy.lord.hp], [27, 27]);
-  assert.equal(events.filter(e => e.type === 'DAMAGE').length, 2);
+  assert.deepEqual([s.state.sides.own.lord.hp, s.state.sides.enemy.lord.hp], [27, 30]);
+  assert.equal(events.filter(e => e.type === 'DAMAGE').length, 1);
   s.state.sides.own.lord.statuses = { sheng_dun_status: { stacks: 1 } };
   dealDamage(s.state, s.ctx.cards, lordRef('own'), 3, [], '测试');
-  assert.equal(s.state.sides.enemy.lord.hp, 27);
+  assert.equal(s.state.sides.enemy.lord.hp, 30);
 });
 
 test('车下虎士：已经阵亡时不反射，护主转移时主公未扣血不反射', () => {
@@ -283,14 +342,14 @@ test('东吴精骑：攻击后使用主公技返还一次攻击，重复主公�
   assert.equal(r2.ok, false);
 });
 
-test('强弩营：战技4伤且仍无法普攻', () => {
+test('冀州强弩：随机战技3伤且仍无法普攻', () => {
   const s = setup();
   place(s, 'wei_qiangnuying');
   victim(s, 0);
   recomputeAuras(s.state, s.ctx.cards, createRng(1), []);
   assert.equal(applyAction(s.state, s.ctx, { type: 'ATTACK', from: { row: 'front', col: 0 }, to: { kind: 'unit', row: 'front', col: 0 } }).ok, false);
   const r = cast(s, 0);
-  assert.equal(getUnit(r.state, 'enemy', 'front', 0)!.hp, 6);
+  assert.equal(getUnit(r.state, 'enemy', 'front', 0)!.hp, 7);
 });
 
 test('霹雳车：目标及左右相邻分别2伤，架盾分别3伤，不误伤其他格', () => {
@@ -353,7 +412,7 @@ test('霹雳车：主要和相邻架盾单位各产生一条3点伤害事件', (
   assert.ok(damage.every(e => e.amount === 3));
 });
 
-test('蒙冲斗舰：右侧固定格依次3/2/1火伤，自身2火伤，不能选主公', () => {
+test('蒙冲斗舰：指定单位1水攻，不自伤，不误伤相邻单位', () => {
   const s = setup();
   place(s, 'wu_mengchongdoujian');
   for (let c = 0; c < 5; c++) victim(s, c);
@@ -361,8 +420,8 @@ test('蒙冲斗舰：右侧固定格依次3/2/1火伤，自身2火伤，不能�
   assert.ok(plan);
   assert.ok(plan.choices.every(choice => choice.targets.every(t => t.kind !== 'lord')));
   const r = cast(s, 1);
-  assert.deepEqual([0, 1, 2, 3, 4].map(c => getUnit(r.state, 'enemy', 'front', c)!.hp), [10, 7, 8, 9, 10]);
-  assert.equal(getUnit(r.state, 'own', 'front', 0)!.hp, 1);
+  assert.deepEqual([0, 1, 2, 3, 4].map(c => getUnit(r.state, 'enemy', 'front', c)!.hp), [10, 9, 10, 10, 10]);
+  assert.equal(getUnit(r.state, 'own', 'front', 0)!.hp, 3);
   assert.equal(r.state.sides.enemy.lord.hp, 30);
 });
 
@@ -373,23 +432,24 @@ test('蒙冲斗舰：原目标阵亡和右侧空格不改变坐标，不重复�
   victim(s, 2);
   const r = cast(s, 0);
   assert.equal(getUnit(r.state, 'enemy', 'front', 0), null);
-  assert.equal(getUnit(r.state, 'enemy', 'front', 2)!.hp, 9);
+  assert.equal(getUnit(r.state, 'enemy', 'front', 2)!.hp, 10);
   const edge = setup();
   place(edge, 'wu_mengchongdoujian');
   const last = edge.state.sides.enemy.rows.front.length - 1;
   victim(edge, last);
   const r2 = cast(edge, last);
-  assert.equal(getUnit(r2.state, 'enemy', 'front', last)!.hp, 7);
+  assert.equal(getUnit(r2.state, 'enemy', 'front', last)!.hp, 9);
 });
 
-test('蒙冲斗舰：自损可消耗披坚，火攻可触发藤甲弱点', () => {
+test('蒙冲斗舰：不自损、不消耗自身披坚，水攻不触发藤甲火攻弱点', () => {
   const s = setup();
   const u = place(s, 'wu_mengchongdoujian');
   u.statuses.sheng_dun_status = { stacks: 1 };
   const armor = place(s, 'shu_tengjiabing', 'enemy');
   recomputeAuras(s.state, s.ctx.cards, createRng(1), []);
   const r = cast(s, 0);
-  assert.equal(getUnit(r.state, 'enemy', 'front', 0), null, '3点火攻+1弱火消灭4血藤甲');
+  assert.equal(getUnit(r.state, 'enemy', 'front', 0)!.hp, 3);
   assert.equal(getUnit(r.state, 'own', 'front', 0)!.hp, u.hp);
+  assert.ok(getUnit(r.state, 'own', 'front', 0)!.statuses.sheng_dun_status);
   assert.ok(armor.kw.includes('jia_dun'));
 });

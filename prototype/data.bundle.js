@@ -5936,18 +5936,19 @@ window.GameData = {
       "troopKind": "infantry",
       "upgradeFrom": "infantry",
       "keywords": [],
-      "memo": "普攻造成伤害并存活后，夺取敌方牌库顶部一张牌",
+      "memo": "普攻造成伤害并存活后，50%概率夺取敌方牌库顶部一张牌",
       "skills": [
         {
           "id": "qingzhou_zhan",
           "name": "劫掠",
           "kind": "trigger",
           "trigger": "after_attack",
-          "text": "普通攻击造成伤害并存活后，将敌方牌库顶部一张牌置入己方手牌。",
+          "text": "普通攻击造成伤害并存活后，有50%概率将敌方牌库顶部一张牌置入己方手牌。",
           "effects": [
             {
               "action": "steal_card",
               "from_deck": "top",
+              "chance": 0.5,
               "condition": {
                 "event": "damaged"
               }
@@ -5963,7 +5964,7 @@ window.GameData = {
       "type": "troop",
       "cost": 2,
       "attack": 2,
-      "health": 3,
+      "health": 2,
       "troopKind": "infantry",
       "upgradeFrom": "infantry",
       "keywords": [],
@@ -6003,8 +6004,8 @@ window.GameData = {
       "faction": "wei",
       "type": "troop",
       "cost": 4,
-      "attack": 3,
-      "health": 5,
+      "attack": 2,
+      "health": 4,
       "troopKind": "cavalry",
       "upgradeFrom": "cavalry",
       "keywords": [
@@ -6058,7 +6059,7 @@ window.GameData = {
       "faction": "wei",
       "type": "troop",
       "cost": 4,
-      "attack": 4,
+      "attack": 3,
       "health": 3,
       "troopKind": "cavalry",
       "upgradeFrom": "cavalry",
@@ -6098,18 +6099,18 @@ window.GameData = {
     },
     {
       "id": "wei_qiangnuying",
-      "name": "强弩营",
+      "name": "冀州强弩",
       "faction": "wei",
       "type": "troop",
-      "cost": 3,
+      "cost": 2,
       "attack": 1,
-      "health": 3,
+      "health": 2,
       "troopKind": "archer",
       "upgradeFrom": "archer",
       "keywords": [
         "zhan_ji"
       ],
-      "memo": "无法普通攻击；战技对一个单位造成4点伤害",
+      "memo": "无法普通攻击；战技随机造成3点伤害，对骑兵及其升变形态额外1点",
       "skills": [
         {
           "id": "qiangnu_jin_gong",
@@ -6131,19 +6132,24 @@ window.GameData = {
           "name": "强弩",
           "kind": "active",
           "frequency": "once_per_turn",
-          "text": "战技：对一个敌方单位造成4点伤害。",
+          "text": "战技：随机对一个敌方单位（不含主公）造成3点伤害；若目标为骑兵或骑兵的升变兵种，则额外造成1点伤害。",
           "target": {
             "side": "enemy",
             "filter": {
-              "type": "character"
+              "type": "character",
+              "include_lord": false
             },
             "count": 1,
-            "mode": "choose"
+            "mode": "random"
           },
           "effects": [
             {
               "action": "damage",
-              "value": 4
+              "value": 3,
+              "bonus_vs_troop_kind": {
+                "troopKind": "cavalry",
+                "value": 1
+              }
             }
           ]
         }
@@ -6153,12 +6159,10 @@ window.GameData = {
       "id": "wei_piliche",
       "name": "霹雳车",
       "faction": "wei",
-      "type": "troop",
+      "type": "machine",
       "cost": 3,
       "attack": 0,
       "health": 3,
-      "troopKind": "archer",
-      "upgradeFrom": "archer",
       "keywords": [
         "zhan_ji"
       ],
@@ -6520,7 +6524,7 @@ window.GameData = {
       "faction": "wu",
       "type": "troop",
       "cost": 3,
-      "attack": 2,
+      "attack": 1,
       "health": 3,
       "troopKind": "shield",
       "upgradeFrom": "shield",
@@ -6528,7 +6532,7 @@ window.GameData = {
         "jia_dun"
       ],
       "memo": "架盾；出场召唤同攻血的无难右部",
-      "note": "ADR-117 后续平衡修订为3费，保留双2/3架盾。",
+      "note": "2026-10-05 最终设计修订为3费1/3，召唤同攻血的无难右部。",
       "skills": [
         {
           "id": "fu_nan",
@@ -6553,28 +6557,35 @@ window.GameData = {
       "name": "解烦兵",
       "faction": "wu",
       "type": "troop",
-      "cost": 2,
-      "attack": 2,
-      "health": 1,
+      "cost": 3,
+      "attack": 3,
+      "health": 3,
       "troopKind": "infantry",
       "upgradeFrom": "infantry",
       "keywords": [
-        "xian_gong"
+        "zhan_ji"
       ],
-      "memo": "先攻；出场召唤同攻血的解烦右部",
+      "memo": "战技对指定敌方单位造成1点水攻伤害",
       "skills": [
         {
           "id": "jiefan_shui",
           "name": "解烦",
-          "kind": "trigger",
-          "trigger": "on_play",
-          "text": "出场时，召唤攻击力和生命值与自身相同、拥有先攻的解烦右部。",
+          "kind": "active",
+          "frequency": "once_per_turn",
+          "text": "战技：对指定敌方单位造成1点水攻伤害。",
+          "target": {
+            "side": "enemy",
+            "filter": {
+              "type": "character"
+            },
+            "count": 1,
+            "mode": "choose"
+          },
           "effects": [
             {
-              "action": "summon",
-              "unit": "token_jiefan_right",
-              "count": 1,
-              "copy_source_stats": true
+              "action": "damage",
+              "value": 1,
+              "damage_type": "water"
             }
           ]
         }
@@ -6585,7 +6596,7 @@ window.GameData = {
       "name": "敢死营",
       "faction": "wu",
       "type": "troop",
-      "cost": 2,
+      "cost": 3,
       "attack": 2,
       "health": 3,
       "troopKind": "infantry",
@@ -6644,25 +6655,31 @@ window.GameData = {
       "health": 4,
       "troopKind": "shield",
       "upgradeFrom": "shield",
-      "keywords": [],
-      "memo": "己方主公实际受伤时，对敌方主公造成等量伤害",
-      "note": "ADR-117 最终设计未指定身材，保留3/4，费用按盾兵+1设为3。",
+      "keywords": [
+        "jia_dun"
+      ],
+      "memo": "架盾；亡语使主公本回合获得2点攻击力和2点护甲",
       "skills": [
         {
           "id": "chexia_huzhu",
           "name": "护主",
           "kind": "trigger",
-          "trigger": "on_lord_damaged",
-          "text": "己方主公受到生命伤害时，对敌方主公造成等量伤害；反射伤害不再次触发此效果。",
+          "trigger": "on_death",
+          "text": "亡语：使己方主公本回合获得2点攻击力和2点护甲。",
           "effects": [
             {
-              "action": "damage",
-              "value_from_flag": "lord_damage",
-              "damage_origin": "reflected",
+              "action": "modify",
+              "attack": 2,
+              "duration": "this_turn",
               "target": {
-                "side": "enemy",
+                "side": "ally",
                 "lord": true
               }
+            },
+            {
+              "action": "gain_armor",
+              "value": 2,
+              "duration": "this_turn"
             }
           ]
         }
@@ -6673,7 +6690,7 @@ window.GameData = {
       "name": "东吴精骑",
       "faction": "wu",
       "type": "troop",
-      "cost": 4,
+      "cost": 5,
       "attack": 4,
       "health": 3,
       "troopKind": "cavalry",
@@ -6705,12 +6722,10 @@ window.GameData = {
       "id": "wu_louchuanjun",
       "name": "楼船军",
       "faction": "wu",
-      "type": "troop",
+      "type": "machine",
       "cost": 3,
       "attack": 2,
       "health": 4,
-      "troopKind": "archer",
-      "upgradeFrom": "archer",
       "keywords": [
         "zhan_ji"
       ],
@@ -6754,23 +6769,21 @@ window.GameData = {
       "id": "wu_mengchongdoujian",
       "name": "蒙冲斗舰",
       "faction": "wu",
-      "type": "troop",
+      "type": "machine",
       "cost": 3,
-      "attack": 0,
+      "attack": 1,
       "health": 3,
-      "troopKind": "archer",
-      "upgradeFrom": "archer",
       "keywords": [
         "zhan_ji"
       ],
-      "memo": "战技向目标及右侧两格依次造成3/2/1火攻，自身受2点火攻；对敌 3 段各挂 1 层灼烧",
+      "memo": "战技造成1点水攻；亡语对击杀者造成2点火攻并施加灼烧，对其左右相邻单位各造成1点火攻并施加灼烧",
       "skills": [
         {
           "id": "mengchong_huo",
           "name": "蒙冲",
           "kind": "active",
           "frequency": "once_per_turn",
-          "text": "战技：选择一个非主公敌方单位，对其及其右侧第1、第2格单位依次造成3、2、1点火攻伤害；空格跳过。然后自身受到2点火攻伤害。对敌的每段火攻各挂 1 层永久灼烧（打自己的那段不挂，ADR-134）。",
+          "text": "战技：对指定敌方单位造成1点水攻伤害。",
           "target": {
             "side": "enemy",
             "filter": {
@@ -6783,21 +6796,24 @@ window.GameData = {
           "effects": [
             {
               "action": "damage",
-              "value": 3,
-              "damage_type": "fire"
-            },
+              "value": 1,
+              "damage_type": "water"
+            }
+          ]
+        },
+        {
+          "id": "mengchong_fen_jian",
+          "name": "焚舰",
+          "kind": "trigger",
+          "trigger": "on_death",
+          "text": "亡语：对击杀者造成2点火攻伤害并施加灼烧，再对其左右相邻单位各造成1点火攻伤害并施加灼烧。",
+          "effects": [
             {
               "action": "damage",
               "value": 2,
               "damage_type": "fire",
               "target": {
-                "side": "enemy",
-                "filter": {
-                  "type": "character",
-                  "include_lord": false,
-                  "offset_from_chosen": 1
-                },
-                "count": "all"
+                "event": "killer"
               }
             },
             {
@@ -6805,22 +6821,206 @@ window.GameData = {
               "value": 1,
               "damage_type": "fire",
               "target": {
-                "side": "enemy",
+                "side": "both",
                 "filter": {
                   "type": "character",
-                  "include_lord": false,
-                  "offset_from_chosen": 2
+                  "adjacent_to": "killer"
                 },
                 "count": "all"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "wu_jiangdong_nushou",
+      "name": "武射吏",
+      "faction": "wu",
+      "type": "troop",
+      "cost": 4,
+      "attack": 3,
+      "health": 4,
+      "troopKind": "archer",
+      "upgradeFrom": "archer",
+      "keywords": [
+        "zhan_ji"
+      ],
+      "memo": "己方有武将时获得+1/+1且战技伤害+1；战技对指定敌方单位造成2点伤害",
+      "skills": [
+        {
+          "id": "wu_she_tongpao",
+          "name": "协射",
+          "kind": "aura",
+          "text": "当己方场上存在武将牌时，获得+1/+1，并且战技额外造成1点伤害。",
+          "effects": [
+            {
+              "action": "modify",
+              "attack": 1,
+              "health": 1,
+              "target": {
+                "source": true
+              },
+              "condition": {
+                "exists": {
+                  "side": "ally",
+                  "filter": {
+                    "type": "general"
+                  },
+                  "count": "all"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": "wu_she",
+          "name": "武射",
+          "kind": "active",
+          "frequency": "once_per_turn",
+          "text": "战技：对指定敌方单位造成2点伤害；己方场上存在武将牌时，改为造成3点伤害。",
+          "target": {
+            "side": "enemy",
+            "filter": {
+              "type": "character",
+              "include_lord": false
+            },
+            "count": 1,
+            "mode": "choose"
+          },
+          "effects": [
+            {
+              "action": "damage",
+              "value": 2,
+              "condition": {
+                "count": {
+                  "selector": {
+                    "side": "ally",
+                    "filter": {
+                      "type": "general"
+                    }
+                  },
+                  "op": "==",
+                  "value": 0
+                }
               }
             },
             {
               "action": "damage",
-              "value": 2,
-              "damage_type": "fire",
+              "value": 3,
+              "condition": {
+                "exists": {
+                  "side": "ally",
+                  "filter": {
+                    "type": "general"
+                  },
+                  "count": "all"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "wu_jinfanjun",
+      "name": "锦帆军",
+      "faction": "wu",
+      "type": "troop",
+      "cost": 3,
+      "attack": 2,
+      "health": 3,
+      "troopKind": "archer",
+      "upgradeFrom": "archer",
+      "keywords": [
+        "zhan_ji"
+      ],
+      "memo": "劫营：随机对敌方单位造成1点伤害，目标非武将时有50%概率夺取敌方牌顶",
+      "skills": [
+        {
+          "id": "jinfan_jieying",
+          "name": "劫营",
+          "kind": "active",
+          "frequency": "once_per_turn",
+          "text": "战技：对随机敌方单位造成1点伤害；若目标为非武将牌，则有50%概率抽取对方卡组最上方的一张牌，加入己方手牌。",
+          "effects": [
+            {
+              "action": "damage",
+              "value": 1,
+              "target": {
+                "side": "enemy",
+                "filter": {
+                  "type": "character",
+                  "include_lord": false
+                },
+                "count": 1,
+                "mode": "random"
+              }
+            },
+            {
+              "action": "steal_card",
+              "from_deck": "top",
+              "count": 1,
+              "chance": 0.5,
+              "condition": {
+                "last_damage_target_not_type": "general"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "wu_shuijun_gongshou",
+      "name": "水军弓手",
+      "faction": "wu",
+      "type": "troop",
+      "cost": 3,
+      "attack": 2,
+      "health": 3,
+      "troopKind": "archer",
+      "upgradeFrom": "archer",
+      "keywords": [
+        "zhan_ji"
+      ],
+      "memo": "水攻伤害+1；战技对指定敌方单位造成2点水攻伤害",
+      "skills": [
+        {
+          "id": "shuijun_jin_gong",
+          "name": "水攻强化",
+          "kind": "aura",
+          "text": "己方水攻伤害+1。",
+          "effects": [
+            {
+              "action": "apply_status",
+              "status": "shui_gong_bonus",
+              "stacks": 1,
+              "status_source": "self",
               "target": {
                 "source": true
               }
+            }
+          ]
+        },
+        {
+          "id": "shuijun_shui_gong",
+          "name": "水攻",
+          "kind": "active",
+          "frequency": "once_per_turn",
+          "text": "战技：对指定敌方单位造成2点水攻伤害。",
+          "target": {
+            "side": "enemy",
+            "filter": {
+              "type": "character"
+            },
+            "count": 1,
+            "mode": "choose"
+          },
+          "effects": [
+            {
+              "action": "damage",
+              "value": 2,
+              "damage_type": "water"
             }
           ]
         }

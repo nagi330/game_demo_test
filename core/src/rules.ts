@@ -105,6 +105,24 @@ export function canAttack(state: MatchState, side: Side, row: Row, col: number):
   return { ok: true };
 }
 
+/** 主公仅在获得正临时攻击力后，每个己方回合可以普攻一次。 */
+export function lordAttackTargets(state: MatchState, side: Side): TargetResult {
+  const lord = state.sides[side].lord;
+  if (state.active !== side || state.winner || state.pendingDiscover) return { targets: [], why: '当前不能攻击' };
+  if ((lord.attackThisTurn ?? 0) <= 0 || lord.attackedThisTurn) return { targets: [], why: '主公没有可用攻击机会' };
+  if (hasCapOn(lord.statuses, 'block_action') || hasCapOn(lord.statuses, 'block_attack')) {
+    return { targets: [], why: '当前状态无法普通攻击' };
+  }
+  const foe = other(side);
+  const shields = shieldUnits(state, foe);
+  if (shields.length) return { targets: shields.map(({ row, col }) => ({ kind: 'unit', side: foe, row, col })), why: '必须先攻击架盾单位' };
+  const targets: Target[] = allUnits(state, foe)
+    .filter(({ unit }) => unit.hp > 0 && !hasCap(unit, 'untargetable') && !hasTrait(unit, 'qi_xi') && !hasCap(unit, 'duel_lock'))
+    .map(({ row, col }) => ({ kind: 'unit', side: foe, row, col }));
+  if (!hasCapOn(state.sides[foe].lord.statuses, 'untargetable')) targets.push({ kind: 'lord', side: foe });
+  return { targets, why: '主公可攻击一次' };
+}
+
 /** 有效攻击力（含振奋/虚弱/结阵） */
 export function effectiveAttack(state: MatchState, side: Side, row: Row, col: number): number {
   const u = getUnit(state, side, row, col);
@@ -189,7 +207,7 @@ export function canPlayCard(
   if (cost > s.command.cur) {
     return { ok: false, reason: `统率值不足（需要 ${cost}，当前 ${s.command.cur}）` };
   }
-  if (card.type === 'troop' || card.type === 'general' || card.type === 'strategist') {
+  if (card.type === 'troop' || card.type === 'general' || card.type === 'strategist' || card.type === 'machine') {
     if (!slot) return { ok: false, reason: '人物卡需要指定部署位置' };
     if (state.sides[side].rows[slot.row][slot.col]) return { ok: false, reason: '该格已有单位' };
     if (unitCount(state, side) >= BOARD.MAX_UNITS) return { ok: false, reason: '战场已满' };

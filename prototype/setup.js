@@ -53,7 +53,7 @@
   var esc = Tile.esc;             // 与另外两个页面共用同一份转义
 
   var TYPE_NAME = {
-    troop: '兵种', general: '武将', strategist: '谋臣',
+    troop: '兵种', general: '武将', strategist: '谋臣', machine: '军械',
     event: '事件', tactic: '战法', token: '衍生物', elite: '精英', special: '特殊', status: '状态',
   };
   var FAC_NAME = { shu: '蜀', wei: '魏', wu: '吴', qun: '群雄', neutral: '中立' };
@@ -294,7 +294,7 @@
       if (q && (String(c.name) + ' ' + c.id).toLowerCase().indexOf(q) < 0) return false;
       return true;
     });
-    var TO = { troop: 0, general: 1, strategist: 2, tactic: 3, event: 4 };
+    var TO = { troop: 0, general: 1, strategist: 2, machine: 3, tactic: 4, event: 5 };
     shown.sort(function (a, b) {
       return a.cost - b.cost || (TO[a.type] || 9) - (TO[b.type] || 9)
         || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
@@ -378,7 +378,7 @@
         return '<button data-cost="' + k + '" class="' + (costFilter === k ? 'on' : '') + '">' + k + '费</button>';
       }).join('');
     var typeBtns = '<button data-type="all" class="' + (typeFilter === null ? 'on' : '') + '">全类型</button>'
-      + ['troop', 'general', 'strategist', 'tactic', 'event'].map(function (t) {
+      + ['troop', 'general', 'strategist', 'machine', 'tactic', 'event'].map(function (t) {
         return '<button data-type="' + t + '" class="' + (typeFilter === t ? 'on' : '') + '">'
           + TYPE_NAME[t] + '</button>';
       }).join('');

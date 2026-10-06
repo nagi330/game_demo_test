@@ -23,7 +23,7 @@
 window.CardTile = (function () {
   var FAC_NAME = { shu: '蜀', wei: '魏', wu: '吴', qun: '群雄', neutral: '中立' };
   var TYPE_NAME = {
-    troop: '兵种', general: '武将', strategist: '谋臣', event: '事件',
+    troop: '兵种', general: '武将', strategist: '谋臣', machine: '军械', event: '事件',
     tactic: '战法', token: '衍生物', elite: '精英', special: '特殊', status: '状态',
   };
 
