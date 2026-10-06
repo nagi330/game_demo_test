@@ -544,30 +544,28 @@ test('灼烧：连续两回合施加会叠层 —— 第 3 个回合开始烧 2 
   assert.equal(get(s)!.hp, 17, '第 2 个回合开始烧 2 点（伤害 = 新的层数）');
 });
 
-test('灼烧：真实卡数据：三张火卡仍是「每次实际火攻命中 +1 层灼烧」，层数与卡面一致', () => {
-  // 灼烧本轮**不改行为**（只改时机 + 补验证）—— 这条守住"没顺手改坏火卡数据"。
-  //
-  // ⚠️ 关于时长：`zhuo_shao` 的**状态定义**是 `duration: permanent`（不写 duration 时即永久、无回合限制），
-  // 但这三张卡各自在 `apply_status` 上给了**更短的实例时长**（1/1/2 回合），与它们的卡面文案一致
-  // （荀攸「施加 1 回合灼烧」/ 陆逊「持续灼烧状态 1 回合」/ 董卓「2 回合灼烧」）。
-  // 那是**逐次施加**的时长，不是状态属性（ADR-116 的 `apply_status.duration` 口径），故本轮原样保留。
-  const cases: Array<[string, string, number]> = [
-    ['wei_xunyou', '乌巢袭粮', 1],
-    ['wu_luxun', '策火流云', 1],
-    ['qun_dongzhuo', '暴虐', 2],
+test('灼烧：真实卡数据：三张火卡与全局「火攻挂灼烧」规则一致（ADR-134 修订本条）', () => {
+  // ⚠️ **旧假设已过期**（ADR-132 时期）：本条原先断言"三张卡各自显式施加灼烧，且实例时长 1/1/2 回合"。
+  // ADR-134 把「对敌方释放的火攻各 +1 层」全局化到**效果层**后，三张卡**都不再**显式施加灼烧
+  // （荀攸/陆逊：否则"伤害自带 1 层 + 显式 1 层 = 双倍"；董卓：设计者定案改走**方案乙**的统一路径），
+  // 灼烧一律**永久**（没有任何 duration）。行为层面的逐张验证在 `test/fire-ignite.test.ts`。
+  const cases: Array<[string, string]> = [
+    ['wei_xunyou', '乌巢袭粮'],
+    ['wu_luxun', '策火流云'],
+    ['qun_dongzhuo', '暴虐'],
   ];
-  for (const [cardId, skillName, duration] of cases) {
+  for (const [cardId, skillName] of cases) {
     const card = realCard(cardId);
     const skill = (card.skills ?? []).find((s) => s.name === skillName);
     assert.ok(skill, `${card.name} 应有「${skillName}」`);
-    const eff = (skill!.effects ?? []).find((e) => e.status === 'zhuo_shao');
-    assert.ok(eff, `${card.name}（${skillName}）应仍在施加灼烧`);
-    assert.equal(eff!.stacks, 1, `${card.name}：一次实际火攻命中 = +1 层灼烧`);
-    assert.equal(eff!.duration, duration, `${card.name}：实例时长应为 ${duration} 回合（与卡面一致）`);
-    const cn = ['零', '一', '二'][duration] ?? String(duration);
-    assert.match(skill!.text ?? '', new RegExp(`(?:${duration}|${cn})\\s*回合`),
-      `${card.name}「${skillName}」卡面文案里的回合数应写成 ${duration}`);
+    assert.equal((skill!.effects ?? []).some((e) => e.status === 'zhuo_shao'), false,
+      `${card.name}（${skillName}）不该再写 apply_status: zhuo_shao —— 火攻由全局规则挂层（ADR-134）`);
   }
+  // 董卓是方案乙：只留一段 1 点火攻（灼烧由它自动带上）
+  const baonue = (realCard('qun_dongzhuo').skills ?? []).find((s) => s.name === '暴虐')!;
+  const fire = (baonue.effects ?? []).filter((e) => e.action === 'damage' && e.damage_type === 'fire');
+  assert.equal(fire.length, 1, '董卓「暴虐」：1 段火攻（对敌方全体男性）');
+  assert.equal(fire[0]!.value, 1, '1 点');
   assert.equal(STATUSES.zhuo_shao!.duration, 'permanent',
     '状态定义本身是永久（无回合限制）：不写 duration 的施加永不自然到期，只能被净化');
 });

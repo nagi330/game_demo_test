@@ -543,7 +543,7 @@
   cost: 3
   attack: 1
   health: 3
-  memo: 受创时对敌方全体造成 1 点火攻伤害
+  memo: 受创时对敌方全体造成 1 点火攻伤害（各挂 1 层永久灼烧）
   gender: male
   keywords: []
   skills:
@@ -560,7 +560,7 @@
         filter:
           type: character
         count: all
-    text: 受到伤害时，对敌方全体造成 1 点火攻伤害。
+    text: 受到伤害时，对敌方全体造成 1 点火攻伤害，并各挂 1 层永久灼烧（ADR-134）。
   flavor: '猇亭之战，陆逊火烧连营，黄权率部断后，护刘备全军退入白帝城。'
 - id: shu_jianyang
   name: 简雍
@@ -1554,7 +1554,7 @@
   cost: 4
   attack: 1
   health: 4
-  memo: 战吼：火烧敌方两处粮草，对随机 2 名受伤单位各造成 2 点火伤并灼烧 1 回合
+  memo: 战吼：对随机 2 名已受伤单位各造成 2 点火伤（各挂 1 层永久灼烧）
   gender: male
   keywords: []
   skills:
@@ -1573,18 +1573,7 @@
           damaged: true
         count: 2
         mode: random
-    - action: apply_status
-      status: zhuo_shao
-      stacks: 1
-      duration: 1
-      target:
-        side: enemy
-        filter:
-          type: character
-          damaged: true
-        count: 2
-        mode: random
-    text: 战吼：对敌方随机 2 名已受伤的单位各造成 2 点火攻伤害，并施加 1 回合灼烧（其回合开始时再失去 1 点生命，ADR-132 起灼烧在回合开始结算）。
+    text: 战吼：对敌方随机 2 名已受伤的单位各造成 2 点火攻伤害；每段火攻各挂 1 层永久灼烧（其回合开始时失去等于层数的生命，ADR-134）。
   flavor: '建安十年，荀攸力主许攸之谋，夜袭乌巢，尽焚袁绍军粮。'
 - id: wei_chengyu
   name: 程昱
@@ -2328,7 +2317,7 @@
   cost: 6
   attack: 1
   health: 5
-  memo: 每回合全场 1 点火伤，被灼烧的敌人再吃 +1
+  memo: 每回合对敌方全体 1 点火伤，各挂 1 层永久灼烧（会累积）
   gender: male
   keywords: []
   skills:
@@ -2345,16 +2334,7 @@
         filter:
           type: character
         count: all
-    - action: apply_status
-      status: zhuo_shao
-      stacks: 1
-      duration: 1
-      target:
-        side: enemy
-        filter:
-          type: character
-        count: all
-    text: 陆逊每回合对敌方全体造成 1 点火攻伤害，并使其持续灼烧状态 1 回合；在灼烧状态下的敌人受到火攻伤害 +1。
+    text: 陆逊每回合对敌方全体造成 1 点火攻伤害；每段火攻各挂 1 层永久灼烧，层数会逐回合累积（其回合开始时失去等于层数的生命，ADR-134）。
   flavor: ''
 - id: wu_zhouyu
   name: 周瑜
@@ -2696,15 +2676,22 @@
   cost: 5
   attack: 3
   health: 6
-  memo: 战吼：若有女性在场则自身生命上限 +2，并令敌方全体男性每回合受 1 点火伤
+  memo: 战吼：若有女性在场则自身生命上限 +2，并对敌方全体男性造成 1 点火攻
   gender: male
   keywords: []
+  note: >-
+    「暴虐」最终采用**方案（乙）**（设计者定案，ADR-134）：**对敌方全体男性造成 1 点火攻伤害**，
+    灼烧由全局规则「对敌方释放的火攻各 +1 层」自动挂上 —— **永久**，因此卡面不再写时长。
+    ⚠️ **方案（甲）已被设计者否决**（留档）：甲＝不造成火攻、保留一条显式 apply_status: zhuo_shao；
+    否决理由是"董卓应与其它火卡走同一条路"，免得规则出现两套口径。
+    ⚠️ 目标写死 `include_lord: false`：本卡打的是"敌方全体男性**角色**"，
+    与方案（甲）的目标池保持一致（否则 ADR-087 的"范围伤害默认含主公"会顺带打主公 1 点）。
   skills:
   - id: bao_nue
     name: 暴虐
     kind: trigger
     trigger: on_play
-    text: 战吼：若己方有女性角色，自身生命上限 +2；对敌方全体**男性**角色施加 2 回合灼烧。
+    text: 战吼：若己方有女性角色，自身生命上限 +2；对敌方全体男性角色造成 1 点火攻伤害并使其永久灼烧（其回合开始时失去等于层数的生命，不封顶，ADR-134）。
     effects:
     - action: modify
       health: 2
@@ -2716,15 +2703,15 @@
             gender: female
       target:
         source: true
-    - action: apply_status
-      status: zhuo_shao
-      stacks: 1
-      duration: 2
+    - action: damage
+      value: 1
+      damage_type: fire
       target:
         side: enemy
         filter:
           type: character
           gender: male
+          include_lord: false
         count: all
   flavor: '董卓骄横暴戾，焚烧洛阳，废立天子。其孙女董白生而貌美，统兵为将。'
 - id: qun_yuanshao
@@ -3357,13 +3344,13 @@
   faction: neutral
   type: tactic
   cost: 3
-  memo: 点名 1 点，半数概率再追加 2 点火伤
+  memo: 点名 1 点火伤并挂灼烧，半数概率再追加 2 点（再挂 1 层）
   gender: unknown
   keywords: []
   skills:
   - id: ''
     name: ''
-    text: 造成一点伤害对指定人物并有50%概率造成额外2点火伤。
+    text: 对指定人物造成 1 点火攻伤害，并有 50% 概率再造成 2 点火攻伤害；每段火攻各挂 1 层永久灼烧（ADR-134）。
   effects:
   - action: damage
     value: 1
@@ -3769,13 +3756,13 @@
   faction: neutral
   type: event
   cost: 4
-  memo: 敌方全体 1 点火伤持续 2 回合，代价是弃 1 张手牌
+  memo: 敌方全体 1 点火伤并各挂 1 层永久灼烧，代价是弃 1 张手牌
   gender: unknown
   keywords: []
   skills:
   - id: ''
     name: ''
-    text: 对敌方造成全体 1点火伤持续 2 回合。但要丢弃一张手牌，由打出此事件人选择。
+    text: 对敌方全体造成 1 点火攻伤害并各挂 1 层永久灼烧（其回合开始时失去等于层数的生命，ADR-134）；代价是弃 1 张手牌，由打出此事件的人选择。
   effects:
   - action: damage
     value: 1
@@ -3811,7 +3798,7 @@
   cost: 5
   attack: 4
   health: 2
-  memo: 擒将：对受伤敌方武将造成 3 点火攻伤害
+  memo: 擒将：对受伤敌方武将造成 3 点火攻伤害（挂 1 层永久灼烧）
   gender: male
   keywords: []
   skills:
@@ -3819,7 +3806,7 @@
     name: 擒将
     kind: trigger
     trigger: on_play
-    text: 战吼：选择对方一个受伤的武将，造成 3 点火攻伤害。
+    text: 战吼：选择对方一个受伤的武将，造成 3 点火攻伤害并挂 1 层永久灼烧（ADR-134）。
     target:
       side: enemy
       filter:
@@ -4752,13 +4739,13 @@
   troopKind: archer
   upgradeFrom: archer
   keywords: [zhan_ji]
-  memo: 战技向目标及右侧两格依次造成3/2/1火攻，自身受2点火攻
+  memo: 战技向目标及右侧两格依次造成3/2/1火攻，自身受2点火攻；对敌 3 段各挂 1 层灼烧
   skills:
   - id: mengchong_huo
     name: 蒙冲
     kind: active
     frequency: once_per_turn
-    text: 战技：选择一个非主公敌方单位，对其及其右侧第1、第2格单位依次造成3、2、1点火攻伤害；空格跳过。然后自身受到2点火攻伤害。
+    text: 战技：选择一个非主公敌方单位，对其及其右侧第1、第2格单位依次造成3、2、1点火攻伤害；空格跳过。然后自身受到2点火攻伤害。对敌的每段火攻各挂 1 层永久灼烧（打自己的那段不挂，ADR-134）。
     target: { side: enemy, filter: { type: character, include_lord: false }, count: 1, mode: choose }
     effects:
     - action: damage
