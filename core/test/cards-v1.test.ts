@@ -448,8 +448,8 @@ test('南蛮入侵：双方单位和双方主公都受到 1 点伤害', () => {
   const ownLordHp = state.sides.own.lord.hp;
   const enemyLordHp = state.sides.enemy.lord.hp;
   const r = applyAction(state, ctx, { type: 'PLAY_CARD', cardIndex: 0 });
-  assert.equal(getUnit(r.state, 'own', 'front', 0), null, '己方单位应受到 1 点伤害并阵亡');
-  assert.equal(getUnit(r.state, 'enemy', 'front', 0), null, '敌方单位应受到 1 点伤害并阵亡');
+  assert.equal(getUnit(r.state, 'own', 'front', 0)?.hp, 1, '己方步兵 1/2 受 1 点伤害 → 剩 1 血（ADR-131）');
+  assert.equal(getUnit(r.state, 'enemy', 'front', 0)?.hp, 1, '敌方步兵 1/2 受 1 点伤害 → 剩 1 血（ADR-131）');
   assert.equal(r.state.sides.own.lord.hp, ownLordHp - 1, '己方主公应受到 1 点伤害');
   assert.equal(r.state.sides.enemy.lord.hp, enemyLordHp - 1, '敌方主公应受到 1 点伤害');
 });

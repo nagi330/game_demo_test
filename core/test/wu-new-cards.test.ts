@@ -150,7 +150,7 @@ test('全琮 决水：选择敌方主公时不误伤敌方步兵', () => {
   });
   assert.equal(result.ok, true, result.error ?? '');
   assert.equal(result.state.sides.enemy.lord.hp, 27, '主公应受到 3 点水攻伤害');
-  assert.equal(result.state.sides.enemy.rows.front[0]?.hp, 1, '步兵不应受到伤害');
+  assert.equal(result.state.sides.enemy.rows.front[0]?.hp, 2, '步兵不应受到伤害（1/2 满血仍在）');
 });
 
 test('潘璋 擒将：只能选择受伤敌方武将并造成火攻伤害', () => {

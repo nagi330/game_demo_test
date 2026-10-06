@@ -5,7 +5,7 @@ import { dirname, join } from 'node:path';
 import assert from 'node:assert/strict';
 
 import { applyAction, playTargetPlan, unitSkillTargetPlan } from '../src/engine.ts';
-import { applyStatus, dealDamage, expireStatuses, lordRef, resolveTurnEndStatuses, unitRef } from '../src/mutate.ts';
+import { applyStatus, dealDamage, expireStatuses, lordRef, resolveTurnEndStatuses, resolveTurnStartDamage, unitRef } from '../src/mutate.ts';
 import { recomputeAuras, resolveAttack, resolveTargets } from '../src/effects.ts';
 import { createRng } from '../src/rng.ts';
 import { capStacks, getUnit, makeUnit, setUnit, statusStacks } from '../src/state.ts';
@@ -735,13 +735,12 @@ test('升变：战吼在数据里是 on_play（防夹具/数据漂移）', () =>
 });
 
 /* ========================================================================
- * 「水困」——与火（灼烧）正交的持续轴（ADR-116）
+ * 「水困」——与火（灼烧）正交的持续轴（ADR-116 立项，ADR-132 重做）
  *
- * 火惩罚「存在」（每回合结束掉血，永久），水惩罚「行动」（动就掉血，2 回合）。
- * 三条硬约束在这里各锁一个用例：
- *   ① 回合末 DoT 按**能力**驱动（dot_water），不是按状态 id 硬编码
- *   ② 行动税**固定 1 点**，不随层数增长（3 层水困行动也只掉 1）
- *   ③ 只在**主动行动**（普攻 / 主动技）时触发，反击/被动不触发
+ * ⚠️ ADR-132 起口径已变（本组测试随之改写，新矩阵见 `elemental-debuffs.test.ts`）：
+ *   旧：① 回合末受 N 点水伤 ② 行动时**固定 1** 点 ③ 持续 1~2 回合
+ *   新：① **回合末不再有水伤** ② 行动时受 **2^(阶段-1)** 点（阶段 = 层数）③ **永久**
+ * 仍然成立的两条：只由**主动行动**（普攻/主动技）触发（反击/被动不触发）、不设每回合上限。
  * ===================================================================== */
 
 const SHUIKUN_CARD: CardDef = {
@@ -753,38 +752,40 @@ function withShuiKun(stacks = 1) {
   const { state, ctx } = scenario({ ownCommand: 10 });
   ctx.cards.set(SHUIKUN_CARD.id, SHUIKUN_CARD);
   const u = makeUnit(SHUIKUN_CARD, 0, 901);
-  u.statuses.shui_kun = { stacks, turns: 2 };
+  u.statuses.shui_kun = { stacks };
   setUnit(state, 'enemy', 'front', 4, u);
   return { state, ctx, get: () => getUnit(state, 'enemy', 'front', 4)! };
 }
 
-test('水困：回合末按 dot_water 能力结算 N 点水攻伤害（不再硬编码状态 id）', () => {
+test('水困：回合末**不再结算水伤**（ADR-132：不行动就完全不受伤）', () => {
   const { state, ctx, get } = withShuiKun(2);
   const before = get().hp;
   resolveTurnEndStatuses(state, ctx.cards, 'enemy', []);
-  assert.equal(get().hp, before - 2, '2 层水困 → 回合末掉 2 点');
+  assert.equal(get().hp, before, '回合末没有水伤了（旧口径的 ① 已删除）');
+  assert.equal(statusStacks(get(), 'shui_kun'), 3, '但阶段照常 +1（2 → 3）');
 });
 
-test('灼烧（zhuo_shao）：同样走能力驱动，回合末仍是火属性伤害', () => {
+test('灼烧（zhuo_shao）：改在**回合开始**按 dot_fire 结算火属性伤害（ADR-132 改时机）', () => {
   const { state, ctx, get } = withShuiKun(1);
   delete get().statuses.shui_kun;
   get().statuses.zhuo_shao = { stacks: 3 };         // 永久，无 turns
   const before = get().hp;
-  resolveTurnEndStatuses(state, ctx.cards, 'enemy', []);
-  assert.equal(get().hp, before - 3, '3 层灼烧 → 掉 3 点（改造后行为不变）');
+  // ⚠️ 走的是 resolveTurnStartDamage（回合开始），不再是 resolveTurnEndStatuses（回合结束）
+  resolveTurnStartDamage(state, ctx.cards, 'enemy', []);
+  assert.equal(get().hp, before - 3, '3 层灼烧 → 回合开始掉 3 点');
 });
 
-test('水困：行动税固定 1 点，**不随层数增长**（3 层也只扣 1）', () => {
-  const { state, ctx, get } = withShuiKun(3);        // 3 层
+test('水困：行动税 = 2^(阶段-1)，随阶段增长（3 阶段 → 4 点）', () => {
+  const { state, ctx, get } = withShuiKun(3);        // 阶段 3
   const before = get().hp;
   state.active = 'enemy';
-  // 打**敌方主公** —— 主将不反击（ADR-051），所以掉的血只可能来自行动税。
+  // 打**我方主公** —— 主将不反击（ADR-051），所以掉的血只可能来自行动税。
   // ⚠️ 若改成打单位，反击伤害会混进来，断言就变成">= 1"这种查不出问题的松断言。
   const r = applyAction(state, ctx, { type: 'ATTACK', from: { row: 'front', col: 4 }, to: { kind: 'lord' } });
   assert.equal(r.ok, true, r.error ?? '攻击应成立');
   const after = getUnit(r.state, 'enemy', 'front', 4)!;
-  assert.equal(before - after.hp, 1,
-    `3 层水困行动一次也只扣 1 点（固定值，不随层数增长）；实际扣 ${before - after.hp}`);
+  assert.equal(before - after.hp, 4,
+    `阶段 3 行动一次扣 2^(3-1) = 4 点；实际扣 ${before - after.hp}`);
   // 同时确认这笔伤害确实出自水困（而不是别处漏出来的扣血）
   assert.ok((r.events ?? []).some((e) => e.type === 'DAMAGE' && e.source === '水困'),
     '应有一条来源为「水困」的伤害事件');
@@ -913,15 +914,16 @@ test('越水：显式声明 zone: hand 时才可能选到手牌（证明是白�
 });
 
 /* ========================================================================
- * 「水困」的**持续时间必须走真实卡牌 DSL 验证**（ADR-116）
+ * 「水困」必须走真实卡牌 DSL 验证（ADR-116 立项，ADR-132 改口径）
  *
  * 血的教训：最初的单测都是「手工把状态塞进 `unit.statuses`」，
- * 于是卡牌 YAML 里把 `apply_status` 的字段写成了 `turns`（正确字段是 `duration`），
- * **完全查不出来** —— `turns` 不是 `Effect` 的字段（它只是 `StatusInstance` 的），
- * 引擎读到 `eff.duration === undefined` 就当成**永久**，水困于是永远不消失，
- * 而"2 回合、有解"正是这个机制能被接受的全部理由。
+ * 于是卡牌 YAML 里的字段写错（`turns` 不是 `Effect` 的字段，正确字段是 `duration`）
+ * **完全查不出来** —— 引擎读到 `eff.duration === undefined` 就当永久，
+ * 而当时水困本该是限时的。
  *
- * 所以这组测试坚持**从卡牌数据出牌**，不碰 unit.statuses。
+ * ⚠️ ADR-132 反转了方向：水困**现在就是永久**的，所以"永久"不再是 bug 症状；
+ * 但字段写错依然要能抓 —— 现在钉的是"**不许**写 duration"（写了会把永久变成限时）。
+ * 这组测试仍然坚持**从卡牌数据出牌**，不碰 unit.statuses。
  * ===================================================================== */
 
 function playFromHand(cardId: string, target?: { side: Side; row?: Row; col?: number }) {
@@ -940,18 +942,20 @@ function playFromHand(cardId: string, target?: { side: Side; row?: Row; col?: nu
   return { state: r.state, target: getUnit(r.state, 'enemy', 'front', 3) };
 }
 
-test('越水（真实 DSL）：水困是 **1 回合**，绝不是永久', () => {
+test('越水（真实 DSL）：水困是**永久**且阶段 1（不是限时状态）', () => {
   const { target } = playFromHand('shu_hubujun', { side: 'enemy', row: 'front', col: 3 });
   const st = target!.statuses.shui_kun;
   assert.ok(st, '目标应获得水困');
-  assert.equal(st.turns, 1,
-    '虎步军 2 费 → 1 回合（设计者：2 回合太厉害）。若为 undefined 就说明卡牌 YAML 又把 apply_status 的字段写错了（应为 duration）');
+  assert.equal(st.stacks, 1, '施加当回合 = 阶段 1');
+  assert.equal(st.turns, undefined,
+    '永久 = 无剩余回合数。若这里是个数字，说明卡牌 YAML 又写了 duration（ADR-132 起不写）');
 });
 
-test('水淹七军（真实 DSL）：同时给出 水困(2回合) 与 禁用(1回合)，且是水攻伤害', () => {
+test('水淹七军（真实 DSL）：水困永久 + 禁用仍 1 回合，且是水攻伤害', () => {
   const { target } = playFromHand('shu_guanyu', undefined);   // count:all，不需要指定目标
-  assert.equal(target!.statuses.shui_kun?.turns, 2, '水困应为 2 回合');
-  assert.equal(target!.statuses.jin_yong?.turns, 1, '禁用应为 1 回合');
+  assert.equal(target!.statuses.shui_kun?.turns, undefined, '水困已改为永久（ADR-132）');
+  assert.equal(target!.statuses.shui_kun?.stacks, 1, '阶段 1 起步');
+  assert.equal(target!.statuses.jin_yong?.turns, 1, '禁用仍是 1 回合（这一条没动）');
 });
 
 test('水淹七军：伤害是**水攻**属性（不是默认物理）', () => {
@@ -1128,12 +1132,13 @@ test('draw 动作：不带 target 时只抽给自己（默认行为不变）', (
  * 这是真漂移过的：虎步军的水困从 2 回合改成 1 回合时，`effects` 改了、
  * **卡面 `text` 没改**，于是玩家看到的和实际结算对不上。
  * 这类不一致没有任何自动防线（`validate` 不比对文案与数值），只能靠测试钉住。
+ *
+ * ⚠️ ADR-132 起水困是**永久**（不再有回合数），所以这里只剩「禁用」这类仍限时的状态；
+ * 水困改成钉"文案必须写「永久」"（写在 elemental-debuffs.test.ts 的数据用例里）。
  * ===================================================================== */
 
-test('卡面回合数 = 实际 duration（虎步军 1 回合 / 关羽 水困 2 回合、禁用 1 回合）', () => {
+test('卡面回合数 = 实际 duration（水淹七军的「禁用」仍是 1 回合）', () => {
   const expectations: Array<[string, string, string, number]> = [
-    ['shu_hubujun', '越水', 'shui_kun', 1],
-    ['shu_guanyu', '水淹七军', 'shui_kun', 2],
     ['shu_guanyu', '水淹七军', 'jin_yong', 1],
   ];
   for (const [cardId, skillName, statusId, turns] of expectations) {
@@ -1302,13 +1307,12 @@ test('元戎弩射（真实 DSL）：场上**有**连弩士 → 多射 1 支（4
 });
 
 /* ========================================================================
- * 毒攻与「中毒」（ADR-117，无当飞军「毒箭」）
+ * 毒攻与「中毒」（ADR-117 立项，ADR-132 重做）
  *
- * 三条 DoT 轴的分工：火惩罚「存在」（永久、不封顶）、水惩罚「行动」（行动税）、
- * 毒惩罚「拖」——**层数 = 每回合毒伤、封顶 3**，每次施加把时长重置为 2 回合（不累加）。
- *
- * 设计者原案是「第 N 回合 N 点伤害、续毒再 +1 回合」，推演后为二次增长
- * （1/3/6/10/15，主将 8 回合必死），故改为**只保留一份收益**：续毒加伤、不加时。
+ * ⚠️ ADR-132 起口径已变（本组测试随之改写，完整矩阵见 `elemental-debuffs.test.ts`）：
+ *   旧：回合末受 N 点毒伤、层数封顶 3、持续 2 回合（断供即结束）
+ *   新：该方**回合结束**时**永久降低 N 点生命上限**（不造成伤害）、层数**不封顶**、**永久**
+ * 三系节奏：回合开始＝灼烧（火）／行动时＝水困（水）／回合结束＝中毒（毒）。
  *
  * 断言一律走**真实卡牌 DSL**（`shu_wudangfeijun` 从 cards.json 读），
  * 手工塞状态只能验证引擎、验证不了数据 —— ADR-116 的水困就是这么漏掉过一次。
@@ -1327,7 +1331,7 @@ function wudangReady(foeId = 'neutral_shieldman') {
   return { state, ctx, get: (s: typeof state = state) => getUnit(s, 'enemy', 'front', 3) };
 }
 
-test('毒箭（真实 DSL）：指定目标 → 中毒 1 层 / 2 回合，并造成 1 点毒攻伤害', () => {
+test('毒箭（真实 DSL）：指定目标 → 中毒 1 层 / **永久**，并造成 1 点毒攻伤害', () => {
   const { state, ctx, get } = wudangReady();
   const before = get()!.hp;
   const r = applyAction(state, ctx, {
@@ -1337,9 +1341,9 @@ test('毒箭（真实 DSL）：指定目标 → 中毒 1 层 / 2 回合，并造
   assert.equal(r.ok, true, r.error ?? '毒箭应能释放');
   const st = get(r.state)!.statuses.zhong_du;
   assert.ok(st, '目标应获得中毒');
-  assert.equal(st.stacks, 1, '首次施加 = 1 层（层数就是每回合毒伤）');
-  assert.equal(st.turns, 2,
-    '时长应为 2 回合。若为 undefined 说明卡牌 YAML 把 apply_status 的字段写成了 turns（正确字段是 duration）');
+  assert.equal(st.stacks, 1, '首次施加 = 1 层（层数就是每回合削掉的上限）');
+  assert.equal(st.turns, undefined,
+    '永久 = 无剩余回合数。若是个数字，说明卡牌 YAML 又写了 duration（ADR-132 起不写）');
   assert.equal(before - get(r.state)!.hp, 1, '毒箭本身还有 1 点毒攻伤害');
 });
 
@@ -1357,44 +1361,37 @@ test('毒箭（真实 DSL）：指定的是**第二个**敌人，不是兜底的
     '第一个敌人**不应**中毒（否则说明 skill 级 target 没下沉到效果上）');
 });
 
-test('中毒：层数封顶 3 —— 续毒不再加深', () => {
+test('中毒：层数**不封顶**（旧的 max_stacks: 3 已删除）', () => {
   const { state, ctx, get } = wudangReady();
-  for (let i = 0; i < 5; i++) applyStatus(state, unitRef('enemy', 'front', 3), 'zhong_du', 1, [], 2);
-  assert.equal(get()!.statuses.zhong_du.stacks, 3,
-    '封顶在**施加时**夹紧（卡面徽章直接显示层数，超封顶会让玩家算不出这一下掉多少血）');
+  for (let i = 0; i < 5; i++) applyStatus(state, unitRef('enemy', 'front', 3), 'zhong_du', 1, []);
+  assert.equal(get()!.statuses.zhong_du.stacks, 5, '续毒每次都实打实 +1 层');
 });
 
-test('中毒：续毒把时长**重置为 2 回合**，不是累加', () => {
+test('中毒：续毒只加层，不再有"时长重置"这回事（永久状态）', () => {
   const { state, ctx, get } = wudangReady();
-  applyStatus(state, unitRef('enemy', 'front', 3), 'zhong_du', 1, [], 2);
-  get()!.statuses.zhong_du.turns = 1;                    // 模拟已经过了一个回合
-  applyStatus(state, unitRef('enemy', 'front', 3), 'zhong_du', 1, [], 2);
+  applyStatus(state, unitRef('enemy', 'front', 3), 'zhong_du', 1, []);
+  applyStatus(state, unitRef('enemy', 'front', 3), 'zhong_du', 1, []);
   const st = get()!.statuses.zhong_du;
-  assert.equal(st.stacks, 2, '续毒应加 1 层（= 每回合多 1 伤）');
-  assert.equal(st.turns, 2, '时长回到 2 回合；若为 3 就说明"续毒 +1 回合"被实现成了累加');
+  assert.equal(st.stacks, 2, '续毒加 1 层（= 每回合多削 1 点上限）');
+  assert.equal(st.turns, undefined, '永久状态没有剩余回合数，也就不存在"重置为 2 回合"');
 });
 
-test('中毒：回合末按 dot_poison 结算，伤害 = 层数，且事件来源是「中毒」', () => {
+test('中毒：回合末**削生命上限**（不造成伤害），事件来源是「中毒」', () => {
   const { state, ctx, get } = wudangReady();
-  applyStatus(state, unitRef('enemy', 'front', 3), 'zhong_du', 3, [], 2);
+  // 垫血：上限削 3 点后读得到差额。
+  // ⚠️ 三个字段一起改（baseMaxHp 是**派生上限的基准**：maxHp = baseMaxHp + Σmods.health）。
+  //    只改 maxHp 的话，削上限会按真实基础值重算 —— 那是夹具与引擎不变量不一致，不是引擎的问题。
+  get()!.hp = get()!.maxHp = get()!.baseMaxHp = 6;
+  applyStatus(state, unitRef('enemy', 'front', 3), 'zhong_du', 3, []);
   const before = get()!.hp;
   const events: GameEvent[] = [];
   resolveTurnEndStatuses(state, ctx.cards, 'enemy', events);
-  assert.equal(before - get()!.hp, 3, '3 层中毒 → 回合末掉 3 点');
-  assert.ok(events.some((e) => e.type === 'DAMAGE' && e.source === '中毒'),
-    '伤害事件来源应为「中毒」（与灼烧/水困区分，便于回放与 UI 飘字）');
-});
-
-test('中毒：回合末的毒伤走 **poison** 属性 —— 藤甲减不掉它（不是 physical）', () => {
-  // 这条是 `resolveTurnEndStatuses` 里 dot_poison → 'poison' 的**唯一**端到端断言：
-  // 若把映射退回 'physical'，藤甲会把 1 点毒伤减成 0，本用例立刻失败。
-  const { state, ctx } = tengjiaUnderAttack();
-  const u = getUnit(state, 'enemy', 'front', 3)!;
-  u.statuses.zhong_du = { stacks: 1, turns: 2 };
-  const before = u.hp;
-  resolveTurnEndStatuses(state, ctx.cards, 'enemy', []);
-  assert.equal(before - getUnit(state, 'enemy', 'front', 3)!.hp, 1,
-    '1 层中毒 → 掉 1 点（藤甲只减 physical，毒照扣）');
+  assert.equal(get()!.maxHp, 3, '3 层中毒 → 上限 6 − 3 = 3');
+  assert.equal(before - get()!.hp, 3, '当前生命被夹到新上限（6 → 3）');
+  assert.ok(!events.some((e) => e.type === 'DAMAGE' && e.source === '中毒'),
+    '中毒**不再造成伤害** —— 不该有「中毒」来源的伤害事件');
+  assert.ok(events.some((e) => e.type === 'STAT_MODIFIED' && e.source === '中毒' && e.health === -3),
+    '应以「中毒」来源的属性修正事件通告这次削上限');
 });
 
 test('毒攻：**不吃**藤甲的物理减伤（同一张卡通不过，毒照扣）', () => {
@@ -1418,7 +1415,7 @@ test('毒箭（真实 DSL）：目标池**不含主公**（毒不上主将）', 
   const plan = unitSkillTargetPlan(state, 'own', 'front', 0);
   const targets = plan.choices.flatMap((c) => c.targets);
   assert.equal(targets.length, 0,
-    `敌方只剩主将时不应有合法目标（30 血主将 + 递增 DoT 会变成无需攻击的自动胜利线）；实际 ${JSON.stringify(targets)}`);
+    `敌方只剩主将时不应有合法目标（ADR-117：主公免疫中毒）；实际 ${JSON.stringify(targets)}`);
   const r = applyAction(state, ctx, { type: 'USE_SKILL', row: 'front', col: 0 });
   assert.equal(r.state.sides.enemy.lord.statuses?.zhong_du, undefined, '主将不应中毒');
 });

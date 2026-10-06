@@ -929,7 +929,7 @@ test('同名上限：基础兵 3 张，其余人物与将领 1 张', async () =>
   const { maxCopiesOf, BASIC_TROOP_COPIES, UNIQUE_COPIES } = await import('../src/deck.ts');
 
   // 基础兵与升级后的特种兵都属于普通卡组中的 troop
-  for (const [id, cost] of [['neutral_infantry', 1], ['neutral_archer', 2], ['neutral_shieldman', 2]] as const) {
+  for (const [id, cost] of [['neutral_infantry', 1], ['neutral_archer', 1], ['neutral_shieldman', 2]] as const) {
     const c = data.cards.get(id)!;
     assert.equal(c.type, 'troop', `${id} 应为 troop`);
     assert.equal(c.cost, cost, `${id} 应为 ${cost} 费`);

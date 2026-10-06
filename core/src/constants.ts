@@ -142,14 +142,18 @@ export type StatusCap =
   | 'reduce_physical'    // 受到普通/无属性伤害时 −N（最低 0）
   | 'vulnerable_fire'    // 受到火属性伤害时 +N
   | 'thorns'             // 本次实际受伤后，伤害来源反弹 N 点
-  // 水困（ADR-116）：火惩罚「存在」（每回合掉血），水惩罚「行动」（动就掉血）。
+  // 水困（ADR-116/132）：火惩罚「存在」（每回合掉血），水惩罚「行动」（动就掉血）。
   // 这一条是行动税的实现载体 —— 引擎在 attack() / useUnitSkill() 两处检查。
-  | 'damage_on_action'   // 该单位主动行动（普攻/主动技）时额外受到 1 点水攻伤害
-  // 回合末持续伤害（ADR-116）：按能力驱动，**不再按状态 id 硬编码** ——
-  // 原先 resolveTurnEndStatuses 写死 `zhong_du`，新增状态必漏。
-  | 'dot_fire'           // 回合结束时受 N 点火属性伤害
-  | 'dot_water'          // 回合结束时受 N 点水属性伤害
-  | 'dot_poison'         // 回合结束时受 N 点毒属性伤害（ADR-117 中毒）
+  // 扣血量 = `2^(阶段-1)`（阶段 = 该状态层数），故读的是**每个状态自己的层数**。
+  | 'damage_on_action'   // 该单位主动行动（普攻/主动技）时额外受到 2^(层数-1) 点水攻伤害
+  // 回合开始时结算的持续伤害（ADR-116 立项，ADR-132 起只剩火这一条、且移到回合开始）。
+  // 按能力驱动，**不再按状态 id 硬编码** —— 原先 resolveTurnEndStatuses 写死 `zhong_du`，新增状态必漏。
+  | 'dot_fire'           // 该方**回合开始时**受 N 点火属性伤害（N = 层数）
+  // 回合末的两段结算（ADR-132）：中毒（削上限）→ 水困（阶段推进）。
+  // 两者都是**能力**，`resolveTurnEndStatuses` 分两趟跑，顺序与状态插入顺序无关。
+  // （灼烧已不在回合末：它是回合开始的第一步，见上面的 `dot_fire`。）
+  | 'shrink_max_hp'      // 回合结束时**永久降低 N 点生命上限**（N = 层数，中毒；不造成伤害）
+  | 'stage_up'           // 回合结束时**阶段 +1**（层数＝阶段；水困，用于 2^(阶段-1) 的行动税）
   | 'skip_turn';         // 该方整个回合被跳过（ADR-074，休养生息「下一回合不进行任何活动」）
 
 export interface StatusDef {
@@ -166,9 +170,19 @@ export interface StatusDef {
    * 在 `applyStatus` 施加时就夹紧 —— 不是在结算时夹 —— 否则卡面徽章会显示
    * 「中毒 5」而实际只结算 3 点，玩家无法从界面推断伤害（ADR-116 的减益徽章
    * 直接显示层数，见 GDD 10 §3.2.2 实测记录）。
-   * 未声明 = 不封顶（灼烧/水困等保持原行为）。
+   * 未声明 = 不封顶（灼烧/水困/中毒等都不封顶，ADR-132）。
    */
   max_stacks?: number;
+  /**
+   * 重复施加时的**层数合并方式**（ADR-132）。
+   *
+   *   · `'add'`（默认）—— 层数累加（灼烧：再烧一次就多 1 层）
+   *   · `'max'`         —— 取较大者，**不降级**（水困：层数＝阶段，连续施加不能让阶段倒退；
+   *                        若用累加，2 费卡连发两次就能把阶段顶到 4 → 行动一次掉 8 点）
+   *
+   * 只影响 `numeric: true` 的状态；标志型（numeric: false）本就只判"存在与否"。
+   */
+  stack_mode?: 'add' | 'max';
   /**
    * 守护范围（ADR-071）：只有这个状态挂在**谁**身上、以及它拦截**谁**的伤害。
    *   · 'any'（默认）—— `shou_hu`：被守护者受到的伤害都转给 srcUid（陈宫「忠烈」）
@@ -232,23 +246,24 @@ export const STATUSES: Record<string, StatusDef> = {
   zhong_yong_status: { name: '忠勇', kind: 'buff', numeric: true, duration: 'permanent',
                 caps: ['thorns'],
                 note: '受到**普通攻击**并实际受伤后，对攻击者额外造成 N 点伤害（与自动反击分开结算；技能伤害不触发）。ADR-110 释放的 thorns cap 的首个使用者' },
-  shui_kun:   { name: '水困', kind: 'debuff', numeric: true, duration: 'turns',
-                caps: ['damage_on_action', 'dot_water'],
-                note: '① 回合结束时受 N 点水攻伤害 ② 主动行动（普攻/主动技）时额外受 1 点水攻伤害（固定 1，不随层数增长）。持续 2 回合 —— 与永久灼烧的对照见 GDD 10 §3.2.2（ADR-116）' },
+  shui_kun:   { name: '水困', kind: 'debuff', numeric: true, duration: 'permanent',
+                caps: ['damage_on_action', 'stage_up'], stack_mode: 'max',
+                note: '**层数＝阶段**（徽章上的数字就是阶段）。① 只有**主动行动**（普攻/主动技）才受水伤，数值 = 2^(阶段-1)：阶段 1/2/3/4 → 1/2/4/8，**无上限**；不行动则完全不受伤 ② 阶段在该方**回合结束时 +1**（施加当回合为阶段 1）③ **永久**，直到被净化；重复施加取较大者、不降级。见 GDD 10 §3.2.2（ADR-116/132）' },
   mian_shang: { name: '免伤', kind: 'buff', numeric: false, duration: 'this_turn', caps: ['immune_all_damage'], scope: 'lord', note: '当前回合免疫所有伤害' },
   mian_yi:    { name: '免疫', kind: 'buff',   numeric: false, duration: 'turns', caps: ['immune_debuff', 'untargetable'],
                 note: '免疫负面状态，且不能被指定为目标' },
   fan_mian:   { name: '翻面', kind: 'debuff', numeric: false, duration: 'conditional',
                 caps: ['block_action', 'untargetable'],
                 note: '被翻面：当回合不能行动、不能被指定为目标；自己的下个回合开始时翻回正面（ADR-059）' },
-  // ADR-117：原先 zhong_du（显示名「中毒」）被三张火卡当灼烧用，名字与语义已经对不上，
-  // 现拆成两个状态：zhuo_shao = 火（永久、不封顶），zhong_du = 毒（限时、封顶 3）。
+  // ADR-117 拆名：zhuo_shao = 火（永久、不封顶）；zhong_du = 毒。
+  // ADR-132 重做：灼烧时机由"回合末"改到"**回合开始**"（三系节奏错开）；
+  //               中毒不再是"回合末受 N 点毒伤"，改为"回合末**永久降低 N 点生命上限**"。
   zhuo_shao:  { name: '灼烧', kind: 'debuff', numeric: true,  duration: 'permanent',
                 caps: ['dot_fire'],
-                note: '回合结束时受 N 点火属性伤害（ADR-108 起按 fire 结算；ADR-116 起由 dot_fire 能力驱动；ADR-117 由 zhong_du 改名而来）' },
-  zhong_du:   { name: '中毒', kind: 'debuff', numeric: true,  duration: 'turns',
-                caps: ['dot_poison'], max_stacks: 3,
-                note: '回合结束时受 N 点毒属性伤害，**层数 = 每回合伤害、封顶 3**；每次施加把时长重置为 2 回合（不累加），断供 2 回合自然结束（ADR-117）' },
+                note: '该方**回合开始时**受 N 点火属性伤害（N = 层数）—— 回合的第一步，早于统率回满/抽牌/任何行动；层数叠加**不封顶**。⚠️「永久」指**状态定义**（不写 duration 的施加永不自然到期）；个别火卡会给更短的实例时长（荀攸/陆逊 1 回合、董卓 2 回合，与卡面一致）。三系节奏：回合开始＝灼烧（火）／行动时＝水困（水）／回合结束＝中毒（毒）。（ADR-108 起按 fire 结算；ADR-116 起由 dot_fire 能力驱动；ADR-117 由 zhong_du 改名；ADR-132 改时机）' },
+  zhong_du:   { name: '中毒', kind: 'debuff', numeric: true,  duration: 'permanent',
+                caps: ['shrink_max_hp'],
+                note: '该方回合结束时**永久降低 N 点生命上限**（N = 层数，ADR-132）；**不造成伤害**；层数叠加**不封顶**、**永久**（净化后停止，已削的不恢复）。削完当前生命高于新上限则夹到新上限，上限归零即阵亡。只有场上单位会中毒，主公免疫（ADR-117）' },
   xu_ruo:     { name: '虚弱', kind: 'debuff', numeric: true,  duration: 'turns', note: '攻击 −N' },
   duan_liang: { name: '断粮', kind: 'debuff', numeric: true,  duration: 'turns', scope: 'lord', note: '统率上限 −N' },
 };

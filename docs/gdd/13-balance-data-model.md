@@ -803,23 +803,52 @@ condition:
 - 光环施加的状态**不带 `turns`**，生命周期交给光环（每次 `recomputeAuras` 先清后加）。
   否则它会在**自己回合结束**时被"回合到期"清掉，而护主要挡的恰恰是对手回合的伤害。
 
-#### ⑩ 层数上限 `max_stacks`（ADR-117，中毒）
+#### ⑩ 层数上限 `max_stacks` 与合并方式 `stack_mode`（ADR-117 / ADR-132）
 
 `StatusDef.max_stacks`：数值型状态的**层数上限**，未声明 = 不封顶。
+`StatusDef.stack_mode`：重复施加时**怎么合并层数**（ADR-132 新增），`'add'`（默认，累加）| `'max'`（取较大者）。
 
 ```ts
-zhong_du: { name: '中毒', kind: 'debuff', numeric: true, duration: 'turns',
-            caps: ['dot_poison'], max_stacks: 3, note: '…' },
+// 当前**没有任何状态**声明 max_stacks（三系 debuff 都不封顶）：
+zhuo_shao: { name: '灼烧', kind: 'debuff', numeric: true, duration: 'permanent', caps: ['dot_fire'],        note: '…' },
+zhong_du:  { name: '中毒', kind: 'debuff', numeric: true, duration: 'permanent', caps: ['shrink_max_hp'], note: '…' },
+shui_kun:  { name: '水困', kind: 'debuff', numeric: true, duration: 'permanent',
+             caps: ['damage_on_action', 'stage_up'], stack_mode: 'max', note: '层数＝阶段' },
 ```
 
 | 规则 | 说明 |
 |---|---|
-| 夹紧时机 | **`applyStatus` 里施加时夹**（`Math.min(prev + stacks, max_stacks)`），不是结算时夹 |
-| 为什么 | 卡面减益徽章**直接显示层数**（ADR-116 实测 `["水困2","震慑","中毒3"]`）；徽章写 5 而结算 3，玩家算不出这一下掉多少血 |
-| 不声明 | 灼烧 / 水困 / 振奋等保持**不封顶**，行为不变 |
-| 与 DoT 的关系 | `dot_*` 系列按**层数**结算伤害，所以封顶 = 每回合伤害封顶 |
+| 夹紧时机 | **`applyStatus` 里施加时夹**（`Math.min(合并结果, max_stacks)`），不是结算时夹 |
+| 为什么 | 卡面减益徽章**直接显示层数**（ADR-116 实测 `["水困2","震慑","中毒3"]`）；徽章写 5 而实际结算 3，玩家算不出这一下掉多少 |
+| 不声明 | 三系 debuff / 振奋 / 急救等都保持**不封顶**（中毒的 `max_stacks: 3` 已随 ADR-132 删除） |
+| `stack_mode: 'max'` | 取 `max(旧层数, 新施加)`、**不降级**。水困的层数＝**阶段**，按累加会让同一张 2 费卡连发两次把阶段顶到 4（行动一次掉 8 点）；按重置又会让阶段倒退。**只有水困在用** |
+| `stack_mode: 'add'` | 默认，层数累加（灼烧/中毒：再施加一次就多 1 层） |
 
-> 中毒的三条轴定位、设计者原案（二次增长）与修正过程见 `10-skills-statuses.md` §3.2.3。
+> 三系的重新定位、时点节奏（火＝回合开始 / 水＝行动时 / 毒＝回合结束）、
+> 设计者原案（二次增长）与修正过程见 `10-skills-statuses.md` §3.2.2 ~ §3.2.4。
+
+#### ⑪ 三系的结算能力（cap）登记表（ADR-132）
+
+> **引擎只查能力、不认状态 id**（ADR-034/116）。下表是**按回合 / 行动时点自动结算**的那一类 cap
+> （`block_attack` / `untargetable` 这类判定型 cap 不在此列），新增机制必须在这里先登记、再改代码（铁律 1）。
+
+| cap | 挂在哪 | 时点 | 引擎读它的地方 | 效果 |
+|---|---|---|---|---|
+| `dot_fire` | `zhuo_shao` | **回合开始**（第 0 步） | `mutate.resolveTurnStartDamage`（由 `engine.startTurn` 最开头调用） | 受 **N** 点 `fire` 伤害（N = 层数） |
+| `damage_on_action` | `shui_kun` | **行动后** | `engine.chargeWaterTax`（`attack()` / `useUnitSkill()` 两处） | 受 **2^(阶段-1)** 点 `water` 伤害（阶段 = 该状态的层数）；普攻与主动技都算，升变不算 |
+| `stage_up` | `shui_kun` | **回合结束**（第 20 步②） | `mutate.resolveTurnEndStatuses` | 该状态**层数 +1**（＝阶段 +1），不封顶 |
+| `shrink_max_hp` | `zhong_du` | **回合结束**（第 20 步①） | `mutate.resolveTurnEndStatuses` → `mutate.shrinkMaxHp` | **永久降低 N 点生命上限**（N = 层数）；不造成伤害；只夹不缩；上限归零即阵亡 |
+| `skip_turn` | `xiu_zheng` | 换手后 | `engine.consumeSkipTurn` | 该方整个回合被跳过（ADR-074） |
+
+**两条实现约束**（都是踩过的坑）：
+
+1. **回合末分趟跑**：`resolveTurnEndStatuses` 先跑 `shrink_max_hp`、再跑 `stage_up`，
+   各是一趟独立循环 —— 若在同一趟里边遍历状态边判断 cap，"谁先谁后"会取决于状态在对象里的**插入顺序**，
+   同样的场面会因施加次序不同而结果不同（不可回放）。
+2. **上限可以削到 0，因此不能复用 `applyMods` 的 `[1, ∞)` 夹紧**：`applyMods` 的"上限不低于 1"
+   是为「光环失效不致死」服务的（`state.ts`）；中毒的 `shrinkMaxHp` 另算一次
+   `max(0, baseMaxHp + Σmods.health)`，把削减量记进**永久 `mods`**（这样光环重算/临时修正到期都不会把它抹掉），
+   再把当前生命**只夹不缩**地压到新上限，最后走既有 `hp <= 0` 的阵亡路径。
 
 ## 7.10 平衡的基本等式（ADR-043）
 

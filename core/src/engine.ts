@@ -58,7 +58,7 @@ import {
 import {
   dealDamage, discardOverflow, drawCard, effectiveCost, expireHandMods, expireMods, expireStatuses,
   gainArmor, isBanned, lordRef,
-  resolveTurnEndStatuses, resolveTurnStartStatuses, unitRef, type TargetRef,
+  resolveTurnEndStatuses, resolveTurnStartDamage, resolveTurnStartStatuses, unitRef, type TargetRef,
 } from './mutate.ts';
 import {
   costRuleDelta, effectsOf, emitSkillTriggered, recomputeAuras, resolveAttack, resolveTargets,
@@ -428,12 +428,17 @@ export function lordSkillTargetPlan(state: MatchState, side: Side, modeIndex = 0
    ============================================================ */
 
 function startTurn(state: MatchState, ctx: EngineContext, events: GameEvent[], rng: ReturnType<typeof createRng>): void {
+  const side = state.active;
+  // 第 0 步：**灼烧**（ADR-132）—— 该方回合的第一步，早于统率回满、抽牌与一切行动。
+  // 位置刻意在最前面：伤害 = 层数、写在徽章上、完全可预期，所以"先烧后动"不构成零交互，
+  // 玩家仍有一整个回合去净化 / 速杀 / 用这个单位去换掉对面（详见 GDD 10 §3.2.4）。
+  resolveTurnStartDamage(state, ctx.cards, side, events);
+
   // 回合计数（ADR-064，设计者裁定）：**双方都行动完才算一个完整回合**。
   // halfTurn 每有一方开始行动就 +1；turn 只在完整回合推进时 +1，
   // 与统率值上限的增长严格同步（原先 turn 每半回合 +1，导致显示的第 N 回合
   // 与统率值的第 N 档对不上）。
   state.halfTurn += 1;
-  const side = state.active;
   const s = state.sides[side];
 
   // 第 1、3、5… 个半回合 = 新一轮完整回合的开始。
@@ -479,7 +484,7 @@ function startTurn(state: MatchState, ctx: EngineContext, events: GameEvent[], r
 /** 结算当前行动方的回合结束（第 20~23 步），**不**换手、不开始新回合 */
 function finishTurn(state: MatchState, ctx: EngineContext, events: GameEvent[], rng: ReturnType<typeof createRng>): void {
   const side = state.active;
-  resolveTurnEndStatuses(state, ctx.cards, side, events);                     // 第 20 步 ①中毒
+  resolveTurnEndStatuses(state, ctx.cards, side, events);                     // 第 20 步 ①中毒削上限 + 水困阶段 +1
   runTriggerSkills(state, ctx.cards, side, TIMING.TURN_END, rng, events);     // 第 20 步 ②回合结束技
   // 敌方回合结束时，触发我方单位的对应技能（例如陷阵营的每回合 +1/+1）。
   runTriggerSkills(state, ctx.cards, other(side), TIMING.ENEMY_TURN_END, rng, events);
@@ -609,16 +614,24 @@ function playCard(
    ============================================================ */
 
 /**
- * 「水困」行动税（ADR-116）
+ * 「水困」行动税（ADR-116 立项，ADR-132 重做）
  *
- * 火惩罚「**存在**」（每回合结束掉血），水惩罚「**行动**」（动就掉血）——
- * 这是水火两条持续轴的分野，也是水困不会沦为"又一个 DoT"的原因。
+ * 火惩罚「**存在**」（回合开始掉血），水惩罚「**行动**」（动就掉血）——
+ * 这是水火两条轴的分野，也是水困不会沦为"又一个 DoT"的原因。
  *
- * 三条硬约束：
- *   ① **固定 1 点**，不随水困层数增长 —— 否则 3 层时行动一次掉 4 点，数值爆炸；
- *   ② 只由**主动行动**（普通攻击 / 主动技）触发，**不含**反击、触发技、光环
+ * ADR-132 的新口径：
+ *   · **回合末不再有水伤**（原先的 ① 删除）—— 水困的全部伤害都来自"行动"；
+ *   · 行动一次受 **`2^(阶段-1)`** 点水属性伤害：阶段 1/2/3/4 → **1/2/4/8**，**无上限**；
+ *     阶段就是该状态的**层数**（徽章上的数字），每个回合末 +1（见 `resolveTurnEndStatuses`）。
+ *     设计者明确接受"第 5 回合 16 点，前提是他行动"—— 不行动就完全不受水伤，
+ *     所以这条曲线是**玩家自己按出来的**，不是被动挨的。
+ *   · **不行动 = 完全不受伤**（这是水困与灼烧/中毒的关键区别）。
+ *
+ * 保留旧口径的两条：
+ *   ① 只由**主动行动**（普通攻击 / 主动技）触发，**不含**反击、触发技、光环
  *      —— 那些不是玩家的选择，惩罚它们等于随机削血；
- *   ③ **不设每回合上限** —— 连击 / 强制攻击单位本就越强，水困正好是它的克制。
+ *   ② **不设每回合上限** —— 连击 / 强制攻击单位本就越强，水困正好是它的克制
+ *      （连击打两次 = 收两次税，测试里钉死了这条）。
  *
  * 在行动**结算完成后**扣：让玩家先完成这次行动再吃税，
  * 避免"因为被水困所以这次攻击没了"的挫败感（且单位若已阵亡则不再扣）。
@@ -629,10 +642,17 @@ function chargeWaterTax(
 ): void {
   const u = getUnit(state, side, row, col);
   if (!u || u.hp <= 0) return;                       // 已阵亡（如被反击打死）则不扣
-  if (capStacks(u.statuses, 'damage_on_action') <= 0) return;
-  // damageType = 'water'，因此水攻强化（water_damage）也能正确加成
-  dealDamage(state, ctx.cards, unitRef(side, row, col), 1, events, '水困',
-    0, undefined, undefined, 'water');
+  // ⚠️ 按 cap 驱动、逐状态取**该状态自己的层数**（不认状态 id）：
+  //    `capStacks` 会把多个状态的层数加总，而阶段是"每个状态各自"的概念。
+  for (const [id, inst] of Object.entries(u.statuses)) {
+    if (inst.stacks <= 0) continue;
+    const def = STATUSES[id];
+    if (!def?.caps?.includes('damage_on_action')) continue;
+    const amount = 2 ** (inst.stacks - 1);           // 阶段 1/2/3/4 → 1/2/4/8，无上限
+    // damageType = 'water'：让受伤侧的判定按水属性走（水攻强化在发起侧结算，此处不经手）
+    dealDamage(state, ctx.cards, unitRef(side, row, col), amount, events, def.name,
+      0, undefined, undefined, 'water');
+  }
 }
 
 function attack(

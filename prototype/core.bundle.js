@@ -118,6 +118,7 @@ var Core = (() => {
     removeStatus: () => removeStatus,
     resolveTargets: () => resolveTargets,
     resolveTurnEndStatuses: () => resolveTurnEndStatuses,
+    resolveTurnStartDamage: () => resolveTurnStartDamage,
     resolveTurnStartStatuses: () => resolveTurnStartStatuses,
     rollFirstSide: () => rollFirstSide,
     runEffects: () => runEffects,
@@ -125,6 +126,7 @@ var Core = (() => {
     setUnit: () => setUnit,
     setupMatch: () => setupMatch,
     shieldUnits: () => shieldUnits,
+    shrinkMaxHp: () => shrinkMaxHp,
     startHandSize: () => startHandSize,
     startMatch: () => startMatch,
     statusStacks: () => statusStacks,
@@ -459,9 +461,10 @@ var Core = (() => {
       name: "\u6C34\u56F0",
       kind: "debuff",
       numeric: true,
-      duration: "turns",
-      caps: ["damage_on_action", "dot_water"],
-      note: "\u2460 \u56DE\u5408\u7ED3\u675F\u65F6\u53D7 N \u70B9\u6C34\u653B\u4F24\u5BB3 \u2461 \u4E3B\u52A8\u884C\u52A8\uFF08\u666E\u653B/\u4E3B\u52A8\u6280\uFF09\u65F6\u989D\u5916\u53D7 1 \u70B9\u6C34\u653B\u4F24\u5BB3\uFF08\u56FA\u5B9A 1\uFF0C\u4E0D\u968F\u5C42\u6570\u589E\u957F\uFF09\u3002\u6301\u7EED 2 \u56DE\u5408 \u2014\u2014 \u4E0E\u6C38\u4E45\u707C\u70E7\u7684\u5BF9\u7167\u89C1 GDD 10 \xA73.2.2\uFF08ADR-116\uFF09"
+      duration: "permanent",
+      caps: ["damage_on_action", "stage_up"],
+      stack_mode: "max",
+      note: "**\u5C42\u6570\uFF1D\u9636\u6BB5**\uFF08\u5FBD\u7AE0\u4E0A\u7684\u6570\u5B57\u5C31\u662F\u9636\u6BB5\uFF09\u3002\u2460 \u53EA\u6709**\u4E3B\u52A8\u884C\u52A8**\uFF08\u666E\u653B/\u4E3B\u52A8\u6280\uFF09\u624D\u53D7\u6C34\u4F24\uFF0C\u6570\u503C = 2^(\u9636\u6BB5-1)\uFF1A\u9636\u6BB5 1/2/3/4 \u2192 1/2/4/8\uFF0C**\u65E0\u4E0A\u9650**\uFF1B\u4E0D\u884C\u52A8\u5219\u5B8C\u5168\u4E0D\u53D7\u4F24 \u2461 \u9636\u6BB5\u5728\u8BE5\u65B9**\u56DE\u5408\u7ED3\u675F\u65F6 +1**\uFF08\u65BD\u52A0\u5F53\u56DE\u5408\u4E3A\u9636\u6BB5 1\uFF09\u2462 **\u6C38\u4E45**\uFF0C\u76F4\u5230\u88AB\u51C0\u5316\uFF1B\u91CD\u590D\u65BD\u52A0\u53D6\u8F83\u5927\u8005\u3001\u4E0D\u964D\u7EA7\u3002\u89C1 GDD 10 \xA73.2.2\uFF08ADR-116/132\uFF09"
     },
     mian_shang: { name: "\u514D\u4F24", kind: "buff", numeric: false, duration: "this_turn", caps: ["immune_all_damage"], scope: "lord", note: "\u5F53\u524D\u56DE\u5408\u514D\u75AB\u6240\u6709\u4F24\u5BB3" },
     mian_yi: {
@@ -480,24 +483,24 @@ var Core = (() => {
       caps: ["block_action", "untargetable"],
       note: "\u88AB\u7FFB\u9762\uFF1A\u5F53\u56DE\u5408\u4E0D\u80FD\u884C\u52A8\u3001\u4E0D\u80FD\u88AB\u6307\u5B9A\u4E3A\u76EE\u6807\uFF1B\u81EA\u5DF1\u7684\u4E0B\u4E2A\u56DE\u5408\u5F00\u59CB\u65F6\u7FFB\u56DE\u6B63\u9762\uFF08ADR-059\uFF09"
     },
-    // ADR-117：原先 zhong_du（显示名「中毒」）被三张火卡当灼烧用，名字与语义已经对不上，
-    // 现拆成两个状态：zhuo_shao = 火（永久、不封顶），zhong_du = 毒（限时、封顶 3）。
+    // ADR-117 拆名：zhuo_shao = 火（永久、不封顶）；zhong_du = 毒。
+    // ADR-132 重做：灼烧时机由"回合末"改到"**回合开始**"（三系节奏错开）；
+    //               中毒不再是"回合末受 N 点毒伤"，改为"回合末**永久降低 N 点生命上限**"。
     zhuo_shao: {
       name: "\u707C\u70E7",
       kind: "debuff",
       numeric: true,
       duration: "permanent",
       caps: ["dot_fire"],
-      note: "\u56DE\u5408\u7ED3\u675F\u65F6\u53D7 N \u70B9\u706B\u5C5E\u6027\u4F24\u5BB3\uFF08ADR-108 \u8D77\u6309 fire \u7ED3\u7B97\uFF1BADR-116 \u8D77\u7531 dot_fire \u80FD\u529B\u9A71\u52A8\uFF1BADR-117 \u7531 zhong_du \u6539\u540D\u800C\u6765\uFF09"
+      note: "\u8BE5\u65B9**\u56DE\u5408\u5F00\u59CB\u65F6**\u53D7 N \u70B9\u706B\u5C5E\u6027\u4F24\u5BB3\uFF08N = \u5C42\u6570\uFF09\u2014\u2014 \u56DE\u5408\u7684\u7B2C\u4E00\u6B65\uFF0C\u65E9\u4E8E\u7EDF\u7387\u56DE\u6EE1/\u62BD\u724C/\u4EFB\u4F55\u884C\u52A8\uFF1B\u5C42\u6570\u53E0\u52A0**\u4E0D\u5C01\u9876**\u3002\u26A0\uFE0F\u300C\u6C38\u4E45\u300D\u6307**\u72B6\u6001\u5B9A\u4E49**\uFF08\u4E0D\u5199 duration \u7684\u65BD\u52A0\u6C38\u4E0D\u81EA\u7136\u5230\u671F\uFF09\uFF1B\u4E2A\u522B\u706B\u5361\u4F1A\u7ED9\u66F4\u77ED\u7684\u5B9E\u4F8B\u65F6\u957F\uFF08\u8340\u6538/\u9646\u900A 1 \u56DE\u5408\u3001\u8463\u5353 2 \u56DE\u5408\uFF0C\u4E0E\u5361\u9762\u4E00\u81F4\uFF09\u3002\u4E09\u7CFB\u8282\u594F\uFF1A\u56DE\u5408\u5F00\u59CB\uFF1D\u707C\u70E7\uFF08\u706B\uFF09\uFF0F\u884C\u52A8\u65F6\uFF1D\u6C34\u56F0\uFF08\u6C34\uFF09\uFF0F\u56DE\u5408\u7ED3\u675F\uFF1D\u4E2D\u6BD2\uFF08\u6BD2\uFF09\u3002\uFF08ADR-108 \u8D77\u6309 fire \u7ED3\u7B97\uFF1BADR-116 \u8D77\u7531 dot_fire \u80FD\u529B\u9A71\u52A8\uFF1BADR-117 \u7531 zhong_du \u6539\u540D\uFF1BADR-132 \u6539\u65F6\u673A\uFF09"
     },
     zhong_du: {
       name: "\u4E2D\u6BD2",
       kind: "debuff",
       numeric: true,
-      duration: "turns",
-      caps: ["dot_poison"],
-      max_stacks: 3,
-      note: "\u56DE\u5408\u7ED3\u675F\u65F6\u53D7 N \u70B9\u6BD2\u5C5E\u6027\u4F24\u5BB3\uFF0C**\u5C42\u6570 = \u6BCF\u56DE\u5408\u4F24\u5BB3\u3001\u5C01\u9876 3**\uFF1B\u6BCF\u6B21\u65BD\u52A0\u628A\u65F6\u957F\u91CD\u7F6E\u4E3A 2 \u56DE\u5408\uFF08\u4E0D\u7D2F\u52A0\uFF09\uFF0C\u65AD\u4F9B 2 \u56DE\u5408\u81EA\u7136\u7ED3\u675F\uFF08ADR-117\uFF09"
+      duration: "permanent",
+      caps: ["shrink_max_hp"],
+      note: "\u8BE5\u65B9\u56DE\u5408\u7ED3\u675F\u65F6**\u6C38\u4E45\u964D\u4F4E N \u70B9\u751F\u547D\u4E0A\u9650**\uFF08N = \u5C42\u6570\uFF0CADR-132\uFF09\uFF1B**\u4E0D\u9020\u6210\u4F24\u5BB3**\uFF1B\u5C42\u6570\u53E0\u52A0**\u4E0D\u5C01\u9876**\u3001**\u6C38\u4E45**\uFF08\u51C0\u5316\u540E\u505C\u6B62\uFF0C\u5DF2\u524A\u7684\u4E0D\u6062\u590D\uFF09\u3002\u524A\u5B8C\u5F53\u524D\u751F\u547D\u9AD8\u4E8E\u65B0\u4E0A\u9650\u5219\u5939\u5230\u65B0\u4E0A\u9650\uFF0C\u4E0A\u9650\u5F52\u96F6\u5373\u9635\u4EA1\u3002\u53EA\u6709\u573A\u4E0A\u5355\u4F4D\u4F1A\u4E2D\u6BD2\uFF0C\u4E3B\u516C\u514D\u75AB\uFF08ADR-117\uFF09"
     },
     xu_ruo: { name: "\u865A\u5F31", kind: "debuff", numeric: true, duration: "turns", note: "\u653B\u51FB \u2212N" },
     duan_liang: { name: "\u65AD\u7CAE", kind: "debuff", numeric: true, duration: "turns", scope: "lord", note: "\u7EDF\u7387\u4E0A\u9650 \u2212N" }
@@ -1180,6 +1183,11 @@ var Core = (() => {
     lord.armor += amount;
     events.push({ type: "ARMOR_GAINED", side, amount, armor: lord.armor });
   }
+  function mergeStacks(def, numeric, prev, incoming) {
+    if (!numeric) return Math.max(1, incoming);
+    const merged = def?.stack_mode === "max" ? Math.max(prev, incoming) : prev + incoming;
+    return def?.max_stacks !== void 0 ? Math.min(merged, def.max_stacks) : merged;
+  }
   function removeStatus(state, ref, status, events, stacks) {
     if (ref.kind === "hand") return 0;
     if (ref.kind === "lord") {
@@ -1220,7 +1228,7 @@ var Core = (() => {
       const numericL = def?.numeric ?? true;
       const turnsL = auraId !== void 0 && turns === void 0 ? void 0 : turns !== void 0 ? turns : def?.duration === "permanent" || def?.duration === "until_consumed" ? void 0 : def?.duration === "turns" || def?.duration === "this_turn" ? 1 : void 0;
       lord.statuses[status] = {
-        stacks: numericL ? (prevL?.stacks ?? 0) + stacks : Math.max(1, stacks),
+        stacks: mergeStacks(def, numericL, prevL?.stacks ?? 0, stacks),
         turns: turnsL,
         srcUid,
         auraId,
@@ -1238,8 +1246,7 @@ var Core = (() => {
     }
     const numeric = def?.numeric ?? true;
     const prev = u.statuses[status];
-    const rawStacks = numeric ? (prev?.stacks ?? 0) + stacks : Math.max(1, stacks);
-    const nextStacks = def?.max_stacks !== void 0 ? Math.min(rawStacks, def.max_stacks) : rawStacks;
+    const nextStacks = mergeStacks(def, numeric, prev?.stacks ?? 0, stacks);
     const nextTurns = auraId !== void 0 && turns === void 0 ? void 0 : turns !== void 0 ? turns : prev?.turns !== void 0 ? Math.max(prev.turns, 1) : def?.duration === "permanent" || def?.duration === "until_consumed" ? void 0 : def?.duration === "turns" || def?.duration === "this_turn" ? 1 : void 0;
     u.statuses[status] = {
       stacks: nextStacks,
@@ -1250,6 +1257,25 @@ var Core = (() => {
       ...skipTick && nextTurns !== void 0 ? { skipTick: true } : {}
     };
     if (auraId === void 0) events.push({ type: "STATUS_APPLIED", side: ref.side, row: ref.row, col: ref.col, status, stacks, turns: nextTurns });
+  }
+  function shrinkMaxHp(state, cards, ref, amount, events, statusId, source = "\u4E2D\u6BD2") {
+    if (amount <= 0) return 0;
+    const u = getUnit(state, ref.side, ref.row, ref.col);
+    if (!u || u.hp <= 0) return 0;
+    const before = u.maxHp;
+    const modId = `shrink:${statusId}`;
+    const mod = u.mods.find((m) => m.id === modId);
+    if (mod) mod.health = (mod.health ?? 0) - amount;
+    else u.mods.push({ id: modId, kind: "permanent", health: -amount });
+    const dHp = u.mods.reduce((s, m) => s + (m.health ?? 0), 0);
+    u.maxHp = Math.max(0, u.baseMaxHp + dHp);
+    u.hp = Math.max(0, Math.min(u.hp, u.maxHp));
+    const shrunk = before - u.maxHp;
+    if (shrunk > 0) {
+      events.push({ type: "STAT_MODIFIED", side: ref.side, row: ref.row, col: ref.col, health: -shrunk, source });
+    }
+    if (u.hp <= 0) killUnit(state, cards, { side: ref.side, row: ref.row, col: ref.col, unit: u }, events, null);
+    return shrunk;
   }
   function summonUnit(state, cards, side, row, col, cardId, events) {
     const card = cards.get(cardId);
@@ -1301,27 +1327,59 @@ var Core = (() => {
       if (heal > 0) healTarget(state, unitRef(ref.side, ref.row, ref.col), heal, events);
     }
   }
-  function resolveTurnEndStatuses(state, cards, side, events) {
+  function resolveTurnStartDamage(state, cards, side, events) {
     for (const ref of allUnits(state, side)) {
       for (const [id, inst] of Object.entries(ref.unit.statuses)) {
         if (inst.stacks <= 0) continue;
-        const caps = STATUSES[id]?.caps ?? [];
-        const dotCap = caps.includes("dot_fire") ? "dot_fire" : caps.includes("dot_water") ? "dot_water" : caps.includes("dot_poison") ? "dot_poison" : null;
-        if (!dotCap) continue;
-        const dotType = dotCap === "dot_fire" ? "fire" : dotCap === "dot_water" ? "water" : "poison";
-        const dotName = dotCap === "dot_fire" ? "\u707C\u70E7" : dotCap === "dot_water" ? "\u6C34\u56F0" : "\u4E2D\u6BD2";
+        const def = STATUSES[id];
+        if (!def?.caps?.includes("dot_fire")) continue;
         dealDamage(
           state,
           cards,
           unitRef(ref.side, ref.row, ref.col),
           inst.stacks,
           events,
-          dotName,
+          def.name,
           0,
           void 0,
           void 0,
-          dotType
+          "fire"
         );
+      }
+    }
+  }
+  function resolveTurnEndStatuses(state, cards, side, events) {
+    const units = allUnits(state, side).map((r) => ({ side: r.side, row: r.row, col: r.col, unit: r.unit }));
+    for (const ref of units) {
+      for (const [id, inst] of Object.entries(ref.unit.statuses)) {
+        if (inst.stacks <= 0) continue;
+        const def = STATUSES[id];
+        if (!def?.caps?.includes("shrink_max_hp")) continue;
+        shrinkMaxHp(
+          state,
+          cards,
+          { side: ref.side, row: ref.row, col: ref.col },
+          inst.stacks,
+          events,
+          id,
+          def.name
+        );
+      }
+    }
+    for (const ref of units) {
+      if (ref.unit.hp <= 0) continue;
+      for (const [id, inst] of Object.entries(ref.unit.statuses)) {
+        if (inst.stacks <= 0) continue;
+        if (!STATUSES[id]?.caps?.includes("stage_up")) continue;
+        inst.stacks += 1;
+        events.push({
+          type: "STATUS_APPLIED",
+          side: ref.side,
+          row: ref.row,
+          col: ref.col,
+          status: id,
+          stacks: inst.stacks
+        });
       }
     }
   }
@@ -2898,8 +2956,9 @@ var Core = (() => {
     return plan;
   }
   function startTurn(state, ctx, events, rng) {
-    state.halfTurn += 1;
     const side = state.active;
+    resolveTurnStartDamage(state, ctx.cards, side, events);
+    state.halfTurn += 1;
     const s = state.sides[side];
     if (state.halfTurn % 2 === 1 && state.halfTurn > 1) {
       state.turn += 1;
@@ -3022,19 +3081,24 @@ var Core = (() => {
   function chargeWaterTax(state, ctx, side, row, col, events) {
     const u = getUnit(state, side, row, col);
     if (!u || u.hp <= 0) return;
-    if (capStacks(u.statuses, "damage_on_action") <= 0) return;
-    dealDamage(
-      state,
-      ctx.cards,
-      unitRef(side, row, col),
-      1,
-      events,
-      "\u6C34\u56F0",
-      0,
-      void 0,
-      void 0,
-      "water"
-    );
+    for (const [id, inst] of Object.entries(u.statuses)) {
+      if (inst.stacks <= 0) continue;
+      const def = STATUSES[id];
+      if (!def?.caps?.includes("damage_on_action")) continue;
+      const amount = 2 ** (inst.stacks - 1);
+      dealDamage(
+        state,
+        ctx.cards,
+        unitRef(side, row, col),
+        amount,
+        events,
+        def.name,
+        0,
+        void 0,
+        void 0,
+        "water"
+      );
+    }
   }
   function attack(state, ctx, action, events, rng) {
     const side = state.active;

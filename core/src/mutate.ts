@@ -6,7 +6,7 @@
  *  - 所有变更都产生事件（客户端只消费事件）
  */
 
-import { BOARD, DECK, STATUSES } from './constants.ts';
+import { BOARD, DECK, STATUSES, type StatusDef } from './constants.ts';
 import { createRng } from './rng.ts';
 import { allUnits, applyMods, capStacks, getUnit, hasCap, hasCapOn, hasKeyword, hasTrait, isBasicTroop, makeUnit, nextUidSeq, other, setUnit, statusStacks, upgradeProgress } from './state.ts';
 import type { CardDef, CardType, DamageType, GameEvent, HandCard, MatchState, Row, Side, SkillDef, Unit } from './types.ts';
@@ -498,6 +498,22 @@ export function gainArmor(state: MatchState, side: Side, amount: number, events:
    ============================================================ */
 
 /**
+ * 数值型状态的**层数合并**（ADR-117 封顶 / ADR-132 合并方式）
+ *
+ *   · 标志型（`numeric: false`）—— 只判"存在与否"，固定 1 层
+ *   · `stack_mode: 'add'`（默认）—— 层数累加（灼烧：再烧一次就多 1 层）
+ *   · `stack_mode: 'max'`         —— 取较大者、**不降级**（水困：层数＝阶段，
+ *     连续施加不该让阶段倒退；若按累加，2 费卡连发两次就能把阶段顶到 4 → 行动一次掉 8 点）
+ *   · `max_stacks` 在**施加时**夹紧（不是在结算时夹）—— 卡面徽章直接显示层数，
+ *     徽章写 5 而只结算 3 会让玩家算不出这一下掉多少（ADR-117）
+ */
+function mergeStacks(def: StatusDef | undefined, numeric: boolean, prev: number, incoming: number): number {
+  if (!numeric) return Math.max(1, incoming);
+  const merged = def?.stack_mode === 'max' ? Math.max(prev, incoming) : prev + incoming;
+  return def?.max_stacks !== undefined ? Math.min(merged, def.max_stacks) : merged;
+}
+
+/**
  * 移除状态（驱散，ADR-066）
  *
  * 与 applyStatus 对称：`stacks` 省略时移除**全部层数**；给了就只扣那么多层，
@@ -578,7 +594,7 @@ export function applyStatus(
       : def?.duration === 'permanent' || def?.duration === 'until_consumed' ? undefined
       : def?.duration === 'turns' || def?.duration === 'this_turn' ? 1 : undefined;
     lord.statuses[status] = {
-      stacks: numericL ? (prevL?.stacks ?? 0) + stacks : Math.max(1, stacks),
+      stacks: mergeStacks(def, numericL, prevL?.stacks ?? 0, stacks),
       turns: turnsL, srcUid, auraId,
       ...(def?.duration === 'this_turn' && auraId === undefined ? { expiresAtHalfTurn: state.halfTurn } : {}),
       ...(skipTick && turnsL !== undefined ? { skipTick: true } : {}),
@@ -598,10 +614,8 @@ export function applyStatus(
 
   const numeric = def?.numeric ?? true;
   const prev = u.statuses[status];
-  // 层数上限（ADR-117）：在**施加时**夹紧，而不是结算时夹 —— 卡面徽章直接显示层数，
-  // 若徽章写「中毒 5」而实际只结算 3 点，玩家无法从界面推断这一下会掉多少血。
-  const rawStacks = numeric ? (prev?.stacks ?? 0) + stacks : Math.max(1, stacks);
-  const nextStacks = def?.max_stacks !== undefined ? Math.min(rawStacks, def.max_stacks) : rawStacks;
+  // 层数合并与封顶见 mergeStacks（ADR-117 施加时夹紧 / ADR-132 stack_mode）
+  const nextStacks = mergeStacks(def, numeric, prev?.stacks ?? 0, stacks);
   // 持续时间：调用方指定优先；否则按状态定义（permanent → 永久）。
   // 光环施加的状态同上：交给光环管生命周期，不吃回合到期（ADR-071）。
   const nextTurns = auraId !== undefined && turns === undefined ? undefined
@@ -616,6 +630,56 @@ export function applyStatus(
     ...(skipTick && nextTurns !== undefined ? { skipTick: true } : {}),
   };
   if (auraId === undefined) events.push({ type: 'STATUS_APPLIED', side: ref.side, row: ref.row, col: ref.col, status, stacks, turns: nextTurns });
+}
+
+/**
+ * 「中毒」的削上限原语（ADR-132）
+ *
+ * 永久降低 N 点生命上限，**不造成伤害** —— 这是中毒与灼烧（掉血）/水困（行动掉血）
+ * 的根本区别：它削的是"这一局的耐久"，而不是"当前这一条命"。
+ *
+ *   · 削减量记进 `mods`（`kind: 'permanent'`，id = `shrink:<状态 id>`）——
+ *     复用既有的属性修正层（ADR-037），光环重算/临时修正到期都会把它一并算进去，
+ *     不新造一套"已损失上限"的平行字段。
+ *   · 派生上限 = `max(0, baseMaxHp + Σmods.health)` —— **刻意不走 `applyMods` 的 `[1, ∞)` 夹紧**：
+ *     那条夹紧是为「光环失效不致死」服务的（state.ts 注释），而中毒的语义正是
+ *     能把上限削到 0 并致死。两处都要保留，所以这里另算一次。
+ *   · 当前生命**只夹不缩**：高于新上限才夹到新上限，否则原地不动（削上限 ≠ 扣血）。
+ *   · 上限归零 → 当前生命夹到 0 → 走既有的「hp ≤ 0 即阵亡」约定（`killUnit`）。
+ *   · 状态被净化后**停止**继续削，但**已削的不恢复**（修正项不随状态删除而回滚）。
+ *
+ * @returns 实际削掉的上限点数（0 = 未削：单位不存在 / 已阵亡 / 削量非正）
+ */
+export function shrinkMaxHp(
+  state: MatchState,
+  cards: Map<string, CardDef>,
+  ref: { side: Side; row: Row; col: number },
+  amount: number,
+  events: GameEvent[],
+  /** 状态 id：只用于给修正项起一个稳定 id（同状态重复施加合并成一条），不参与行为判定 */
+  statusId: string,
+  /** 事件与日志里的来源名（取状态显示名，便于 UI 飘字与回放排查） */
+  source = '中毒',
+): number {
+  if (amount <= 0) return 0;
+  const u = getUnit(state, ref.side, ref.row, ref.col);
+  if (!u || u.hp <= 0) return 0;                       // 已阵亡不重复结算（沿用行动税的保护）
+
+  const before = u.maxHp;
+  const modId = `shrink:${statusId}`;
+  const mod = u.mods.find((m) => m.id === modId);
+  if (mod) mod.health = (mod.health ?? 0) - amount;
+  else u.mods.push({ id: modId, kind: 'permanent', health: -amount });
+
+  const dHp = u.mods.reduce((s, m) => s + (m.health ?? 0), 0);
+  u.maxHp = Math.max(0, u.baseMaxHp + dHp);
+  u.hp = Math.max(0, Math.min(u.hp, u.maxHp));
+  const shrunk = before - u.maxHp;
+  if (shrunk > 0) {
+    events.push({ type: 'STAT_MODIFIED', side: ref.side, row: ref.row, col: ref.col, health: -shrunk, source });
+  }
+  if (u.hp <= 0) killUnit(state, cards, { side: ref.side, row: ref.row, col: ref.col, unit: u }, events, null);
+  return shrunk;
 }
 
 /* ============================================================
@@ -726,34 +790,86 @@ export function resolveTurnStartStatuses(
   }
 }
 
-export function resolveTurnEndStatuses(
+/**
+ * **回合开始时**的状态结算：灼烧（时机表第 0 步，ADR-132）
+ *
+ * 灼烧在该方回合的**第一步**结算 —— 早于统率回满、抽牌与一切行动
+ * （由 `engine.startTurn` 在函数最开头调用）。设计者定案：三系 debuff 的时机**刻意错开**，
+ * 让玩家一眼分清挨的是哪一种：
+ *
+ *   · **回合开始 = 灼烧（火）** —— 伤害 = 层数 N、火属性、永久、不封顶
+ *   · **行动时　 = 水困（水）** —— 只有行动才受 `2^(阶段-1)` 点水伤，不行动完全不受伤
+ *   · **回合结束 = 中毒（毒）** —— 永久削 N 点生命上限，不造成伤害
+ *
+ * 为什么灼烧放在"动手之前"而不是"回合结束"：伤害**完全可预期**（层数即伤害、
+ * 徽章上就写着数字），所以"先烧后动"不构成零交互 —— 玩家仍有一整个回合去净化、
+ * 去速杀、或去用这个单位换掉对面；反过来把它放在回合末，它就和中毒挤在同一时点、
+ * 两种"掉上限/掉血"混在一起看不清。详见 GDD 10 §3.2.4 与 ADR-132。
+ *
+ * ⚠️ 与 `resolveTurnEndStatuses` 一样**按 cap 驱动**（`dot_fire`），不认状态 id。
+ */
+export function resolveTurnStartDamage(
   state: MatchState,
   cards: Map<string, CardDef>,
   side: Side,
   events: GameEvent[],
 ): void {
   for (const ref of allUnits(state, side)) {
-    // ⚠️ 别退回「按状态 id 硬编码」的写法。
-    // 原先这里写死 `statusStacks(u, 'zhong_du')`，于是新增任何持续伤害状态都得回来改这一行
-    // —— 水困（ADR-116）就是这么被漏掉的。改为按**状态定义的 cap** 驱动：
-    // 只要状态表里标了 `dot_fire` / `dot_water` / `dot_poison`，回合末自动结算。
     for (const [id, inst] of Object.entries(ref.unit.statuses)) {
       if (inst.stacks <= 0) continue;
-      const caps = STATUSES[id]?.caps ?? [];
-      const dotCap = caps.includes('dot_fire') ? 'dot_fire'
-        : caps.includes('dot_water') ? 'dot_water'
-        : caps.includes('dot_poison') ? 'dot_poison' : null;
-      if (!dotCap) continue;
-      // 三条 DoT 各自带**自己的伤害属性**，这样受伤侧的减伤/易伤（藤甲）才能正确判定：
-      //   · 灼烧 `zhuo_shao` → fire（藤甲「遇火即燃」要吃到它，ADR-108）
-      //   · 水困 `shui_kun`  → water（也吃到水攻强化）
-      //   · 中毒 `zhong_du`  → poison（ADR-117：毒攻**不吃** reduce_physical，藤甲挡箭不挡毒）
-      const dotType = dotCap === 'dot_fire' ? 'fire'
-        : dotCap === 'dot_water' ? 'water' : 'poison';
-      const dotName = dotCap === 'dot_fire' ? '灼烧'
-        : dotCap === 'dot_water' ? '水困' : '中毒';
+      const def = STATUSES[id];
+      if (!def?.caps?.includes('dot_fire')) continue;
+      // 伤害属性由 cap 推得（fire）—— 藤甲「遇火即燃」要吃它（ADR-108）
       dealDamage(state, cards, unitRef(ref.side, ref.row, ref.col), inst.stacks, events,
-        dotName, 0, undefined, undefined, dotType);
+        def.name, 0, undefined, undefined, 'fire');
+    }
+  }
+}
+
+/**
+ * 该方回合结束时的状态结算（时机表第 20 步①，ADR-116/117/132）
+ *
+ * ⚠️ 别退回「按状态 id 硬编码」的写法。
+ * 原先这里写死 `statusStacks(u, 'zhong_du')`，于是新增任何持续伤害状态都得回来改这一行
+ * —— 水困（ADR-116）就是这么被漏掉的。改为按**状态定义的 cap** 驱动。
+ *
+ * ADR-132 起这里只剩两条，且分**两趟**跑，顺序固定、与状态在对象里的插入顺序无关：
+ *   ① `shrink_max_hp` 中毒：**永久削 N 点生命上限**（不造成伤害）
+ *   ② `stage_up`      水困：**阶段 +1**（层数＝阶段，供行动税的 2^(阶段-1) 取用）
+ *
+ * 灼烧（`dot_fire`）**不在这一步** —— 它已移到该方**回合开始**（见 `resolveTurnStartDamage`）。
+ */
+export function resolveTurnEndStatuses(
+  state: MatchState,
+  cards: Map<string, CardDef>,
+  side: Side,
+  events: GameEvent[],
+): void {
+  const units = allUnits(state, side).map((r) => ({ side: r.side, row: r.row, col: r.col, unit: r.unit }));
+
+  // ① 永久削生命上限：中毒（shrink_max_hp）
+  for (const ref of units) {
+    for (const [id, inst] of Object.entries(ref.unit.statuses)) {
+      if (inst.stacks <= 0) continue;
+      const def = STATUSES[id];
+      if (!def?.caps?.includes('shrink_max_hp')) continue;
+      shrinkMaxHp(state, cards, { side: ref.side, row: ref.row, col: ref.col },
+        inst.stacks, events, id, def.name);
+    }
+  }
+
+  // ② 阶段推进：水困（stage_up）—— 施加当回合为阶段 1，此后每个回合末 +1。
+  // 水困**没有回合末伤害**（ADR-132）：伤害只由"行动"触发，不行动就完全不受伤。
+  for (const ref of units) {
+    if (ref.unit.hp <= 0) continue;                    // 刚被中毒削上限削死的单位不再推进
+    for (const [id, inst] of Object.entries(ref.unit.statuses)) {
+      if (inst.stacks <= 0) continue;
+      if (!STATUSES[id]?.caps?.includes('stage_up')) continue;
+      inst.stacks += 1;
+      // 用 STATUS_APPLIED 通告新的层数（= 阶段）：徽章上的数字就是阶段，
+      // 客户端据此刷新卡面；「所有变更都产生事件」是 mutate 的一贯约定。
+      events.push({ type: 'STATUS_APPLIED', side: ref.side, row: ref.row, col: ref.col,
+        status: id, stacks: inst.stacks });
     }
   }
 }
@@ -800,7 +916,8 @@ export function expireHandMods(state: MatchState, side: Side): void {
  * 清除临时效果（时机表第 21 步，ADR-034）
  *
  * ⚠️ 必须在 `turn_end` 触发技**之后**调用——否则「持续 1 回合」的混乱
- * 会在自己的回合结束技生效前就被清掉。中毒结算与触发技都在第 20 步。
+ * 会在自己的回合结束技生效前就被清掉。中毒削上限与水困阶段推进都在第 20 步。
+ * （灼烧不在此列：它已移到该方**回合开始**的第 0 步，见 `resolveTurnStartDamage`。）
  */
 export function expireStatuses(
   state: MatchState,

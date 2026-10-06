@@ -514,7 +514,9 @@ export type GameEvent =
   | { type: 'CARD_DISCARDED'; side: Side; card: CardDef }
   | { type: 'UNIT_RETURNED'; side: Side; row: Row; col: number; unit: Unit }
   | { type: 'STAT_MODIFIED'; side: Side; row: Row; col: number;
-      attack?: number; health?: number; value?: number; duration?: string | number }
+      attack?: number; health?: number; value?: number; duration?: string | number;
+      /** 本次修正的来源名（中毒削上限用「中毒」，便于日志/飘字说明"为什么上限掉了"；ADR-132） */
+      source?: string }
   | { type: 'STATUS_EXPIRED'; side: Side; row: Row; col: number; status: string }
   | { type: 'UNIT_DIED'; side: Side; row: Row; col: number; unit: Unit }
   | { type: 'LORD_SKILL_USED'; side: Side; skill: string }

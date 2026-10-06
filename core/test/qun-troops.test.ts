@@ -3,10 +3,14 @@
  *
  * 两条口径：
  * ① **费用下限**（ADR-112）：特种兵费用 ≥ 对应基础兵费用 + 1
- *    （基础兵：步兵 1 / 盾兵 2 / 弓兵 2 / 骑兵 3 费）。本文件只钉**群雄 8 张**。
- *    ⚠️ 全池**不能**直接套一条通用断言：ADR-112 明确豁免了中立 3 张（白马义从 1/2、
+ *    （基础兵：步兵 1 / 盾兵 2 / 弓兵 1 / 骑兵 3 费 —— 弓兵 1 费见 ADR-131）。本文件只钉**群雄 8 张**。
+ *    ⚠️ 全池**不能**直接套一条通用断言：ADR-112 曾逐张点名豁免中立 3 张（白马义从 1/2、
  *    陷阵盾兵 2/2、西凉铁骑 2/1）与蜀国连弩士 —— 它们是"下限 + 总价值"的例外，
  *    逐张重定由设计者另行过（见 docs/troop-todo-checklist.md §3）。
+ *    ⚠️ **ADR-131 把弓兵基础降到 1 费后，弓兵线与步兵线的豁免已自然失效**：先登弩手、蜀·连弩士、
+ *    中立白马义从、中立西凉铁骑现在都天然合规；仍低于下限的只剩**陷阵盾兵**（2 费盾兵，
+ *    形态卡、本就不是升变目标）与 0 费衍生物。故本文件对群雄 8 张**不再点名豁免**
+ *    （`FLOOR_EXEMPT` / `EXEMPT` 两个常量已删），恢复统一断言。
  * ② **先登死士重做**：2 费 4/3「亡语随机对敌方角色 2 点」→
  *    **3 费 3/3「亡语对敌方主公 3 点」**，且**不加先攻**。
  *
@@ -64,20 +68,12 @@ test('群雄特种兵费用 ≥ 对应基础兵 + 1', () => {
     ['qun_baimayicong', 4],     // 骑兵（原 2 费）
     ['qun_xiliangtieqi', 4],    // 骑兵（原 2 费）
     ['qun_wuhuantuqi', 4],      // 骑兵（ADR-128 由弓兵改回骑兵：突骑本就是骑兵）
-    ['qun_xiandengnushou', 2],  // 弓兵（ADR-129 显式豁免：2 费，先例蜀·连弩士）
+    ['qun_xiandengnushou', 2],  // 弓兵（ADR-131 弓兵基础降为 1 费 → 下限 2，本卡天然合规）
   ];
-  // ADR-112 明文豁免：这些特种兵**按设计者裁定**可以等于基础兵费用
-  // （先例：蜀·连弩士 2 费弓兵）。豁免必须**逐张点名**，不能放宽断言。
-  const FLOOR_EXEMPT = new Set(['qun_xiandengnushou']);
   for (const [id, cost] of expected) {
     const c = real(id);
     const base = real(BASE_TROOP[c.troopKind!]!);
     assert.equal(c.cost, cost, `${c.name} 费用应定为 ${cost}`);
-    if (FLOOR_EXEMPT.has(id)) {
-      assert.ok((c.cost ?? 0) >= (base.cost ?? 0),
-        `${c.name} 虽获豁免，也不该比基础${base.name}更便宜`);
-      continue;
-    }
     assert.ok((c.cost ?? 0) >= (base.cost ?? 0) + 1,
       `${c.name}（${c.cost} 费）必须 ≥ 基础${base.name}（${base.cost} 费）+ 1`);
   }
@@ -86,13 +82,8 @@ test('群雄特种兵费用 ≥ 对应基础兵 + 1', () => {
 test('群雄 8 张特种兵逐张实算合规（不依赖上一条的清单）', () => {
   const qun = cards.filter((c) => c.faction === 'qun' && c.type === 'troop' && c.upgradeFrom);
   assert.equal(qun.length, 8, '群雄特种兵应为 8 张');
-  const EXEMPT = new Set(['qun_xiandengnushou']);   // ADR-129：设计者显式豁免的 2 费弓兵
   for (const c of qun) {
     const base = real(BASE_TROOP[c.troopKind!]!);
-    if (EXEMPT.has(c.id)) {
-      assert.equal(c.cost, base.cost, '豁免项应与基础兵同价（不能更便宜）');
-      continue;
-    }
     assert.ok((c.cost ?? 0) > (base.cost ?? 0),
       `${c.name}（${c.cost} 费）必须贵于基础${base.name}（${base.cost} 费）—— 升级形态不该更便宜`);
   }
@@ -795,7 +786,7 @@ test('乌桓突骑结算：齐射随机打两个目标（固定 4 点总量）�
 test('先登弩手：2 费 1/2 弓兵，战技「强弩」指定 2 点（含主公）', () => {
   const c = real('qun_xiandengnushou');
   assert.deepEqual([c.cost, c.attack, c.health], [2, 1, 2],
-    'ADR-112 显式豁免的 2 费弓兵（先例：蜀·连弩士）；补上群雄缺失的 2 费档');
+    '2 费弓兵：ADR-131 弓兵基础降到 1 费 → 下限 2 费，本卡天然合规（ADR-129 的豁免已失效）');
   assert.equal(c.troopKind, 'archer');
   assert.deepEqual(c.keywords ?? [], ['zhan_ji']);
 

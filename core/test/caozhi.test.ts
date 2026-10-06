@@ -73,9 +73,9 @@ test('曹真：架盾，战吼使双方场上所有角色获得 +1/+1', () => {
   const result = applyAction(state, ctx, { type: 'PLAY_CARD', cardIndex: 0, row: 'front', col: 0 });
   assert.equal(result.ok, true, result.error ?? '');
   assert.equal(result.state.sides.own.rows.front[1]?.atk, 2);
-  assert.equal(result.state.sides.own.rows.front[1]?.maxHp, 2);
+  assert.equal(result.state.sides.own.rows.front[1]?.maxHp, 3);
   assert.equal(result.state.sides.enemy.rows.front[1]?.atk, 2);
-  assert.equal(result.state.sides.enemy.rows.front[1]?.maxHp, 2);
+  assert.equal(result.state.sides.enemy.rows.front[1]?.maxHp, 3);
 });
 
 test('刘晔：战吼时手牌不超过一张则抽一张', () => {
