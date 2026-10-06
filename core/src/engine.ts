@@ -179,7 +179,25 @@ function upgradeUnit(
   const u = getUnit(state, side, action.row, action.col);
   const toCard = ctx.cards.get(action.toCardId);
   const status = upgradeStatus(state, ctx.cards, side, action.row, action.col);
-  if (!u || !toCard || !status || !status.ready || !status.options.some((c) => c.id === toCard.id)) return false;
+  const option = status?.options.find((o) => o.card.id === toCard?.id);
+  if (!u || !toCard || !status || !status.ready || !option) return false;
+
+  // ADR-133：升变按**印刷费用差**收费。**费用差 = +1 档（d ≤ 1）叫「自然升级」——0 统率**；
+  // **超出自然升级的部分，每多 1 费消耗当前回合主公 1 点统率**（即 `max(0, d − 1)`，
+  // 唯一真源 `upgradeCommandCost`）。
+  // 判定必须在**扣费与换形态之前**：统率不够 → 整个动作被拒绝，不扣统率、不换形态、
+  // 也不派发新形态的战吼。这里用 throw 而不是 `return false`，是为了让 `applyAction`
+  // 带回明确 reason（沿用 `canPlayCard` 的「统率值不足（需要 N，当前 M）」文案惯例）；
+  // 抛错时 `next` 克隆被丢弃，返回的仍是**原状态**。
+  //
+  // 扣的数额直接取 `upgradeStatus()` 宣告的 `commandCost` —— 与 UI/AI 看到的是同一个数，
+  // 两处不可能各写一份公式而漂移（同 `rules.canUseUnitSkill` 让 AI 与引擎共用判定的理由）。
+  const commandCost = option.commandCost;
+  const commandCur = state.sides[side].command.cur;
+  if (commandCur < commandCost) {
+    throw new Error(`统率值不足（升变需要 ${commandCost}，当前 ${commandCur}）`);
+  }
+  state.sides[side].command.cur -= commandCost;
 
   const from = u.cardId;
   u.cardId = toCard.id;
@@ -242,11 +260,53 @@ function upgradeUnit(
   return true;
 }
 
+/** 一个升变候选：目标卡 + 本次升变的统率费用（ADR-133） */
+export interface UpgradeOption {
+  /** 目标特种兵卡（只来自正式卡池，不要求放入本局卡组） */
+  card: CardDef;
+  /**
+   * 本次升变要消耗的**当前回合统率**；`0` = 免费。
+   *
+   * 由 `upgradeCommandCost` 按两张卡的**印刷费用**算出（`max(0, d − 1)`），
+   * 也是 `upgradeUnit` 实际扣除的那个数 —— 两处同源。
+   *
+   * `0` 就是设计者口中的「**自然升级**」（费用差 = +1 或更小）；UI 用
+   * `commandCost === 0` 判断即可，**不另设布尔字段**。
+   */
+  commandCost: number;
+  /** 以该方**当前**统率是否付得起；与 `ready`（进度条件）正交，**不要**混成一个字段 */
+  affordable: boolean;
+}
+
 export interface UpgradeStatus {
   label: string;
   progress: string;
+  /** 升变的**进度条件**（击杀 / 存活 / 命中…）是否满足；**不含**统率是否够（ADR-133） */
   ready: boolean;
-  options: CardDef[];
+  options: UpgradeOption[];
+}
+
+/**
+ * 升变的统率费用（ADR-133）—— **唯一真源**，UI / AI / 引擎都从这里取。
+ *
+ * 设 `d = 目标特种兵卡的 cost − 该单位当前卡的 cost`（一律取 `CardDef.cost` 的**印刷费用**，
+ * 不看被效果改过的 `Unit.cost`），则设计者口径是：
+ *
+ *   · **费用差 = +1（`d ≤ 1`）＝「自然升级」：0 统率**，只要进度条件满足就能升；
+ *   · **超出自然升级的部分，每多 1 费消耗当前回合主公 1 点统率**。
+ *
+ * 合起来就是
+ *
+ *     升变统率费用 = max(0, d − 1)
+ *
+ * 即 `d = 2`（比自然升级多 1 费）→ **1 统率**；`d = 3` → 2 统率……
+ * **不硬编码任何数值、不按兵种写特例表** —— 基础兵或特种兵日后调费，规则自动自洽。
+ *
+ * `upgradeStatus()` 用它给出每个候选的 `commandCost`，`upgradeUnit()` 扣的就是那个数，
+ * 所以"预览"与"实扣"不可能漂移（同 ADR-086 把主公技门控下沉到 `rules.canUseLordSkill` 的理由）。
+ */
+export function upgradeCommandCost(from: CardDef | undefined, to: CardDef): number {
+  return Math.max(0, (to.cost ?? 0) - (from?.cost ?? 0) - 1);
 }
 
 /** UI 与 AI 共用升变资格；不改变对局状态。 */
@@ -265,10 +325,16 @@ export function upgradeStatus(
     default: return null;
   }
   const faction = state.sides[side].lord.faction;
-  const options = ready ? [...cards.values()].filter((c) => c.type === 'troop'
+  const commandCur = state.sides[side].command.cur;
+  // 当前形态的印刷费用：取该单位**当前卡**的 CardDef（升变后就是上一个目标形态）。
+  const fromCard = cards.get(u.cardId);
+  const options: UpgradeOption[] = ready ? [...cards.values()].filter((c) => c.type === 'troop'
     && c.upgradeFrom === u.troopKind && c.troopKind === u.troopKind
     && c.id !== 'elite_xianzhen_dun'
-    && (c.faction === faction || c.faction === 'qun' || c.faction === 'neutral')) : [];
+    && (c.faction === faction || c.faction === 'qun' || c.faction === 'neutral')).map((card) => {
+    const commandCost = upgradeCommandCost(fromCard, card);
+    return { card, commandCost, affordable: commandCost <= commandCur };
+  }) : [];
   return { label, progress, ready, options };
 }
 

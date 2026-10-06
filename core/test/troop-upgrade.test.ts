@@ -67,8 +67,8 @@ test('升级选项允许所有兵种选择群雄兵，但不显示陷阵盾兵',
   const shield = getUnit(state, 'own', 'front', 0)!;
   shield.upgradeProgress = { damage: 0, shieldSurvival: 2, basicKills: 0, characterKills: 0, heroHits: 0 };
   const status = upgradeStatus(state, ctx.cards, 'own', 'front', 0)!;
-  assert.ok(status.options.some((c) => c.id === 'qun_test_xianzhenying'), '盾兵应可升级为群雄陷阵营');
-  assert.equal(status.options.some((c) => c.id === 'elite_xianzhen_dun'), false, '陷阵盾兵不是升级选项');
+  assert.ok(status.options.some((o) => o.card.id === 'qun_test_xianzhenying'), '盾兵应可升级为群雄陷阵营');
+  assert.equal(status.options.some((o) => o.card.id === 'elite_xianzhen_dun'), false, '陷阵盾兵不是升级选项');
 });
 
 test('升级为带无法攻击光环的兵种后立即禁止普通攻击', () => {

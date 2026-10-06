@@ -781,7 +781,11 @@ function upgradeDetailHTML(side, row, col) {
   if (side !== 'own' || !Core.upgradeStatus || !session || !session.ctx) return '';
   var up = Core.upgradeStatus(session.state, session.ctx.cards, side, row, col);
   if (!up) return '';
-  var ready = up.ready ? '已满足升级条件，可选择升级目标。' : '尚未满足升级条件。';
+  // ADR-133：条件满足 ≠ 付得起 —— 两个维度都要告诉玩家，别只说"已满足"。
+  var anyAffordable = (up.options || []).some(function (o) { return o.affordable !== false; });
+  var ready = !up.ready ? '尚未满足升级条件。'
+    : anyAffordable ? '已满足升级条件，可选择升级目标（费用差 +1 为「自然升级」不耗统率，超出部分消耗本回合统率）。'
+    : '已满足升级条件，但当前统率不足，无法升变。';
   return '<div class="upgrade-detail"><b>升级进度</b><span>' + up.label + '：' + up.progress
     + '</span><em>' + ready + '</em></div>';
 }
@@ -2022,14 +2026,29 @@ function showUpgradePicker(row, col, status) {
   }
   var el = document.getElementById('upgrade-picker');
   if (!el) return;
+  var commandCur = session && session.state ? session.state.sides.own.command.cur : 0;
   var html = '<div class="up-panel"><h3>选择升变目标</h3>'
-    + '<div class="up-progress">' + status.label + '：' + status.progress + '　升变不消耗牌库或手牌</div>'
+    + '<div class="up-progress">' + status.label + '：' + status.progress
+    + '　升变不消耗牌库或手牌；费用差 +1 为「自然升级」（不耗统率），超出部分每多 1 费消耗 1 统率（当前 '
+    + commandCur + '）</div>'
     + '<div class="up-options">';
-  status.options.forEach(function (c) {
+  status.options.forEach(function (opt) {
+    // ADR-133：候选自带 commandCost（引擎 upgradeStatus 给的，与实扣同源）——
+    // 原型只渲染，不复制费用公式。
+    var c = opt.card || opt;
+    var cost = opt.commandCost || 0;
+    var affordable = opt.affordable !== false;
+    // commandCost === 0 就是设计者口径的「自然升级」（费用差 +1，不耗统率）——
+    // 不新增布尔字段，直接按 0 判断（ADR-133）。
+    var costText = cost > 0 ? ('需 ' + cost + ' 统率') : '自然升级';
+    var costCls = cost > 0 ? 'up-cost' : 'up-cost is-free';
     var factionName = { shu: '蜀国', wei: '魏国', wu: '吴国', qun: '群雄', neutral: '中立' }[c.faction] || c.faction || '未知阵营';
-    html += '<button type="button" class="up-card" data-upgrade-id="' + String(c.id).replace(/"/g, '&quot;') + '">'
+    html += '<button type="button" class="up-card' + (affordable ? '' : ' is-unaffordable') + '"'
+      + (affordable ? '' : ' disabled')
+      + ' data-upgrade-id="' + String(c.id).replace(/"/g, '&quot;') + '">'
       + '<b>' + escapeUpgradeText(c.name) + '</b><span class="up-faction">' + escapeUpgradeText(factionName) + '</span>'
       + '<span>' + c.cost + ' 费　' + (c.attack ?? 0) + '/' + (c.health ?? 0) + '</span>'
+      + '<span class="' + costCls + '">' + costText + (affordable ? '' : '（统率不足）') + '</span>'
       + '<small>' + escapeUpgradeText(c.memo || skillTextOf((c.skills || [])[0]) || '无额外效果') + '</small></button>';
   });
   html += '</div><button type="button" class="up-cancel">取消</button></div>';
@@ -2042,7 +2061,10 @@ function showUpgradePicker(row, col, status) {
       // 在同一次点击里清掉（症状：提示语出现了，但棋盘上一个高亮都没有）。
       if (e) { e.preventDefault(); e.stopPropagation(); }
       var id = btn.getAttribute('data-upgrade-id');
-      var card = status.options.filter(function (c) { return c.id === id; })[0];
+      // ADR-133：付不起的候选由引擎拒绝，UI 只是不给点（disabled 已挡住 click，这里再兜一层）
+      var opt = status.options.filter(function (o) { return (o.card || o).id === id; })[0];
+      if (!opt || opt.affordable === false) return;
+      var card = opt.card || opt;
       closeUpgradePicker();
       // ADR-116：新形态若带**指向性战吼**（如虎步军「越水」），先让玩家选目标，
       // 再把 target 一并交给 UPGRADE_UNIT。不这样做的话引擎只会走

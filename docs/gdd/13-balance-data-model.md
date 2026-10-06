@@ -204,6 +204,21 @@ ADR-117 补充通用 DSL：
   memo: "把步兵变成先攻骑兵"
 ```
 
+### 6.3 升变的统率费用（ADR-133，纯规则、无新字段）
+
+玩家确认的兵种升变（`UPGRADE_UNIT`）按**印刷费用差**消耗当前回合统率：
+
+```
+d = 目标特种兵卡的 cost − 该单位当前卡的 cost        # 都取 CardDef.cost（印刷费用）
+升变统率费用 = max(0, d − 1)                        # d ≤ 1 =「自然升级」= 0 统率；d = 2 → 1；d = 3 → 2
+```
+
+- **没有任何新的 YAML 字段**：费用由引擎按两张卡的既有 `cost` 现算（唯一真源 `upgradeCommandCost`，`core/src/engine.ts`），
+  所以 `data/*.yaml` **零改动**；调费即自动改价，不需要维护对照表。
+- 判定**先于扣除**：`command.cur` 不足 → 动作被拒（不扣统率、不换形态、不派发战吼）。
+- `upgradeStatus()` 的候选带 `commandCost`（与实扣同源；`0` 即「自然升级」）与 `affordable`；`ready` 只表示进度条件。
+- 流程与设计口径见 `03-turn-flow.md` §2.3、`07-troops.md` §2.2。
+
 ## 7. 效果 DSL
 
 ### 7.1 结构

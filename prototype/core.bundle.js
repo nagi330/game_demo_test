@@ -137,6 +137,7 @@ var Core = (() => {
     unitCount: () => unitCount,
     unitRef: () => unitRef,
     unitSkillTargetPlan: () => unitSkillTargetPlan,
+    upgradeCommandCost: () => upgradeCommandCost,
     upgradeProgress: () => upgradeProgress,
     upgradeStatus: () => upgradeStatus,
     validateDeck: () => validateDeck
@@ -2800,7 +2801,14 @@ var Core = (() => {
     const u = getUnit(state, side, action.row, action.col);
     const toCard = ctx.cards.get(action.toCardId);
     const status = upgradeStatus(state, ctx.cards, side, action.row, action.col);
-    if (!u || !toCard || !status || !status.ready || !status.options.some((c) => c.id === toCard.id)) return false;
+    const option = status?.options.find((o) => o.card.id === toCard?.id);
+    if (!u || !toCard || !status || !status.ready || !option) return false;
+    const commandCost = option.commandCost;
+    const commandCur = state.sides[side].command.cur;
+    if (commandCur < commandCost) {
+      throw new Error(`\u7EDF\u7387\u503C\u4E0D\u8DB3\uFF08\u5347\u53D8\u9700\u8981 ${commandCost}\uFF0C\u5F53\u524D ${commandCur}\uFF09`);
+    }
+    state.sides[side].command.cur -= commandCost;
     const from = u.cardId;
     u.cardId = toCard.id;
     u.name = toCard.name;
@@ -2838,6 +2846,9 @@ var Core = (() => {
     events.push({ type: "UNIT_UPGRADED", side, row: action.row, col: action.col, from, to: toCard.id, unit: u });
     return true;
   }
+  function upgradeCommandCost(from, to) {
+    return Math.max(0, (to.cost ?? 0) - (from?.cost ?? 0) - 1);
+  }
   function upgradeStatus(state, cards, side, row, col) {
     const u = getUnit(state, side, row, col);
     if (!u || !isBasicTroop(u)) return null;
@@ -2868,7 +2879,12 @@ var Core = (() => {
         return null;
     }
     const faction = state.sides[side].lord.faction;
-    const options = ready ? [...cards.values()].filter((c) => c.type === "troop" && c.upgradeFrom === u.troopKind && c.troopKind === u.troopKind && c.id !== "elite_xianzhen_dun" && (c.faction === faction || c.faction === "qun" || c.faction === "neutral")) : [];
+    const commandCur = state.sides[side].command.cur;
+    const fromCard = cards.get(u.cardId);
+    const options = ready ? [...cards.values()].filter((c) => c.type === "troop" && c.upgradeFrom === u.troopKind && c.troopKind === u.troopKind && c.id !== "elite_xianzhen_dun" && (c.faction === faction || c.faction === "qun" || c.faction === "neutral")).map((card) => {
+      const commandCost = upgradeCommandCost(fromCard, card);
+      return { card, commandCost, affordable: commandCost <= commandCur };
+    }) : [];
     return { label, progress, ready, options };
   }
   var TYPE_CN = {

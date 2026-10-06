@@ -301,6 +301,14 @@
   #upgrade-picker .up-card .up-faction { color: #c8b7e6; font-size: 10px; margin-top: 4px; }
   #upgrade-picker .up-card span { display: block; color: #d9a35a; font-size: 11px; margin-top: 3px; }
   #upgrade-picker .up-card small { display: block; color: #aaa08f; font-size: 10px; margin-top: 5px; line-height: 1.4; }
+  /* ADR-133：升变统率费用（「自然升级」= 费用差 +1 = 0 统率，绿字；付不起整张置灰） */
+  #upgrade-picker .up-card .up-cost { color: #ffe3a1; font-weight: 700; }
+  #upgrade-picker .up-card .up-cost.is-free { color: #9fd68f; }
+  #upgrade-picker button.up-card:disabled,
+  #upgrade-picker button.up-card:disabled:hover,
+  #upgrade-picker button.up-card.is-unaffordable {
+    border-color: #4a3d29; background: #1d150c; opacity: .55; cursor: default;
+  }
   #upgrade-picker .up-cancel { margin-top: 12px; padding: 6px 10px; color: #c6b9a1; }
   .unit-wrap.is-selected .cr-card {
     box-shadow: 0 0 0 1px #000, 0 0 0 2px var(--gold-hi), 0 0 18px rgba(212,175,106,.85);
