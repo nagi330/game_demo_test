@@ -96,6 +96,7 @@ var Core = (() => {
     legalTargets: () => legalTargets,
     loadData: () => loadData,
     lordAlive: () => lordAlive,
+    lordAttackTargets: () => lordAttackTargets,
     lordRef: () => lordRef,
     lordSkillTargetPlan: () => lordSkillTargetPlan,
     lordStatusStacks: () => lordStatusStacks,
@@ -138,6 +139,7 @@ var Core = (() => {
     unitRef: () => unitRef,
     unitSkillTargetPlan: () => unitSkillTargetPlan,
     upgradeCommandCost: () => upgradeCommandCost,
+    upgradeCost: () => upgradeCost,
     upgradeProgress: () => upgradeProgress,
     upgradeStatus: () => upgradeStatus,
     validateDeck: () => validateDeck
@@ -576,6 +578,7 @@ var Core = (() => {
     "troop",
     "general",
     "strategist",
+    "machine",
     "event",
     "tactic",
     "elite",
@@ -829,6 +832,20 @@ var Core = (() => {
     }
     return { ok: true };
   }
+  function lordAttackTargets(state, side) {
+    const lord = state.sides[side].lord;
+    if (state.active !== side || state.winner || state.pendingDiscover) return { targets: [], why: "\u5F53\u524D\u4E0D\u80FD\u653B\u51FB" };
+    if ((lord.attackThisTurn ?? 0) <= 0 || lord.attackedThisTurn) return { targets: [], why: "\u4E3B\u516C\u6CA1\u6709\u53EF\u7528\u653B\u51FB\u673A\u4F1A" };
+    if (hasCapOn(lord.statuses, "block_action") || hasCapOn(lord.statuses, "block_attack")) {
+      return { targets: [], why: "\u5F53\u524D\u72B6\u6001\u65E0\u6CD5\u666E\u901A\u653B\u51FB" };
+    }
+    const foe = other(side);
+    const shields = shieldUnits(state, foe);
+    if (shields.length) return { targets: shields.map(({ row, col }) => ({ kind: "unit", side: foe, row, col })), why: "\u5FC5\u987B\u5148\u653B\u51FB\u67B6\u76FE\u5355\u4F4D" };
+    const targets = allUnits(state, foe).filter(({ unit }) => unit.hp > 0 && !hasCap(unit, "untargetable") && !hasTrait(unit, "qi_xi") && !hasCap(unit, "duel_lock")).map(({ row, col }) => ({ kind: "unit", side: foe, row, col }));
+    if (!hasCapOn(state.sides[foe].lord.statuses, "untargetable")) targets.push({ kind: "lord", side: foe });
+    return { targets, why: "\u4E3B\u516C\u53EF\u653B\u51FB\u4E00\u6B21" };
+  }
   function effectiveAttack(state, side, row, col) {
     const u = getUnit(state, side, row, col);
     if (!u) return 0;
@@ -876,7 +893,7 @@ var Core = (() => {
     if (cost > s.command.cur) {
       return { ok: false, reason: `\u7EDF\u7387\u503C\u4E0D\u8DB3\uFF08\u9700\u8981 ${cost}\uFF0C\u5F53\u524D ${s.command.cur}\uFF09` };
     }
-    if (card.type === "troop" || card.type === "general" || card.type === "strategist") {
+    if (card.type === "troop" || card.type === "general" || card.type === "strategist" || card.type === "machine") {
       if (!slot) return { ok: false, reason: "\u4EBA\u7269\u5361\u9700\u8981\u6307\u5B9A\u90E8\u7F72\u4F4D\u7F6E" };
       if (state.sides[side].rows[slot.row][slot.col]) return { ok: false, reason: "\u8BE5\u683C\u5DF2\u6709\u5355\u4F4D" };
       if (unitCount(state, side) >= BOARD.MAX_UNITS) return { ok: false, reason: "\u6218\u573A\u5DF2\u6EE1" };
@@ -991,7 +1008,7 @@ var Core = (() => {
     }
     s.hand.push({ card, mods: [] });
   }
-  function dealDamage(state, cards, ref, amount, events, source, depth = 0, killerRef, sourceUnit, damageType = "physical", reflected = false) {
+  function dealDamage(state, cards, ref, amount, events, source, depth = 0, killerRef, sourceUnit, damageType = "physical", reflected = false, deathSource) {
     if (amount <= 0 || !refAlive(state, ref)) return 0;
     if (ref.kind === "lord") {
       const lord = state.sides[ref.side].lord;
@@ -1023,13 +1040,15 @@ var Core = (() => {
           killerRef,
           sourceUnit,
           damageType,
-          reflected
+          reflected,
+          deathSource
         );
       }
       let dmg = amount;
       if (lord.armor > 0) {
         const absorbed = Math.min(lord.armor, dmg);
         lord.armor -= absorbed;
+        lord.temporaryArmor = Math.max(0, (lord.temporaryArmor ?? 0) - absorbed);
         dmg -= absorbed;
       }
       lord.hp -= dmg;
@@ -1071,7 +1090,8 @@ var Core = (() => {
         killerRef,
         sourceUnit,
         damageType,
-        reflected
+        reflected,
+        deathSource
       );
     }
     const shieldStatus = Object.keys(u.statuses).find((k) => STATUSES[k]?.caps?.includes("immune_damage"));
@@ -1111,7 +1131,7 @@ var Core = (() => {
     }
     events.push({ type: "DAMAGE", target: ref, amount: finalAmount, source });
     if (actual > 0 && sourceUnit?.kw.includes("ju_du") && u.hp > 0) {
-      killUnit(state, cards, { side: ref.side, row: ref.row, col: ref.col, unit: u }, events, killerRef);
+      killUnit(state, cards, { side: ref.side, row: ref.row, col: ref.col, unit: u }, events, deathSource ?? killerRef);
       return actual;
     }
     const thorns = capStacks(u.statuses, "thorns");
@@ -1137,8 +1157,22 @@ var Core = (() => {
         }
       }
     }
+    if (actual > 0 && thorns > 0 && deathSource && deathSource.row === void 0) {
+      dealDamage(
+        state,
+        cards,
+        lordRef(deathSource.side),
+        thorns,
+        events,
+        u.name,
+        depth + 1,
+        null,
+        u,
+        "physical"
+      );
+    }
     if (u.hp <= 0 && tryLethalSave(state, u, ref, events)) return finalAmount;
-    if (u.hp <= 0) killUnit(state, cards, { side: ref.side, row: ref.row, col: ref.col, unit: u }, events, killerRef);
+    if (u.hp <= 0) killUnit(state, cards, { side: ref.side, row: ref.row, col: ref.col, unit: u }, events, deathSource ?? killerRef);
     return finalAmount;
   }
   function tryLethalSave(state, u, ref, events) {
@@ -1290,7 +1324,7 @@ var Core = (() => {
   function killUnit(state, cards, ref, events, killer) {
     const { side, row, col, unit } = ref;
     if (!getUnit(state, side, row, col)) return;
-    if (killer) {
+    if (killer?.row !== void 0 && killer.col !== void 0) {
       const killerUnit = getUnit(state, killer.side, killer.row, killer.col);
       if (killerUnit?.troopKind === "cavalry" && isBasicTroop(killerUnit)) {
         const p = upgradeProgress(killerUnit);
@@ -1309,8 +1343,8 @@ var Core = (() => {
     if (deathSkills.length && onDeathResolver) {
       onDeathResolver(state, cards, side, unit, deathSkills, events, createRng(state.rngState), killer);
     }
-    if (killer && onKillResolver) {
-      onKillResolver(state, cards, killer, { name: unit.name, side, row, col, type: unit.type }, events, createRng(state.rngState));
+    if (killer?.row !== void 0 && killer.col !== void 0 && onKillResolver) {
+      onKillResolver(state, cards, { side: killer.side, row: killer.row, col: killer.col }, { name: unit.name, side, row, col, type: unit.type }, events, createRng(state.rngState));
     }
     if (afterDeathResolver) afterDeathResolver(state, cards, events);
   }
@@ -1474,7 +1508,7 @@ var Core = (() => {
   function resolveDrawTrigger(state, cards, side, card, events, rng) {
     const sk = (card.skills ?? []).find((k) => k.trigger === "on_draw");
     if (!sk) return false;
-    if (["troop", "general", "strategist"].includes(card.type)) {
+    if (["troop", "general", "strategist", "machine"].includes(card.type)) {
       const col = state.sides[side].rows.front.findIndex((unit) => unit === null);
       if (col < 0) return false;
       emitSkillTriggered(state, side, null, sk, "trigger", events);
@@ -1538,7 +1572,7 @@ var Core = (() => {
   var pickOf = (ctx, sel) => sel?.pick === 2 ? ctx.chosen2 ?? ctx.chosen : ctx.chosen;
   var hpOf = (s, t) => t.kind === "lord" ? s.sides[t.side].lord.hp : t.kind === "hand" ? 0 : getUnit(s, t.side, t.row, t.col)?.hp ?? 0;
   var sameTarget = (a, b) => a.kind === b.kind && a.side === b.side && (a.kind === "lord" || a.kind === "hand" && b.kind === "hand" && a.index === b.index || a.kind === "unit" && b.kind === "unit" && a.row === b.row && a.col === b.col);
-  var CHARACTER_TYPES = ["troop", "general", "strategist", "token"];
+  var CHARACTER_TYPES = ["troop", "general", "strategist", "machine", "token"];
   var isCharacterType = (t) => CHARACTER_TYPES.includes(t);
   var matchesCardType = (t, want) => {
     if (!want) return true;
@@ -1584,6 +1618,7 @@ var Core = (() => {
   var cmp = (a, op, b) => op === ">=" ? a >= b : op === "<=" ? a <= b : op === "==" ? a === b : op === ">" ? a > b : op === "<" ? a < b : op === "!=" ? a !== b : false;
   function checkCondition(state, cond, ctx, rng) {
     if (!cond) return true;
+    if (cond.last_damage_target_not_type && (!ctx.lastDamageTargetType || ctx.lastDamageTargetType === cond.last_damage_target_not_type)) return false;
     if (cond.all_of?.length && !cond.all_of.every((c) => checkCondition(state, c, ctx, rng))) return false;
     if (cond.any_of?.length && !cond.any_of.some((c) => checkCondition(state, c, ctx, rng))) return false;
     if (cond.acted_this_turn !== void 0) {
@@ -1848,7 +1883,7 @@ var Core = (() => {
     if (selector?.event) {
       const k = selector.event === "killer" ? ctx.killer : ctx.eventVictim;
       if (!k) return [];
-      return [{ kind: "unit", side: k.side, row: k.row, col: k.col }];
+      return k.row !== void 0 && k.col !== void 0 ? [unitRef(k.side, k.row, k.col)] : [lordRef(k.side)];
     }
     if (!selector) return ctx.chosen ? [ctx.chosen] : [];
     if (selector.zone === "hand") {
@@ -1923,6 +1958,10 @@ var Core = (() => {
     if (selector.filter?.adjacent_to === "chosen") {
       const chosen = pickOf(ctx, selector);
       finalPool = chosen?.kind === "unit" ? finalPool.filter((t) => t.kind === "unit" && t.side === chosen.side && t.row === chosen.row && Math.abs(t.col - chosen.col) === 1) : [];
+    }
+    if (selector.filter?.adjacent_to === "killer") {
+      const k = ctx.killer;
+      finalPool = k?.row !== void 0 && k.col !== void 0 ? finalPool.filter((t) => t.kind === "unit" && t.side === k.side && t.row === k.row && Math.abs(t.col - k.col) === 1) : [];
     }
     if (selector.filter?.offset_from_chosen !== void 0) {
       const chosen = pickOf(ctx, selector);
@@ -2030,7 +2069,10 @@ var Core = (() => {
           targetUnit?.name ?? "\u53CD\u51FB",
           0,
           void 0,
-          targetUnit ?? void 0
+          targetUnit ?? void 0,
+          "physical",
+          false,
+          { side: foe, row: tRow, col: tCol }
         );
         const back = getUnit(state, side, from.row, from.col);
         if (back && back.hp > 0) runUnitTrigger(state, cards, back, "on_damaged", rng, events);
@@ -2122,20 +2164,23 @@ var Core = (() => {
             for (const t of list) {
               const before = hpOf(state, t);
               const victim = t.kind === "unit" ? getUnit(state, t.side, t.row, t.col) : null;
+              ctx.lastDamageTargetType = victim?.type ?? (t.kind === "lord" ? "lord" : void 0);
               const waterBonus = eff.damage_type === "water" ? allUnits(state, ctx.side).reduce((sum, ref) => sum + capStacks(ref.unit.statuses, "water_damage"), 0) : 0;
               const keywordBonus = victim && eff.bonus_vs_keyword && hasTrait(victim, eff.bonus_vs_keyword.keyword) ? eff.bonus_vs_keyword.value : 0;
+              const troopBonus = victim && eff.bonus_vs_troop_kind && victim.troopKind === eff.bonus_vs_troop_kind.troopKind ? eff.bonus_vs_troop_kind.value : 0;
               dealDamage(
                 state,
                 cards,
                 t,
-                val + waterBonus + keywordBonus,
+                val + waterBonus + keywordBonus + troopBonus,
                 events,
                 ctx.source?.name ?? "\u6548\u679C",
                 0,
                 void 0,
                 ctx.source,
                 eff.damage_type ?? "physical",
-                eff.damage_origin === "reflected"
+                eff.damage_origin === "reflected",
+                ctx.source && findPos(state, ctx.side, ctx.source.uid) ? { side: ctx.side, ...findPos(state, ctx.side, ctx.source.uid) } : void 0
               );
               if (eff.damage_type === "fire" && t.kind === "unit" && t.side !== ctx.side) {
                 applyStatus(state, t, "zhuo_shao", 1, events);
@@ -2355,7 +2400,7 @@ var Core = (() => {
             const [hc] = state.sides[from].hand.splice(idx, 1);
             if (!hc) continue;
             const def = hc.card;
-            const isChar = ["troop", "general", "strategist"].includes(def.type);
+            const isChar = ["troop", "general", "strategist", "machine"].includes(def.type);
             if (eff.to === "board" && isChar) {
               const empties = [];
               for (const r of BOARD.ROWS) {
@@ -2618,6 +2663,10 @@ var Core = (() => {
         }
         case "gain_armor":
           gainArmor(state, ctx.side, eff.value ?? 1, events);
+          if (eff.duration === "this_turn") {
+            const lord = state.sides[ctx.side].lord;
+            lord.temporaryArmor = (lord.temporaryArmor ?? 0) + (eff.value ?? 1);
+          }
           break;
         case "gain_command": {
           const cmd = state.sides[ctx.side].command;
@@ -2636,6 +2685,12 @@ var Core = (() => {
         case "modify": {
           const list = targets.length ? targets : chosenFor(eff.target);
           for (const t of list) {
+            if (t.kind === "lord" && eff.duration === "this_turn") {
+              const lord = state.sides[t.side].lord;
+              lord.attackThisTurn = Math.max(0, (lord.attackThisTurn ?? 0) + (eff.attack ?? 0));
+              events.push({ type: "LORD_ATTACK_GAINED", side: t.side, attack: lord.attackThisTurn });
+              continue;
+            }
             if (t.kind !== "unit") continue;
             const u = getUnit(state, t.side, t.row, t.col);
             if (!u) continue;
@@ -2741,6 +2796,54 @@ var Core = (() => {
         case "ATTACK":
           ok = attack(next, ctx, action, events, rng);
           break;
+        case "LORD_ATTACK": {
+          const side = next.active;
+          const to = action.to;
+          if (!lordAttackTargets(next, side).targets.some((t) => t.kind === to.kind && (to.kind === "lord" || t.row === to.row && t.col === to.col))) {
+            ok = false;
+            break;
+          }
+          const lord = next.sides[side].lord;
+          lord.attackedThisTurn = true;
+          const foe = other(side);
+          const damage = lord.attackThisTurn ?? 0;
+          const defender = to.kind === "unit" ? getUnit(next, foe, to.row, to.col) : null;
+          const retaliation = to.kind === "unit" ? effectiveAttack(next, foe, to.row, to.col) : 0;
+          events.push({ type: "LORD_ATTACK_DECLARED", side, to });
+          dealDamage(
+            next,
+            ctx.cards,
+            to.kind === "lord" ? lordRef(foe) : unitRef(foe, to.row, to.col),
+            damage,
+            events,
+            lord.name,
+            0,
+            void 0,
+            void 0,
+            "physical",
+            false,
+            { side }
+          );
+          if (defender && defender.hp > 0) {
+            runUnitTrigger(next, ctx.cards, defender, "on_damaged", rng, events);
+            runMarkDamaged(next, ctx.cards, defender, damage, rng, events);
+          }
+          if (retaliation > 0) dealDamage(
+            next,
+            ctx.cards,
+            lordRef(side),
+            retaliation,
+            events,
+            "\u53CD\u51FB",
+            0,
+            void 0,
+            defender ?? void 0,
+            "physical",
+            false,
+            to.kind === "unit" ? { side: foe, row: to.row, col: to.col } : void 0
+          );
+          break;
+        }
         case "USE_LORD_SKILL":
           ok = useLordSkill(next, ctx, action, events, rng);
           break;
@@ -2852,6 +2955,9 @@ var Core = (() => {
   function upgradeCommandCost(from, to) {
     return Math.max(0, (to.cost ?? 0) - (from?.cost ?? 0) - 1);
   }
+  function upgradeCost(from, to) {
+    return Math.max(0, to.cost - from.cost - 1);
+  }
   function upgradeStatus(state, cards, side, row, col) {
     const u = getUnit(state, side, row, col);
     if (!u || !isBasicTroop(u)) return null;
@@ -2886,9 +2992,10 @@ var Core = (() => {
     const fromCard = cards.get(u.cardId);
     const options = ready ? [...cards.values()].filter((c) => c.type === "troop" && c.upgradeFrom === u.troopKind && c.troopKind === u.troopKind && c.id !== "elite_xianzhen_dun" && (c.faction === faction || c.faction === "qun" || c.faction === "neutral")).map((card) => {
       const commandCost = upgradeCommandCost(fromCard, card);
-      return { card, commandCost, affordable: commandCost <= commandCur };
+      return { id: card.id, card, commandCost, affordable: commandCost <= commandCur };
     }) : [];
-    return { label, progress, ready, options };
+    const costs = Object.fromEntries(options.map((o) => [o.id, o.commandCost]));
+    return { label, progress, ready, options, costs };
   }
   var TYPE_CN = {
     troop: "\u5175\u79CD",
@@ -2913,7 +3020,7 @@ var Core = (() => {
       if (sk.modes?.length) plan.modes = sk.modes.map((m, i) => m.name || `\u9009\u9879 ${i + 1}`);
       for (const eff of effectsOf(sk, modeIndex)) collect(eff);
     }
-    if (!["troop", "general", "strategist"].includes(card.type)) {
+    if (!["troop", "general", "strategist", "machine"].includes(card.type)) {
       for (const eff of card.effects ?? []) collect(eff);
     }
     return plan;
@@ -3021,6 +3128,13 @@ var Core = (() => {
     }
     expireStatuses(state, side, events);
     expireMods(state, side);
+    for (const sd of ["own", "enemy"]) {
+      const lord = state.sides[sd].lord;
+      lord.armor = Math.max(0, lord.armor - (lord.temporaryArmor ?? 0));
+      delete lord.temporaryArmor;
+      delete lord.attackThisTurn;
+      delete lord.attackedThisTurn;
+    }
     expireHandMods(state, side);
     recomputeAuras(state, ctx.cards, rng, events);
     const dropped = discardOverflow(state, side);
@@ -3055,7 +3169,7 @@ var Core = (() => {
     if (isBanned(hc)) return false;
     const card = hc.card;
     const cost = effectiveCost(hc, costRuleDelta(state, card, side, rng));
-    const isCharacter = ["troop", "general", "strategist"].includes(card.type);
+    const isCharacter = ["troop", "general", "strategist", "machine"].includes(card.type);
     const slot = isCharacter ? { row: action.row, col: action.col } : void 0;
     const check = canPlayCard(state, side, card, slot, cost);
     if (!check.ok) return false;
@@ -3331,7 +3445,7 @@ var Core = (() => {
     let units = 0;
     for (const c of cards) {
       curve[c.cost] = (curve[c.cost] ?? 0) + 1;
-      if (["troop", "general", "strategist"].includes(c.type)) units += 1;
+      if (["troop", "general", "strategist", "machine"].includes(c.type)) units += 1;
     }
     const size = cards.length;
     return {
@@ -3448,7 +3562,7 @@ var Core = (() => {
   }
 
   // src/ai/cards.ts
-  var CHARACTER_TYPES2 = ["troop", "general", "strategist"];
+  var CHARACTER_TYPES2 = ["troop", "general", "strategist", "machine"];
   var isCharacterCard = (c) => CHARACTER_TYPES2.includes(c.type);
   function skillEffects(sk) {
     if (sk.modes?.length) return sk.modes.flatMap((m) => m.effects ?? []);
@@ -3568,6 +3682,14 @@ var Core = (() => {
     const foe = other(side);
     const out = [];
     const lordEff = state.sides[foe].lord.hp + state.sides[foe].lord.armor;
+    for (const t of lordAttackTargets(state, side).targets) {
+      out.push({
+        kind: "attack",
+        action: { type: "LORD_ATTACK", to: t.kind === "lord" ? { kind: "lord" } : { kind: "unit", row: t.row, col: t.col } },
+        label: "\u4E3B\u516C\u666E\u653B",
+        quick: (state.sides[side].lord.attackThisTurn ?? 0) * 1.1
+      });
+    }
     for (const ref of allUnits(state, side)) {
       if (!canAttack(state, side, ref.row, ref.col).ok) continue;
       const dmg = effectiveAttack(state, side, ref.row, ref.col);

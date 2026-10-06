@@ -17,7 +17,7 @@ var GD = window.GameData;
 var DESIGN_W = 736, DESIGN_H = 414;
 var ROWS = ['front'];        // ADR-051：单排
 var COLS = [0, 1, 2, 3, 4, 5, 6, 7];   // 一行 8 格
-var CHARACTER_TYPES = ['troop', 'general', 'strategist'];
+var CHARACTER_TYPES = ['troop', 'general', 'strategist', 'machine'];
 
 var data = Core.loadData(
   { cards: GD.cards, heroes: GD.heroes },
@@ -258,6 +258,16 @@ function renderLords(st) {
         : '');
 
     var skillEl = bar.querySelector('.lb-skill');
+    if (l.attackThisTurn) {
+      var attackEl = document.createElement('button');
+      attackEl.type = 'button'; attackEl.className = 'lb-attack';
+      attackEl.title = '主公普攻：拖到高亮敌方目标';
+      attackEl.textContent = '⚔ ' + l.attackThisTurn;
+      attackEl.disabled = !Core.lordAttackTargets(st, side).targets.length;
+      attackEl.addEventListener('click', function (e) { e.stopPropagation(); });
+      attackEl.addEventListener('pointerdown', function (e) { if (side === 'own') startLordDrag(e, bar); });
+      bar.appendChild(attackEl);
+    }
     if (skillEl) {
       skillEl.addEventListener('click', function (e) {
         e.stopPropagation();
@@ -645,7 +655,7 @@ function renderHand(st) {
     var displayCard = Object.assign({}, c, { cost: cost });
     // 「能不能打出」一律问 Core（ADR-088）—— 与拖拽出牌走的是同一个判定，
     // 免得出现"绿框了却放不下去"。被封锁（酒令/谮言）与战场已满也算不能出。
-    var isChar = ['troop', 'general', 'strategist'].indexOf(c.type) >= 0;
+    var isChar = ['troop', 'general', 'strategist', 'machine'].indexOf(c.type) >= 0;
     var playable = false;
     if (myTurn && !Core.isBanned(hc)) {
       var spots = isChar ? Core.legalPlacements(st, 'own') : [];
@@ -855,7 +865,7 @@ function hideCardTip() {
 }
 
 var TYPE_LABEL = {
-  troop: '兵种', general: '武将', strategist: '谋臣', event: '事件',
+  troop: '兵种', general: '武将', strategist: '谋臣', machine: '军械', event: '事件',
   tactic: '战法', token: '衍生物', elite: '精英', special: '特殊',
 };
 
@@ -1040,6 +1050,27 @@ function bindDragEvents() {
   window.addEventListener('pointercancel', onDragEnd);
 }
 
+function startLordDrag(e, bar) {
+  if (busy || drag || pendingPlay || pendingPick || pendingSkill || pendingUpgrade || e.button !== 0) return;
+  var legal = Core.lordAttackTargets(session.state, 'own');
+  if (!legal.targets.length) return;
+  e.preventDefault(); e.stopPropagation(); clearMarks();
+  var rect = bar.getBoundingClientRect();
+  var ghost = bar.cloneNode(true);
+  ghost.removeAttribute('id'); ghost.classList.add('drag-ghost');
+  ghost.style.width = rect.width + 'px'; ghost.style.height = rect.height + 'px';
+  ghost.style.transform = 'translate3d(' + rect.left + 'px,' + rect.top + 'px,0)';
+  document.body.appendChild(ghost);
+  drag = { kind: 'lord', wrap: bar, ghost: ghost, dx: e.clientX - rect.left, dy: e.clientY - rect.top,
+    sx: e.clientX, sy: e.clientY, origin: { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 },
+    arrowFrom: bar, raf: 0, pending: null };
+  legal.targets.forEach(function (t) {
+    var el = t.kind === 'lord' ? lordEl(t.side) : unitEl(t.side, t.row, t.col);
+    if (el) markTarget(el, t);
+  });
+  bindDragEvents();
+}
+
 /**
  * 轻点一个单位时，若它这一手有**可用的指向性主动技** → 进入技能指向（ADR-088）
  *
@@ -1105,7 +1136,7 @@ function onDragMove(e) {
     drag.ghost.style.transform =
       'translate3d(' + (p.x - drag.dx) + 'px,' + (p.y - drag.dy) + 'px,0)';
 
-    if (drag.kind === 'unit') {
+    if (drag.kind === 'unit' || drag.kind === 'lord') {
       var _t0 = nearestHit(p.x, p.y);
       markGhostValidity(!!_t0);          // 不在合法目标上 → 卡面压灰（炉石手感）
       // 拖拽攻击：命中判定走缓存坐标（不再 elementFromPoint），并给吸附半径
@@ -1235,6 +1266,14 @@ function onDragEnd(e) {
   }
 
   // 攻击拖拽：合法性一律由 Core.legalTargets 判定（缓存里就是它算出来的）
+  if (d.kind === 'lord') {
+    var lh = hitAtPoint(e.clientX, e.clientY) || nearestHit(e.clientX, e.clientY);
+    clearMarks();
+    if (lh && Core.lordAttackTargets(session.state, 'own').targets.some(function (t) { return sameTarget(t, lh); })) {
+      doAction({ type: 'LORD_ATTACK', to: lh.kind === 'lord' ? { kind: 'lord' } : { kind: 'unit', row: lh.row, col: lh.col } });
+    }
+    return;
+  }
   if (d.kind === 'unit') {
     if (d.raf) { cancelAnimationFrame(d.raf); d.raf = 0; }
     if (d.wrap) d.wrap.classList.remove('is-dragging');
@@ -2193,6 +2232,8 @@ function statusName(id) {
 function describeEvent(e) {
   var who = SIDE_NAME[e.side] || e.side || '';
   switch (e.type) {
+    case 'LORD_ATTACK_GAINED': return { cls: '', text: who + ' 主公本回合攻击力变为 ' + e.attack };
+    case 'LORD_ATTACK_DECLARED': return { cls: '', text: who + ' 主公攻击 ' + (e.to.kind === 'lord' ? '敌方主公' : '敌方第' + (e.to.col + 1) + '格') };
     // ADR-074：技能发动单独成行并高亮 —— 做卡牌测试时"哪个技能生效了"是第一条信息
     case 'SKILL_TRIGGERED': {
       var when = SKILL_WHEN[e.timing] || SKILL_FROM[e.from] || '';
@@ -2672,6 +2713,13 @@ function animate(e) {
       }
       return 520;
     }
+    case 'LORD_ATTACK_DECLARED': {
+      var lordTarget = e.to.kind === 'lord' ? lordEl(e.side === 'own' ? 'enemy' : 'own')
+        : unitEl(e.side === 'own' ? 'enemy' : 'own', e.to.row, e.to.col);
+      if (lordTarget) CR.attack(lordEl(e.side), lordTarget, null);
+      return 760;
+    }
+    case 'LORD_ATTACK_GAINED': renderLords(session.state); return 300;
     case 'ATTACK_DECLARED': {
       var from = unitEl(e.side, e.from.row, e.from.col);
       var to = e.to && e.to.kind === 'lord' ? lordEl(e.to.side)

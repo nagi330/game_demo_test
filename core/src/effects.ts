@@ -14,7 +14,7 @@ import { effectiveAttack } from './rules.ts';
 // 两个都要留。
 import { createRng, type Rng } from './rng.ts';
 import { type OnDrawResult } from './mutate.ts';
-import type { CardDef, CardEffect, EffectCondition, GameEvent, HandCard, MatchState, Row, Side, SkillDef, TargetSelector, Unit } from './types.ts';
+import type { CardDef, CardEffect, CardType, EffectCondition, GameEvent, HandCard, MatchState, Row, Side, SkillDef, TargetSelector, Unit } from './types.ts';
 import {
   applyStatus, dealDamage, drawCard, gainArmor, healTarget, killUnit, lordRef, registerOnDeathResolver,
   registerOnDrawResolver,
@@ -33,7 +33,7 @@ export function resolveDrawTrigger(state: MatchState, cards: Map<string, CardDef
 
   // 人物牌的“抽到时”技能是自动召唤：占用第一个空置前军格。
   // 战场已满时不消耗技能，回退为普通手牌，避免卡牌凭空消失。
-  if (['troop', 'general', 'strategist'].includes(card.type)) {
+  if (['troop', 'general', 'strategist', 'machine'].includes(card.type)) {
     const col = state.sides[side].rows.front.findIndex((unit) => unit === null);
     if (col < 0) return false;
     emitSkillTriggered(state, side, null, sk, 'trigger', events);
@@ -112,7 +112,7 @@ export interface EffectContext {
   /** 本次结算的「被击杀者」（on_kill 用，供亡语/条件引用，ADR-070） */
   eventVictim?: { name: string; side: Side; row: Row; col: number };
   /** 本次结算的「击杀者」（亡语要指向它时用，ADR-070） */
-  killer?: { side: Side; row: Row; col: number };
+  killer?: { side: Side; row?: Row; col?: number };
   /** 本次被击杀者的类型（victim_type 条件用） */
   victimType?: string;
   chosenCol?: number;
@@ -130,6 +130,7 @@ export interface EffectContext {
   lordFullHpAtStart?: Record<Side, boolean>;
   /** 当前普通攻击目标；仅 on_attack 技能条件可读取。 */
   attackTarget?: TargetRef;
+  lastDamageTargetType?: CardType;
 }
 
 /**
@@ -163,7 +164,7 @@ const sameTarget = (a: TargetRef, b: TargetRef): boolean =>
  * 却**选不中** —— 指向性技能点上去没反应（设计者实机反馈：「黄巾兵、假人这些召唤出来的
  * 不能被指向性选择到」）。现在按"场上的单位"来理解，含 token。
  */
-const CHARACTER_TYPES = ['troop', 'general', 'strategist', 'token'];
+const CHARACTER_TYPES = ['troop', 'general', 'strategist', 'machine', 'token'];
 const isCharacterType = (t: string): boolean => CHARACTER_TYPES.includes(t);
 
 const matchesCardType = (t: string, want?: string): boolean => {
@@ -234,6 +235,8 @@ function checkCondition(
   state: MatchState, cond: EffectCondition | undefined, ctx: EffectContext, rng: Rng,
 ): boolean {
   if (!cond) return true;
+  if (cond.last_damage_target_not_type &&
+      (!ctx.lastDamageTargetType || ctx.lastDamageTargetType === cond.last_damage_target_not_type)) return false;
   // 条件的与 / 或组合（ADR-074）：先判组合，再与其余字段相与
   if (cond.all_of?.length && !cond.all_of.every((c) => checkCondition(state, c, ctx, rng))) return false;
   if (cond.any_of?.length && !cond.any_of.some((c) => checkCondition(state, c, ctx, rng))) return false;
@@ -593,7 +596,7 @@ export function resolveTargets(
   if (selector?.event) {
     const k = selector.event === 'killer' ? ctx.killer : ctx.eventVictim;
     if (!k) return [];
-    return [{ kind: 'unit' as const, side: k.side, row: k.row, col: k.col }];
+    return k.row !== undefined && k.col !== undefined ? [unitRef(k.side, k.row, k.col)] : [lordRef(k.side)];
   }
   if (!selector) return ctx.chosen ? [ctx.chosen] : [];
 
@@ -697,6 +700,11 @@ export function resolveTargets(
     finalPool = chosen?.kind === 'unit' ? finalPool.filter((t) =>
       t.kind === 'unit' && t.side === chosen.side && t.row === chosen.row
       && Math.abs(t.col - chosen.col) === 1) : [];
+  }
+  if (selector.filter?.adjacent_to === 'killer') {
+    const k = ctx.killer;
+    finalPool = k?.row !== undefined && k.col !== undefined ? finalPool.filter(t =>
+      t.kind === 'unit' && t.side === k.side && t.row === k.row && Math.abs(t.col - k.col!) === 1) : [];
   }
   if (selector.filter?.offset_from_chosen !== undefined) {
     const chosen = pickOf(ctx, selector);
@@ -875,7 +883,7 @@ export function resolveAttack(
     // 消耗一层并免掉本次伤害，这才是唯一的免疫途径。
     if (retaliate > 0) {
       dealDamage(state, cards, unitRef(side, from.row, from.col), retaliate, events, targetUnit?.name ?? '反击', 0,
-        undefined, targetUnit ?? undefined);
+        undefined, targetUnit ?? undefined, 'physical', false, { side: foe, row: tRow, col: tCol });
       const back = getUnit(state, side, from.row, from.col);
       if (back && back.hp > 0) runUnitTrigger(state, cards, back, 'on_damaged', rng, events);
     }
@@ -1049,13 +1057,18 @@ export function runEffects(
           for (const t of list) {
             const before = hpOf(state, t);
             const victim = t.kind === 'unit' ? getUnit(state, t.side, t.row, t.col) : null;
+            ctx.lastDamageTargetType = victim?.type ?? (t.kind === 'lord' ? 'lord' : undefined);
             const waterBonus = eff.damage_type === 'water'
               ? allUnits(state, ctx.side).reduce((sum, ref) => sum + capStacks(ref.unit.statuses, 'water_damage'), 0)
               : 0;
             const keywordBonus = victim && eff.bonus_vs_keyword && hasTrait(victim, eff.bonus_vs_keyword.keyword)
               ? eff.bonus_vs_keyword.value : 0;
-            dealDamage(state, cards, t, val + waterBonus + keywordBonus, events, ctx.source?.name ?? '效果', 0, undefined, ctx.source,
-              eff.damage_type ?? 'physical', eff.damage_origin === 'reflected');
+            const troopBonus = victim && eff.bonus_vs_troop_kind && victim.troopKind === eff.bonus_vs_troop_kind.troopKind
+              ? eff.bonus_vs_troop_kind.value : 0;
+            dealDamage(state, cards, t, val + waterBonus + keywordBonus + troopBonus, events, ctx.source?.name ?? '效果', 0, undefined, ctx.source,
+              eff.damage_type ?? 'physical', eff.damage_origin === 'reflected',
+              ctx.source && findPos(state, ctx.side, ctx.source.uid)
+                ? { side: ctx.side, ...findPos(state, ctx.side, ctx.source.uid)! } : undefined);
 
             /* ------------------------------------------------------------
              * 🔥「火攻挂灼烧」全局规则（ADR-134，设计者定案）
@@ -1339,7 +1352,7 @@ export function runEffects(
           const [hc] = state.sides[from].hand.splice(idx, 1);
           if (!hc) continue;
           const def = hc.card;
-          const isChar = ['troop', 'general', 'strategist'].includes(def.type);
+          const isChar = ['troop', 'general', 'strategist', 'machine'].includes(def.type);
           if (eff.to === 'board' && isChar) {
             // 强制上场：放到己方随机空格
             const empties: Array<{ row: 'front' | 'back'; col: number }> = [];
@@ -1638,6 +1651,10 @@ export function runEffects(
       }
       case 'gain_armor':
         gainArmor(state, ctx.side, eff.value ?? 1, events);
+        if (eff.duration === 'this_turn') {
+          const lord = state.sides[ctx.side].lord;
+          lord.temporaryArmor = (lord.temporaryArmor ?? 0) + (eff.value ?? 1);
+        }
         break;
       case 'gain_command': {
         // 本回合临时统率（gain_command）
@@ -1657,6 +1674,12 @@ export function runEffects(
       case 'modify': {
         const list = targets.length ? targets : chosenFor(eff.target);
         for (const t of list) {
+          if (t.kind === 'lord' && eff.duration === 'this_turn') {
+            const lord = state.sides[t.side].lord;
+            lord.attackThisTurn = Math.max(0, (lord.attackThisTurn ?? 0) + (eff.attack ?? 0));
+            events.push({ type: 'LORD_ATTACK_GAINED', side: t.side, attack: lord.attackThisTurn });
+            continue;
+          }
           if (t.kind !== 'unit') continue;
           const u = getUnit(state, t.side, t.row, t.col);
           if (!u) continue;

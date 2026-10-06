@@ -81,7 +81,7 @@ for (const c of cards) {
     const summons = evs.filter((e) => e.type === 'UNIT_SUMMONED').length;
     const sig: string[] = evs.map((e) => e.type)
       .filter((t) => !['CARD_PLAYED', 'UNIT_SUMMONED', 'REJECTED', 'TURN_START'].includes(t));
-    const selfSummons = ['troop', 'general', 'strategist'].includes(c.type) ? 1 : 0;
+    const selfSummons = ['troop', 'general', 'strategist', 'machine'].includes(c.type) ? 1 : 0;
     if (summons > selfSummons) sig.push(`召唤×${summons - selfSummons}`);
 
     // 光环不会在打出瞬间产出事件，改为**核对重算后的实际数值**

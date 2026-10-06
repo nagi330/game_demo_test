@@ -53,7 +53,7 @@ import {
 } from './state.ts';
 import { applyMods } from './state.ts';
 import {
-  canPlayCard, canUseLordSkill, canUseUnitSkill, legalTargets,
+  canPlayCard, canUseLordSkill, canUseUnitSkill, legalTargets, lordAttackTargets, effectiveAttack,
 } from './rules.ts';
 import {
   dealDamage, discardOverflow, drawCard, effectiveCost, expireHandMods, expireMods, expireStatuses,
@@ -63,7 +63,7 @@ import {
 import {
   costRuleDelta, effectsOf, emitSkillTriggered, recomputeAuras, resolveAttack, resolveTargets,
   resolveDrawTrigger,
-  runCardPlayedTriggers, runEffects, runTriggerSkills,
+  runCardPlayedTriggers, runEffects, runTriggerSkills, runUnitTrigger, runMarkDamaged,
 } from './effects.ts';
 import type {
   Action, ApplyResult, CardDef, CardEffect, EngineContext, GameEvent, MatchState, Row, Side,
@@ -100,6 +100,29 @@ export function applyAction(state: MatchState, ctx: EngineContext, action: Actio
       case 'CHOOSE_DISCOVER': ok = chooseDiscover(next, ctx, action, events, rng); break;
       case 'UPGRADE_UNIT': ok = upgradeUnit(next, ctx, action, events, rng); break;
       case 'ATTACK': ok = attack(next, ctx, action, events, rng); break;
+      case 'LORD_ATTACK': {
+        const side = next.active;
+        const to = action.to;
+        if (!lordAttackTargets(next, side).targets.some(t => t.kind === to.kind &&
+          (to.kind === 'lord' || (t.row === to.row && t.col === to.col)))) { ok = false; break; }
+        const lord = next.sides[side].lord;
+        lord.attackedThisTurn = true;
+        const foe = other(side);
+        const damage = lord.attackThisTurn ?? 0;
+        const defender = to.kind === 'unit' ? getUnit(next, foe, to.row, to.col) : null;
+        const retaliation = to.kind === 'unit' ? effectiveAttack(next, foe, to.row, to.col) : 0;
+        events.push({ type: 'LORD_ATTACK_DECLARED', side, to });
+        dealDamage(next, ctx.cards, to.kind === 'lord' ? lordRef(foe) : unitRef(foe, to.row, to.col),
+          damage, events, lord.name, 0, undefined, undefined, 'physical', false, { side });
+        if (defender && defender.hp > 0) {
+          runUnitTrigger(next, ctx.cards, defender, 'on_damaged', rng, events);
+          runMarkDamaged(next, ctx.cards, defender, damage, rng, events);
+        }
+        if (retaliation > 0) dealDamage(next, ctx.cards, lordRef(side), retaliation, events, '反击',
+          0, undefined, defender ?? undefined, 'physical', false,
+          to.kind === 'unit' ? { side: foe, row: to.row, col: to.col } : undefined);
+        break;
+      }
       case 'USE_LORD_SKILL': ok = useLordSkill(next, ctx, action, events, rng); break;
       case 'USE_SKILL': ok = useUnitSkill(next, ctx, action, events, rng); break;
       case 'END_TURN': endTurn(next, ctx, events, rng); break;
@@ -262,6 +285,8 @@ function upgradeUnit(
 
 /** 一个升变候选：目标卡 + 本次升变的统率费用（ADR-133） */
 export interface UpgradeOption {
+  /** 兼容旧 UI/测试直接读取候选 id；卡牌完整定义仍在 card 字段。 */
+  id: string;
   /** 目标特种兵卡（只来自正式卡池，不要求放入本局卡组） */
   card: CardDef;
   /**
@@ -284,6 +309,8 @@ export interface UpgradeStatus {
   /** 升变的**进度条件**（击杀 / 存活 / 命中…）是否满足；**不含**统率是否够（ADR-133） */
   ready: boolean;
   options: UpgradeOption[];
+  /** 兼容旧 UI 的费用索引；实际扣费以 options[].commandCost 为唯一来源。 */
+  costs: Record<string, number>;
 }
 
 /**
@@ -307,6 +334,11 @@ export interface UpgradeStatus {
  */
 export function upgradeCommandCost(from: CardDef | undefined, to: CardDef): number {
   return Math.max(0, (to.cost ?? 0) - (from?.cost ?? 0) - 1);
+}
+
+/** 旧 API 兼容别名，统一采用 ADR-133 的自然升级费用公式。 */
+export function upgradeCost(from: Pick<CardDef, 'cost'>, to: Pick<CardDef, 'cost'>): number {
+  return Math.max(0, to.cost - from.cost - 1);
 }
 
 /** UI 与 AI 共用升变资格；不改变对局状态。 */
@@ -333,9 +365,10 @@ export function upgradeStatus(
     && c.id !== 'elite_xianzhen_dun'
     && (c.faction === faction || c.faction === 'qun' || c.faction === 'neutral')).map((card) => {
     const commandCost = upgradeCommandCost(fromCard, card);
-    return { card, commandCost, affordable: commandCost <= commandCur };
+    return { id: card.id, card, commandCost, affordable: commandCost <= commandCur };
   }) : [];
-  return { label, progress, ready, options };
+  const costs = Object.fromEntries(options.map((o) => [o.id, o.commandCost]));
+  return { label, progress, ready, options, costs };
 }
 
 /* ============================================================
@@ -404,7 +437,7 @@ export function playTargetPlan(
     for (const eff of effectsOf(sk, modeIndex)) collect(eff);
   }
   // 非人物卡的卡级效果同样可能带 mode:'choose'（如指定一方）
-  if (!['troop', 'general', 'strategist'].includes(card.type)) {
+  if (!['troop', 'general', 'strategist', 'machine'].includes(card.type)) {
     for (const eff of card.effects ?? []) collect(eff);
   }
   return plan;
@@ -562,6 +595,13 @@ function finishTurn(state: MatchState, ctx: EngineContext, events: GameEvent[], 
   }
   expireStatuses(state, side, events);                                        // 第 21 步 清除临时效果
   expireMods(state, side);                                                     // 第 21 步 临时属性修正到期
+  for (const sd of ['own', 'enemy'] as const) {
+    const lord = state.sides[sd].lord;
+    lord.armor = Math.max(0, lord.armor - (lord.temporaryArmor ?? 0));
+    delete lord.temporaryArmor;
+    delete lord.attackThisTurn;
+    delete lord.attackedThisTurn;
+  }
   expireHandMods(state, side);                                                 // 第 21 步 手牌修正到期
   recomputeAuras(state, ctx.cards, rng, events);                              // 第 21 步后重算
   const dropped = discardOverflow(state, side);
@@ -617,7 +657,7 @@ function playCard(
   const card = hc.card;
   const cost = effectiveCost(hc, costRuleDelta(state, card, side, rng));  // 费用 = 卡面 + cost_rule + mods
 
-  const isCharacter = ['troop', 'general', 'strategist'].includes(card.type);
+  const isCharacter = ['troop', 'general', 'strategist', 'machine'].includes(card.type);
   const slot = isCharacter ? { row: action.row as 'front' | 'back', col: action.col as number } : undefined;
   const check = canPlayCard(state, side, card, slot, cost);
   if (!check.ok) return false;

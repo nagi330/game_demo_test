@@ -57,7 +57,7 @@ function parseRows(): Row[] {
   const rows: Row[] = [];
   let section = '';
   for (const line of doc.split('\n')) {
-    const head = /^#{2,4}\s*3\.\d\s+(.*)$/.exec(line);
+    const head = /^#{2,4}\s*3\.\d\s+(.*?)\r?$/.exec(line);
     if (head) { section = head[1]!.trim(); continue; }
     const faction = SECTION_FACTION[section];
     if (!faction || !line.startsWith('|') || /^\|[\s|:-]*\|?$/.test(line)) continue;
@@ -96,7 +96,7 @@ test('文档里的每一行都能对应到真实卡（改卡名 / 删卡的防�
   const problems: string[] = [];
   let section = '';
   for (const line of doc.split('\n')) {
-    const head = /^#{2,4}\s*3\.\d\s+(.*)$/.exec(line);
+    const head = /^#{2,4}\s*3\.\d\s+(.*?)\r?$/.exec(line);
     if (head) { section = head[1]!.trim(); continue; }
     const faction = SECTION_FACTION[section];
     if (!faction || !line.startsWith('|') || /^\|[\s|:-]*\|?$/.test(line)) continue;

@@ -10,7 +10,7 @@ import { NON_DECK_TYPES } from '../constants.ts';
 import type { CardDef, CardEffect, HandCard, Unit } from '../types.ts';
 
 /** 人物卡三型（可以上场站场的那三类） */
-export const CHARACTER_TYPES: readonly string[] = ['troop', 'general', 'strategist'];
+export const CHARACTER_TYPES: readonly string[] = ['troop', 'general', 'strategist', 'machine'];
 
 export const isCharacterCard = (c: CardDef): boolean => CHARACTER_TYPES.includes(c.type);
 

@@ -16,7 +16,7 @@ export * from './mutate.ts';
 export { resolveTargets, runEffects, type EffectContext } from './effects.ts';
 export {
   applyAction, startMatch, playTargetPlan, unitSkillTargetPlan, lordSkillTargetPlan, upgradeStatus,
-  upgradeCommandCost,
+  upgradeCommandCost, upgradeCost,
   type PlayTargetPlan, type PlayTargetChoice, type UpgradeStatus, type UpgradeOption,
 } from './engine.ts';
 export {

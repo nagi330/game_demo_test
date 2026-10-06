@@ -55,13 +55,13 @@ window.CardRender = (function () {
 
   function typeLabel(card) {
     return {
-      troop: '兵种', general: '武将', strategist: '谋臣',
+      troop: '兵种', general: '武将', strategist: '谋臣', machine: '军械',
       event: '事件', tactic: '战法', elite: '精锐', special: '特殊',
     }[card.type] || '';
   }
 
   function isCharacter(card) {
-    return card.type === 'troop' || card.type === 'general' || card.type === 'strategist';
+    return card.type === 'troop' || card.type === 'general' || card.type === 'strategist' || card.type === 'machine';
   }
 
   /* ---------- 立绘层 ---------- */

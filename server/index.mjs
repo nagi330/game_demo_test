@@ -82,6 +82,12 @@ function syncCards() {
         deckable ? 1 : 0, ready ? 1 : 0, json, createHash('sha256').update(json).digest('hex'));
       if (ready) addOwned.run(DEMO_USER, card.id, quantity);
     }
+    // 保留已保存卡组的历史引用，但下架不再存在于卡池的卡。
+    const disable = db.prepare('UPDATE cards SET enabled = 0 WHERE id = ?');
+    const currentIds = new Set(cardSource.map(card => card.id));
+    for (const { id } of db.prepare('SELECT id FROM cards WHERE enabled = 1').all()) {
+      if (!currentIds.has(id)) disable.run(id);
+    }
     db.exec('COMMIT');
   } catch (error) { db.exec('ROLLBACK'); throw error; }
 }

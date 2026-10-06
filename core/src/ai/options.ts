@@ -15,7 +15,7 @@
 import { createRng } from '../rng.ts';
 import { allUnits, getUnit, hasTrait, other } from '../state.ts';
 import {
-  canAttack, canPlayCard, canUseLordSkill, canUseUnitSkill, effectiveAttack, legalPlacements, legalTargets,
+  canAttack, canPlayCard, canUseLordSkill, canUseUnitSkill, effectiveAttack, legalPlacements, legalTargets, lordAttackTargets,
 } from '../rules.ts';
 import { effectiveCost, isBanned } from '../mutate.ts';
 import { costRuleDelta } from '../effects.ts';
@@ -60,6 +60,11 @@ function attackOptions(state: MatchState, w: EvalWeights): AiOption[] {
   const foe = other(side);
   const out: AiOption[] = [];
   const lordEff = state.sides[foe].lord.hp + state.sides[foe].lord.armor;
+  for (const t of lordAttackTargets(state, side).targets) {
+    out.push({ kind: 'attack', action: { type: 'LORD_ATTACK', to: t.kind === 'lord'
+      ? { kind: 'lord' } : { kind: 'unit', row: t.row!, col: t.col! } },
+      label: '主公普攻', quick: (state.sides[side].lord.attackThisTurn ?? 0) * 1.1 });
+  }
 
   for (const ref of allUnits(state, side)) {
     if (!canAttack(state, side, ref.row, ref.col).ok) continue;
