@@ -4551,11 +4551,10 @@
     target: { side: enemy, filter: { type: character }, count: 1, mode: choose }
     text: 战技：指定一名敌方单位，施加中毒（永久；该方回合结束时**永久降低 N 点生命上限**，N = 层数，层数不封顶；本身不造成伤害），并造成 1 点毒攻伤害。
     effects:
-    - action: apply_status
-      status: zhong_du
-      stacks: 1
-      # ⚠️ 刻意不写 duration（ADR-132）：中毒是**永久**的，直到被净化。
-      # 「净化后停止、已削的不恢复」是它比旧版（2 回合到期）更狠的地方。
+    # ⚠️ 中毒**不再显式施加**（ADR-138）：毒攻伤害会由效果层的全局规则自动挂 1 层。
+    # 保留这一条会变成"显式 1 层 + 自动 1 层 = 2 层/次"，与本卡文案（1 层）不符。
+    # ⚠️ 刻意不写 duration（ADR-132）：中毒是**永久**的，直到被净化。
+    # 「净化后停止、已削的不恢复」是它比旧版（2 回合到期）更狠的地方。
     - action: damage
       value: 1
       damage_type: poison

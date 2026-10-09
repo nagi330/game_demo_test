@@ -5,6 +5,10 @@
  * 客户端把 core 产出的 Event 翻译成动画即可。
  */
 
+/** 状态档位：定义在 `constants.ts`（状态表的唯一真源），这里转出供 DSL / 覆盖使用 */
+import type { StatusCap } from './constants.ts';
+export type { StatusCap };
+
 export type Side = 'own' | 'enemy';
 export type Row = 'front' | 'back';
 /**
@@ -88,9 +92,29 @@ export interface CardEffect {
   clashMode?: 'roll' | 'cost';   // clash 的比法
   from?: 'top' | 'bottom';       // scry 的取牌端
   status_source?: 'self';        // apply_status 时把来源单位记为状态的 srcUid（ADR-039）
+  /**
+   * `override_status` 专用（ADR-142）：把 `status` 的若干档位覆盖为指定值。
+   * 例：`{ reduce_physical: 2, vulnerable_fire: 0 }` ＝ 藤甲强化（物理 −2、不再怕火）。
+   */
+  caps?: Partial<Record<StatusCap, number>>;
   value_from_discarded?: 'cost' | 'health';   // 取「最近被弃牌」的属性作为数值（ADR-040）
   value_from_source?: 'attack' | 'health';    // 取来源单位当前攻/血作为数值
   damage_type?: DamageType;       // damage 专用：水攻/火攻/毒攻伤害（缺省 physical，见 DamageType）
+  /**
+   * gain_command 专用（ADR-139，蒋琬「足食」）：**永久提升统率上限**而不只是本回合可用值。
+   *
+   * 缺省 `false` = 只加本回合 `cur`（且夹在上限内）；`true` = `max` 与 `cur` 一起涨，
+   * 上限封顶 `COMMAND.MAX`。回合开始时会回满 `cur`，所以"回合开始 +N"必须用这个模式，
+   * 否则加出来的那 1 点会立刻被回满覆盖掉（＝完全没有收益）。
+   */
+  permanent?: boolean;
+  /**
+   * `self_to_hand` 专用（ADR-141，孟获「蛮王」）：**超过次数上限之后**这张卡去哪。
+   *
+   *   · `'enemy'`（缺省）= 转给对手手牌（"第 7 次会到对手手牌"）
+   *   · `'none'`        = 超过上限就**不再重建**（正常进弃牌堆）
+   */
+  overflow?: 'enemy' | 'none';
   damage_origin?: 'reflected';    // 反射伤害不再触发主公受伤联动
   copy_source_stats?: boolean;    // summon：复制来源当前攻血，不复制技能或状态
   discover_to?: 'hand' | 'deck_top'; // discover 专用：选择后进手牌或牌库顶
@@ -302,13 +326,36 @@ export interface StatusInstance {
   expiresAtHalfTurn?: number;     // 当前行动方回合结束时清除，不按状态拥有方递减
 }
 
+/**
+ * 规则覆盖（ADR-142）：把这个单位身上**某个状态**的**某个档位（cap）**覆盖为指定值。
+ *
+ * 为什么需要它：cap（如 `reduce_physical`）平时由**状态层数**驱动（`capStacks`），
+ * 而一个状态的多个 cap 共用同一个层数 —— 典型例子是**藤甲**：
+ * `reduce_physical` 与 `vulnerable_fire` 都等于层数，所以"加一层"会把
+ * 「物理 −1」变成「物理 −2」**同时**把「遇火 +1」变成「遇火 +2」，
+ * 想只要前者（或想连后者一起消掉）就必须**覆盖档位**，而不是加层数。
+ *
+ * 语义：**仅当该状态确实存在于这个单位身上时才生效**（被净化 → 覆盖自动失效；
+ * 重新获得状态 → 覆盖自动恢复，因为覆盖是挂在实例上、每次结算现读的）。
+ */
+export interface RuleOverride {
+  statusId: string;              // 作用于哪个状态（如 'teng_jia'）
+  cap: StatusCap;                // 覆盖哪个档位（如 'reduce_physical'）
+  value: number;                 // 覆盖成多少（绝对值，不是增减量）
+}
+
 /** 属性修正项（ADR-037）：最终属性 = 基础值 + Σ mods */
 export interface StatMod {
   id: string;                    // 来源技能 id；重算时按来源整体替换
-  kind: 'aura' | 'temp' | 'permanent';
+  /**
+   * `aura` 光环（重算时先清后加）｜ `temp` 限时｜ `permanent` 永久
+   * ｜ `rule` **规则覆盖**（ADR-142，不改属性，改的是某状态某档位的结算值）
+   */
+  kind: 'aura' | 'temp' | 'permanent' | 'rule';
   attack?: number;
   health?: number;
   turns?: number;                // 'temp' 专用：剩余回合
+  rule?: RuleOverride;           // 'rule' 专用
 }
 
 /** 手牌实例（ADR-038）：包住共享的卡牌定义，承载"这张手牌"的独立状态 */
@@ -320,10 +367,21 @@ export interface HandCard {
 /** 手牌修正项（ADR-038，与 Unit.mods 同构） */
 export interface HandMod {
   id: string;
-  kind: 'cost' | 'ban';          // cost: 费用增减；ban: 禁止上场
-  value?: number;                // cost 专用
+  /**
+   * `cost` 费用增减 ｜ `ban` 禁止上场 ｜ `attack` / `health` **手牌数值修正**（ADR-141）
+   * ｜ `rule` **规则覆盖**（ADR-142，打出时随牌进场）
+   *
+   * `attack` / `health` 在**打出时**结算到上场的单位身上（`engine.playCard`），
+   * 用于「手牌里的 X 获得 +N/+N」（孟获「蛮王」）与「收回时留下永久减益」（孟获自身）两类效果。
+   * `rule` 同样在打出时搬进单位的 `mods`，用来表达「手牌里的 X 上场后其某个状态按新档位结算」
+   *（兀突骨「藤甲统率」＝手牌里的藤甲兵上场后物理减伤 −2、且不再怕火）。
+   * 与 `cost` 一样支持 `auraId`：光环施加的会在每次 `recomputeAuras` 先清后加，不会累积。
+   */
+  kind: 'cost' | 'ban' | 'attack' | 'health' | 'rule';
+  value?: number;                // cost / attack / health 专用
   turns?: number;                // 剩余回合；undefined = 永久
   auraId?: string;               // 由哪个光环施加（重算时先清后加，ADR-041）
+  rule?: RuleOverride;           // 'rule' 专用（ADR-142）
 }
 
 export interface Unit {
@@ -429,6 +487,14 @@ export interface MatchState {
   };
   /** 发现流程暂停时，等待继续结算的同一时机触发技队列。 */
   pendingTriggerSkills?: { side: Side; trigger: string; nextIndex: number };
+  /**
+   * 「阵亡后重建于手牌」的次数计数（ADR-141，孟获「蛮王」）
+   *
+   * 按 **cardId** 计数（孟获同名唯一，一个卡组只放 1 张）。放下这里而不是手牌 mod 的原因：
+   * 单位在场上时手牌 mod 已经不存在了，而"第几次收回"必须跨「手牌 ↔ 战场」存活。
+   * 只有用过 `self_to_hand` 的对局才会创建这个字段，老回放不受影响。
+   */
+  recalls?: Record<string, number>;
 }
 
 /* ============================================================
@@ -442,7 +508,12 @@ export type Action =
       /** 第二个玩家选择（ADR-071，程昱）：`TargetSelector.pick: 2` 读它 */
       target2?: { side: Side; row?: Row; col?: number };
       /** 抉择分支下标（ADR-071，曹彰）：缺省 / 越界一律取 modes[0] */
-      modeIndex?: number }
+      modeIndex?: number;
+      /**
+       * 战吼里"由玩家挑一张**手牌**"的效果用哪个下标（ADR-139，与 USE_SKILL 同一约定）。
+       * 缺省 / 越界时效果自己退回随机，绝不静默失败。
+       */
+      handIndex?: number }
   | { type: 'CHOOSE_DISCOVER'; cardId: string }
   /**
    * 升变（ADR-114 / ADR-116）。
@@ -469,6 +540,8 @@ export type Action =
 export type GameEvent =
   | { type: 'LORD_ATTACK_DECLARED'; side: Side; to: { kind: 'unit'; row: Row; col: number } | { kind: 'lord' } }
   | { type: 'LORD_ATTACK_GAINED'; side: Side; attack: number }
+  /** 统率**上限**被永久改变（ADR-139，`gain_command` + `permanent: true`） */
+  | { type: 'COMMAND_MAX_CHANGED'; side: Side; max: number; delta: number }
   | { type: 'TURN_START'; side: Side; turn: number; halfTurn: number; command: { cur: number; max: number } }
   | { type: 'TURN_END'; side: Side; turn: number; halfTurn: number }
   | { type: 'CARD_DRAWN'; side: Side; card: CardDef; deckLeft: number }
@@ -492,7 +565,15 @@ export type GameEvent =
   /** 该方整个回合被跳过（ADR-074，休养生息「下一回合不进行任何活动」） */
   | { type: 'TURN_SKIPPED'; side: Side; reason: string }
   | { type: 'DECK_SENT'; side: Side; cardId: string; count: number }
-  | { type: 'CARD_RETURNED_TO_DECK'; side: Side; card: CardDef }
+  | { type: 'CARD_RETURNED_TO_DECK'; side: Side; card: CardDef;
+      /** 落点（ADR-139，`send_hand_to_deck` 专用）：顶 / 底 / 随机。缺省 = 旧的随机位置 */
+      to?: 'deck_top' | 'deck_bottom' | 'random' }
+  /** 阵亡后重建于手牌（ADR-141，孟获「蛮王」）：`times` = 第几次收回，`exceeded` = 已超过上限转给对手 */
+  | { type: 'CARD_REBUILT_IN_HAND'; side: Side; card: CardDef; times: number; exceeded: boolean;
+      costDelta: number; healthDelta: number }
+  /** 某状态的某个档位被规则覆盖（ADR-142，兀突骨「藤甲统率」） */
+  | { type: 'STATUS_OVERRIDDEN'; side: Side; target: { kind: 'unit' | 'hand'; row?: Row; col?: number; index?: number };
+      statusId: string; cap: StatusCap; value: number }
   | { type: 'FATIGUE'; side: Side; amount: number; hp: number }
   | { type: 'CARD_PLAYED'; side: Side; card: CardDef; row?: Row; col?: number; handIndex?: number }
   | { type: 'UNIT_SUMMONED'; side: Side; row: Row; col: number; unit: Unit }
@@ -514,7 +595,7 @@ export type GameEvent =
       lord?: boolean }
   | { type: 'UNIT_SURVIVED'; side: Side; row: Row; col: number; unit: Unit }
   | { type: 'UNIT_FLIPPED'; side: Side; row: Row; col: number; to: 'front' | 'back'; unit: Unit }
-  | { type: 'HAND_MODIFIED'; side: Side; index: number; kind: 'cost' | 'ban'; value?: number; turns?: number }
+  | { type: 'HAND_MODIFIED'; side: Side; index: number; kind: 'cost' | 'ban' | 'attack' | 'health'; value?: number; turns?: number }
   | { type: 'CARD_STOLEN'; from: Side; to: Side; card: CardDef }
   | { type: 'CARD_SCRYED'; side: Side; cardId: string; from: 'top' | 'bottom' }
   | { type: 'CLASH'; side: Side; mine: number; theirs: number; won: boolean }

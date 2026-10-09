@@ -55,6 +55,7 @@ var Core = (() => {
     canUseLordSkill: () => canUseLordSkill,
     canUseUnitSkill: () => canUseUnitSkill,
     capStacks: () => capStacks,
+    capValue: () => capValue,
     cardPool: () => cardPool,
     checkWinner: () => checkWinner,
     chooseAction: () => chooseAction,
@@ -570,8 +571,14 @@ var Core = (() => {
     // 一直抽到抽出一张「非某类型」的牌为止（ADR-071，姜维）
     "mill",
     // 弃掉目标方牌库的 N 张牌（ADR-074，司马懿「谋定后动」②）
-    "discover"
+    "discover",
     // 从牌库随机展示候选牌并由玩家选择（曹丕）
+    "send_hand_to_deck",
+    // 把一张手牌放回牌库顶/底/随机位置，**不抽牌**（ADR-139，杨仪「筹度粮谷」）
+    "self_to_hand",
+    // 阵亡后把手牌重建出来（ADR-141，孟获「蛮王」——亡语作用于**阵亡单位自身**）
+    "override_status"
+    // 覆盖目标身上某状态的若干档位（ADR-142，兀突骨「藤甲统率」）
   ];
   var RARITIES = ["common", "elite"];
   var CARD_TYPES = [
@@ -714,6 +721,15 @@ var Core = (() => {
     let n = 0;
     for (const [id, inst] of Object.entries(statuses ?? {})) {
       if (inst.stacks > 0 && STATUSES[id]?.caps?.includes(cap)) n += inst.stacks;
+    }
+    return n;
+  }
+  function capValue(u, cap) {
+    let n = capStacks(u.statuses, cap);
+    for (const m of u.mods) {
+      if (m.kind !== "rule" || !m.rule || m.rule.cap !== cap) continue;
+      if (!((u.statuses[m.rule.statusId]?.stacks ?? 0) > 0)) continue;
+      n = m.rule.value;
     }
     return n;
   }
@@ -1110,8 +1126,8 @@ var Core = (() => {
       return 0;
     }
     const hpBefore = u.hp;
-    const reducePhysical = capStacks(u.statuses, "reduce_physical");
-    const vulnerableFire = capStacks(u.statuses, "vulnerable_fire");
+    const reducePhysical = capValue(u, "reduce_physical");
+    const vulnerableFire = capValue(u, "vulnerable_fire");
     let finalAmount = amount;
     if (damageType === "physical" && reducePhysical > 0) {
       finalAmount = Math.max(0, finalAmount - reducePhysical);
@@ -1134,7 +1150,7 @@ var Core = (() => {
       killUnit(state, cards, { side: ref.side, row: ref.row, col: ref.col, unit: u }, events, deathSource ?? killerRef);
       return actual;
     }
-    const thorns = capStacks(u.statuses, "thorns");
+    const thorns = capValue(u, "thorns");
     if (actual > 0 && thorns > 0 && sourceUnit && killerRef && sourceUnit.uid !== u.uid) {
       const { side: srcSide, row: srcRow, col: srcCol } = killerRef;
       const v = getUnit(state, srcSide, srcRow, srcCol);
@@ -1505,6 +1521,14 @@ var Core = (() => {
   }
 
   // src/effects.ts
+  var ELEMENTAL_DOT = {
+    fire: "zhuo_shao",
+    // 灼烧：回合开始受 N 点火伤，层数可叠加、不封顶
+    water: "shui_kun",
+    // 水困：层数＝阶段，主动行动时受 2^(阶段-1) 水伤（stack_mode: max，不叠层）
+    poison: "zhong_du"
+    // 中毒：回合结束永久降低 N 点生命上限（层数可叠加、不封顶）
+  };
   function resolveDrawTrigger(state, cards, side, card, events, rng) {
     const sk = (card.skills ?? []).find((k) => k.trigger === "on_draw");
     if (!sk) return false;
@@ -1579,7 +1603,7 @@ var Core = (() => {
     if (want === "character") return isCharacterType(t);
     return t === want;
   };
-  var matchesHandFilter = (hc, f) => {
+  var matchesHandFilter = (hc, f, srcCardId) => {
     if (!f) return true;
     if (!matchesCardType(hc.card.type, f.type)) return false;
     if (f.gender && hc.card.gender !== f.gender) return false;
@@ -1588,6 +1612,8 @@ var Core = (() => {
     if (typeof f.cost_min === "number" && hc.card.cost < f.cost_min) return false;
     if (f.keyword && !(hc.card.keywords ?? []).includes(f.keyword)) return false;
     if (f.card_id && hc.card.id !== f.card_id) return false;
+    if (f.tag && !(hc.card.tags ?? []).includes(f.tag)) return false;
+    if (f.exclude_source && srcCardId !== void 0 && hc.card.id === srcCardId) return false;
     return true;
   };
   var matchesFilter = (u, f, row, srcCost, srcAtk, srcUid) => {
@@ -1890,7 +1916,7 @@ var Core = (() => {
       const out = [];
       for (const sd of handSides(selector, ctx)) {
         state.sides[sd].hand.forEach((hc, i) => {
-          if (matchesHandFilter(hc, selector.filter)) out.push(handRef(sd, i));
+          if (matchesHandFilter(hc, selector.filter, ctx.source?.cardId)) out.push(handRef(sd, i));
         });
       }
       const pick2 = pickOf(ctx, selector);
@@ -1941,7 +1967,7 @@ var Core = (() => {
     if (selector.zone === "both") {
       for (const sd of poolSides) {
         state.sides[sd].hand.forEach((hc, i) => {
-          if (matchesHandFilter(hc, selector.filter)) pool.push(handRef(sd, i));
+          if (matchesHandFilter(hc, selector.filter, ctx.source?.cardId)) pool.push(handRef(sd, i));
         });
       }
     }
@@ -2182,8 +2208,9 @@ var Core = (() => {
                 eff.damage_origin === "reflected",
                 ctx.source && findPos(state, ctx.side, ctx.source.uid) ? { side: ctx.side, ...findPos(state, ctx.side, ctx.source.uid) } : void 0
               );
-              if (eff.damage_type === "fire" && t.kind === "unit" && t.side !== ctx.side) {
-                applyStatus(state, t, "zhuo_shao", 1, events);
+              const dot = eff.damage_type ? ELEMENTAL_DOT[eff.damage_type] : void 0;
+              if (dot && t.kind === "unit" && t.side !== ctx.side) {
+                applyStatus(state, t, dot, 1, events);
               }
               if (before > 0 && hpOf(state, t) <= 0) {
                 ctx.flags = ctx.flags ?? [];
@@ -2332,6 +2359,20 @@ var Core = (() => {
           drawCard(state, cards, ctx.side, events, rng);
           break;
         }
+        case "send_hand_to_deck": {
+          const hand = state.sides[ctx.side].hand;
+          if (!hand.length) break;
+          const pick = eff.mode === "choose" && typeof ctx.handIndex === "number" && ctx.handIndex >= 0 && ctx.handIndex < hand.length ? ctx.handIndex : rng.int(hand.length);
+          const [chosen] = hand.splice(pick, 1);
+          if (!chosen) break;
+          const toDeck = state.sides[ctx.side].deck;
+          const where = eff.to === "deck_top" ? "deck_top" : eff.to === "deck_bottom" || eff.to === void 0 ? "deck_bottom" : "random";
+          if (where === "deck_top") toDeck.push(chosen.card.id);
+          else if (where === "deck_bottom") toDeck.unshift(chosen.card.id);
+          else toDeck.splice(rng.int(toDeck.length + 1), 0, chosen.card.id);
+          events.push({ type: "CARD_RETURNED_TO_DECK", side: ctx.side, card: chosen.card, to: where });
+          break;
+        }
         case "return_to_hand": {
           for (const t of targets) {
             if (t.kind !== "unit") continue;
@@ -2342,6 +2383,77 @@ var Core = (() => {
             if (def) state.sides[t.side].hand.push({ card: def, mods: [] });
             events.push({ type: "UNIT_RETURNED", side: t.side, row: t.row, col: t.col, unit: u });
           }
+          break;
+        }
+        case "override_status": {
+          const statusId = eff.status;
+          const caps = eff.caps;
+          if (!statusId || !caps) break;
+          const list = targets.length ? targets : chosenFor(eff.target);
+          for (const t of list) {
+            if (t.kind !== "unit" && t.kind !== "hand") continue;
+            for (const [cap, value] of Object.entries(caps)) {
+              if (typeof value !== "number") continue;
+              const rule = { statusId, cap, value };
+              const isSame = (m) => m.kind === "rule" && m.rule?.statusId === statusId && m.rule?.cap === cap;
+              if (t.kind === "unit") {
+                const u = getUnit(state, t.side, t.row, t.col);
+                if (!u) continue;
+                u.mods = u.mods.filter((m) => !isSame(m));
+                u.mods.push({ id: `rule#${statusId}#${cap}#${nextUidSeq(state)}`, kind: "rule", rule });
+                events.push({
+                  type: "STATUS_OVERRIDDEN",
+                  side: t.side,
+                  target: { kind: "unit", row: t.row, col: t.col },
+                  statusId,
+                  cap: rule.cap,
+                  value
+                });
+              } else {
+                const hc = state.sides[t.side].hand[t.index];
+                if (!hc) continue;
+                hc.mods = hc.mods.filter((m) => !isSame(m));
+                hc.mods.push({ id: `rule#${statusId}#${cap}#${nextUidSeq(state)}`, kind: "rule", rule });
+                events.push({
+                  type: "STATUS_OVERRIDDEN",
+                  side: t.side,
+                  target: { kind: "hand", index: t.index },
+                  statusId,
+                  cap: rule.cap,
+                  value
+                });
+              }
+            }
+          }
+          break;
+        }
+        case "self_to_hand": {
+          const dead = ctx.source;
+          const def = dead ? cards.get(dead.cardId) : void 0;
+          if (!def) break;
+          const maxTimes = eff.count ?? 6;
+          const n = (state.recalls?.[def.id] ?? 0) + 1;
+          state.recalls = state.recalls ?? {};
+          state.recalls[def.id] = n;
+          const exceeded = n > maxTimes;
+          const overflow = eff.overflow ?? "enemy";
+          if (exceeded && overflow === "none") break;
+          const toSide = exceeded ? other(ctx.side) : eff.target?.side === "enemy" ? other(ctx.side) : ctx.side;
+          const costDelta = (eff.value ?? -1) * n;
+          const healthDelta = (eff.health ?? -1) * n;
+          const mods = [];
+          if (costDelta) mods.push({ id: `recallcost#${def.id}#${n}`, kind: "cost", value: costDelta });
+          if (healthDelta) mods.push({ id: `recallhp#${def.id}#${n}`, kind: "health", value: healthDelta });
+          state.sides[toSide].hand.push({ card: def, mods });
+          events.push({
+            type: "CARD_REBUILT_IN_HAND",
+            side: toSide,
+            card: def,
+            times: n,
+            exceeded,
+            costDelta,
+            healthDelta
+          });
           break;
         }
         case "clash": {
@@ -2670,7 +2782,15 @@ var Core = (() => {
           break;
         case "gain_command": {
           const cmd = state.sides[ctx.side].command;
-          cmd.cur = Math.min(cmd.max, cmd.cur + (eff.value ?? 1));
+          const delta = eff.value ?? 1;
+          if (eff.permanent) {
+            const before = cmd.max;
+            cmd.max = Math.max(0, Math.min(COMMAND.MAX, cmd.max + delta));
+            cmd.cur = Math.max(0, Math.min(cmd.max, cmd.cur + (cmd.max - before)));
+            events.push({ type: "COMMAND_MAX_CHANGED", side: ctx.side, max: cmd.max, delta: cmd.max - before });
+          } else {
+            cmd.cur = Math.min(cmd.max, cmd.cur + delta);
+          }
           break;
         }
         case "destroy": {
@@ -2689,6 +2809,22 @@ var Core = (() => {
               const lord = state.sides[t.side].lord;
               lord.attackThisTurn = Math.max(0, (lord.attackThisTurn ?? 0) + (eff.attack ?? 0));
               events.push({ type: "LORD_ATTACK_GAINED", side: t.side, attack: lord.attackThisTurn });
+              continue;
+            }
+            if (t.kind === "hand") {
+              const hc2 = state.sides[t.side].hand[t.index];
+              if (!hc2) continue;
+              const dAtk2 = dynAtk ?? eff.attack ?? 0;
+              const dHp2 = dynHp ?? eff.health ?? 0;
+              if (dAtk2) {
+                hc2.mods.push({ id: `handatk#${nextUidSeq(state)}`, kind: "attack", value: dAtk2, auraId: ctx.auraId });
+              }
+              if (dHp2) {
+                hc2.mods.push({ id: `handhp#${nextUidSeq(state)}`, kind: "health", value: dHp2, auraId: ctx.auraId });
+              }
+              if (ctx.auraId === void 0 && (dAtk2 || dHp2)) {
+                events.push({ type: "HAND_MODIFIED", side: t.side, index: t.index, kind: dAtk2 ? "attack" : "health", value: dAtk2 || dHp2 });
+              }
               continue;
             }
             if (t.kind !== "unit") continue;
@@ -3178,6 +3314,15 @@ var Core = (() => {
     events.push({ type: "CARD_PLAYED", side, card, row: slot?.row, col: slot?.col, handIndex: action.cardIndex });
     if (isCharacter && slot) {
       const u = makeUnit(card, state.turn, nextUidSeq(state));
+      const handAtk = hc.mods.filter((m) => m.kind === "attack" && m.auraId === void 0).reduce((sum, m) => sum + (m.value ?? 0), 0);
+      const handHp = hc.mods.filter((m) => m.kind === "health" && m.auraId === void 0).reduce((sum, m) => sum + (m.value ?? 0), 0);
+      if (handAtk) u.mods.push({ id: `handatk#${nextUidSeq(state)}`, kind: "permanent", attack: handAtk });
+      if (handHp) u.mods.push({ id: `handhp#${nextUidSeq(state)}`, kind: "permanent", health: handHp });
+      for (const m of hc.mods) {
+        if (m.kind !== "rule" || !m.rule || m.auraId !== void 0) continue;
+        u.mods.push({ id: `rule#${nextUidSeq(state)}`, kind: "rule", rule: m.rule });
+      }
+      if (handAtk || handHp) applyMods(u);
       setUnit(state, side, slot.row, slot.col, u);
       events.push({ type: "UNIT_SUMMONED", side, row: slot.row, col: slot.col, unit: u });
       const onPlay = (card.skills ?? []).filter((sk) => sk.trigger === "on_play");
@@ -3189,7 +3334,7 @@ var Core = (() => {
           state,
           ctx.cards,
           effectsOf(sk, action.modeIndex),
-          { side, source: u, chosen, chosen2, chosenRow: slot.row, chosenCol: slot.col },
+          { side, source: u, chosen, chosen2, chosenRow: slot.row, chosenCol: slot.col, handIndex: action.handIndex },
           rng,
           events
         );

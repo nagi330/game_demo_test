@@ -205,6 +205,29 @@ export function capStacks(
   return n;
 }
 
+/**
+ * 读一个单位身上某项能力的**实际结算值**：先按状态层数算，再套「规则覆盖」（ADR-142）。
+ *
+ * 为什么需要它：一个状态的多个 cap 共用同一个层数（藤甲的 `reduce_physical` 与
+ * `vulnerable_fire` 都等于层数），"加强藤甲"若靠加层数，会把**减伤**和**怕火**一起放大。
+ * 规则覆盖让技能能只改其中一个档位：`{ statusId: 'teng_jia', cap: 'reduce_physical', value: 2 }`。
+ *
+ * 语义（三条，都有测试钉住）：
+ *   · **仅当该状态确实存在时生效** —— 被净化 ⇒ 覆盖自动失效（`0` 层 = 没有该状态）；
+ *     重新获得状态 ⇒ 覆盖自动恢复（覆盖是挂在实例上、每次结算现读的，不是一次性改写）；
+ *   · **绝对值覆盖**，不是增减量（`value: 0` 就是彻底关掉这个档位，如"不再怕火"）；
+ *   · 同时有多条时**后写的生效**（`mods` 数组顺序），便于"更强的统领覆盖更弱的"。
+ */
+export function capValue(u: Unit, cap: StatusCap): number {
+  let n = capStacks(u.statuses, cap);
+  for (const m of u.mods) {
+    if (m.kind !== 'rule' || !m.rule || m.rule.cap !== cap) continue;
+    if (!((u.statuses[m.rule.statusId]?.stacks ?? 0) > 0)) continue;   // 状态不在了 → 覆盖失效
+    n = m.rule.value;
+  }
+  return n;
+}
+
 /** 该单位身上所有生效状态的 id */
 export const activeStatuses = (u: Unit | null): string[] =>
   Object.entries(u?.statuses ?? {}).filter(([, v]) => v.stacks > 0).map(([k]) => k);

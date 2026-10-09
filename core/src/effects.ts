@@ -5,7 +5,7 @@
  * 卡牌、事件、战法、技能全部通过这套 DSL 表达——**加卡不改代码**。
  */
 
-import { BOARD, STATUSES, TIMING } from './constants.ts';
+import { BOARD, COMMAND, STATUSES, TIMING, type StatusCap } from './constants.ts';
 import { allUnits, applyMods, capStacks, getUnit, hasCap, hasTrait, makeUnit, nextUidSeq, other, setUnit } from './state.ts';
 import { handRef, removeStatus } from './mutate.ts';
 import { effectiveAttack } from './rules.ts';
@@ -14,13 +14,26 @@ import { effectiveAttack } from './rules.ts';
 // 两个都要留。
 import { createRng, type Rng } from './rng.ts';
 import { type OnDrawResult } from './mutate.ts';
-import type { CardDef, CardEffect, CardType, EffectCondition, GameEvent, HandCard, MatchState, Row, Side, SkillDef, TargetSelector, Unit } from './types.ts';
+import type { CardDef, CardEffect, CardType, EffectCondition, GameEvent, HandCard, HandMod, MatchState, Row, Side, SkillDef, TargetSelector, Unit } from './types.ts';
 import {
   applyStatus, dealDamage, drawCard, gainArmor, healTarget, killUnit, lordRef, registerOnDeathResolver,
   registerOnDrawResolver,
   registerAfterDeathResolver, registerAfterLordDamagedResolver, registerMarkDeathResolver, registerOnKillResolver, summonUnit, unitRef,
   type TargetRef,
 } from './mutate.ts';
+
+/**
+ * 「属性伤害挂对应 DoT」的映射表（ADR-134 火 / ADR-138 扩展水、毒）
+ *
+ * ⚠️ 只在**效果层**用（见 `case 'damage'` 内的长注释）：DoT 自己的跳伤绕过效果层，
+ * 所以不会被这张表反复挂层。`physical`（含普通攻击与无属性效果伤害）**不在表内**：
+ * 物伤不产生 DoT。
+ */
+const ELEMENTAL_DOT: Record<string, string> = {
+  fire: 'zhuo_shao',      // 灼烧：回合开始受 N 点火伤，层数可叠加、不封顶
+  water: 'shui_kun',      // 水困：层数＝阶段，主动行动时受 2^(阶段-1) 水伤（stack_mode: max，不叠层）
+  poison: 'zhong_du',     // 中毒：回合结束永久降低 N 点生命上限（层数可叠加、不封顶）
+};
 
 /**
  * 「抽到时释放」（ADR-050）：带 `trigger: 'on_draw'` 技能的卡被抽到时不进手牌，
@@ -173,9 +186,9 @@ const matchesCardType = (t: string, want?: string): boolean => {
   return t === want;
 };
 
-/** 手牌过滤（ADR-038）：类型 + 性别（ADR-071） */
+/** 手牌过滤（ADR-038）：类型 + 性别（ADR-071） + 归属标签 / 排除来源（ADR-141） */
 const matchesHandFilter = (
-  hc: HandCard, f: NonNullable<TargetSelector['filter']> | undefined,
+  hc: HandCard, f: NonNullable<TargetSelector['filter']> | undefined, srcCardId?: string,
 ): boolean => {
   if (!f) return true;
   if (!matchesCardType(hc.card.type, f.type as string | undefined)) return false;
@@ -185,6 +198,13 @@ const matchesHandFilter = (
   if (typeof f.cost_min === 'number' && hc.card.cost < f.cost_min) return false;
   if (f.keyword && !(hc.card.keywords ?? []).includes(f.keyword)) return false;
   if (f.card_id && hc.card.id !== f.card_id) return false;
+  // 归属标签（ADR-141）：手牌也要能按 tag 选（孟获「蛮王」＝"手牌里的蛮族人物 +2/+2"）。
+  // 场上目标一直支持 tag，手牌这边此前漏了 —— 补上后两侧语义一致。
+  if (f.tag && !(hc.card.tags ?? []).includes(f.tag)) return false;
+  // exclude_source（ADR-141）：**手牌没有 uid**，所以按**卡 id** 排除来源自己
+  //（孟获「蛮王」＝"除孟获自己以外的场上和手牌里的 man_zu"）。
+  // 场上那侧的同名字段走 uid 判断（`matchesFilter`），两侧语义一致：都不含来源本身。
+  if (f.exclude_source && srcCardId !== undefined && hc.card.id === srcCardId) return false;
   return true;
 };
 
@@ -605,7 +625,7 @@ export function resolveTargets(
     const out: TargetRef[] = [];
     for (const sd of handSides(selector, ctx)) {
       state.sides[sd].hand.forEach((hc, i) => {
-        if (matchesHandFilter(hc, selector.filter)) out.push(handRef(sd, i));
+        if (matchesHandFilter(hc, selector.filter, ctx.source?.cardId)) out.push(handRef(sd, i));
       });
     }
     const pick = pickOf(ctx, selector);
@@ -677,7 +697,7 @@ export function resolveTargets(
   if (selector.zone === 'both') {
     for (const sd of poolSides) {
       state.sides[sd].hand.forEach((hc, i) => {
-        if (matchesHandFilter(hc, selector.filter)) pool.push(handRef(sd, i));
+        if (matchesHandFilter(hc, selector.filter, ctx.source?.cardId)) pool.push(handRef(sd, i));
       });
     }
   }
@@ -948,6 +968,9 @@ export const IMPLEMENTED_ACTIONS: ReadonlySet<string> = new Set([
   'sacrifice', 'attack_each', 'draw_until', 'mill',
   'discover',
   'attack_bonus',
+  'send_hand_to_deck',   // 手牌 → 牌库顶/底/随机（ADR-139，杨仪「筹度粮谷」）
+  'self_to_hand',        // 阵亡后重建于手牌（ADR-141，孟获「蛮王」）
+  'override_status',     // 覆盖某状态的档位（ADR-142，兀突骨「藤甲统率」）
 ]);
 
 /**
@@ -1071,38 +1094,48 @@ export function runEffects(
                 ? { side: ctx.side, ...findPos(state, ctx.side, ctx.source.uid)! } : undefined);
 
             /* ------------------------------------------------------------
-             * 🔥「火攻挂灼烧」全局规则（ADR-134，设计者定案）
+             * 🔥💧☠️「属性伤害挂对应 DoT」全局规则
+             *   · 火攻 → 灼烧（`zhuo_shao`，ADR-134，设计者定案）
+             *   · 水攻 → 水困（`shui_kun`，ADR-138）
+             *   · 毒攻 → 中毒（`zhong_du`，ADR-138）
              *
-             * **对敌方释放的火攻效果**（`damage_type: 'fire'` 且目标属**敌方阵营**）
-             * 打出去，就对**该次伤害的目标**挂 1 层「灼烧」；
-             * 同一张卡的**多段**火攻**各算一次**，且与伤害数值无关（3 点也只 +1 层）。
+             * **对敌方释放的属性伤害效果**（`damage_type` 命中下表、且目标属**敌方阵营**）
+             * 打出去，就对**该次伤害的目标**挂 1 层对应 DoT；
+             * 同一张卡的**多段**属性伤害**各算一次**，且与伤害数值无关（3 点也只 +1 层）。
              *
              * ⚠️⚠️ 这条**必须**留在**效果层**，**严禁**下沉到 `dealDamage` 里按
-             * `damageType === 'fire'` 判断 —— 灼烧自己的回合开始跳伤
+             * `damageType` 判断 —— 灼烧自己的回合开始跳伤
              * （`mutate.resolveTurnStartDamage`）**也是火属性**（ADR-108 为
              * 「藤甲·遇火即燃」特意如此），挂进伤害管线就会**自己给自己叠层、
              * 每回合无限增长**。DoT 跳伤 / 水困行动税 / 中毒削上限 / 藤甲反伤
              * 全都**绕过效果层**直接调 `dealDamage`，所以在效果层挂钩能从**结构上**
-             * 排除它们（`test/fire-ignite.test.ts` 用「同一目标连续 3 回合层数不变」钉死）。
+             * 排除它们（`test/elemental-dot.test.ts` 用「连续多回合层数不变」钉死）。
+             *
+             * 三系叠加差异（**由状态定义决定，不在这里特判**）：
+             *   · 灼烧 = `stack_mode: add`（默认）→ 每次火攻 +1 层、不封顶
+             *   · 中毒 = `stack_mode: add`（默认）→ 每次毒攻 +1 层（永久削生命上限）
+             *   · 水困 = `stack_mode: max` → 重复施加**取较大者**，所以自动挂层只是
+             *     「保证至少有 1 层（阶段 1）」，不会加速阶段；阶段仍由该方回合结束 +1
              * ------------------------------------------------------------ */
-            if (eff.damage_type === 'fire' && t.kind === 'unit' && t.side !== ctx.side) {
-              // 口径（ADR-134）：
-              //  · **只对敌人**（设计者原话）—— 施法者自己与己方单位**永远不会**因自己的火攻
-              //    中灼烧：蒙冲斗舰「蒙冲」第 4 段是**对自身**的 2 点火伤，只掉血、不挂层。
+            const dot = eff.damage_type ? ELEMENTAL_DOT[eff.damage_type] : undefined;
+            if (dot && t.kind === 'unit' && t.side !== ctx.side) {
+              // 口径（ADR-134 火 / ADR-138 扩展水毒）：
+              //  · **只对敌人**（设计者原话）—— 施法者自己与己方单位**永远不会**因自己的属性伤害
+              //    中对应 DoT：蒙冲斗舰「蒙冲」第 4 段是**对自身**的 2 点火伤，只掉血、不挂层。
               //    （判据写成"目标阵营 ≠ 施法方"，而不是"目标不是来源单位" —— 打自己人的
               //     AoE / 混乱反噬同样不该给对方以外的自己人挂层。）
-              //  · 伤害被**减到 0 也照挂**（披坚免伤 / 藤甲减伤 / 免疫伤害）—— "火攻打出去了"即挂；
+              //  · 伤害被**减到 0 也照挂**（披坚免伤 / 藤甲减伤 / 免疫伤害）—— "打出去了"即挂；
               //    真正挡住挂层的只有**既有规则**：目标不可选中（根本进不了目标池）、
               //    `immune_debuff` 免疫负面（走 `applyStatus` 的既有分支，发 STATUS_BLOCKED）。
               //  · 不写 `turns` → 按状态定义 `duration: permanent` = **永久**（可被净化，不自然到期）。
-              //  · **只挂场上单位**：`dot_fire` 在回合开始只遍历在场单位结算，主公挂了也不会跳伤，
+              //  · **只挂场上单位**：三个 DoT 都只遍历在场单位结算，主公挂了也不会跳伤，
               //    那就是一个"永不结算的徽章"（且陆逊/黄权/火烧洛阳 都在打脸 →
               //    会变成无需进攻的永久自动胜利线，与 ADR-117「毒不上主公」同源）。
-              //    主公仍照常吃**当次**火伤（ADR-087 范围/随机伤害默认含主公）。
+              //    主公仍照常吃**当次**属性伤害（ADR-087 范围/随机伤害默认含主公）。
               //  · 伤害被「守护/护主」重定向时，层数挂在**效果声明的目标**身上 ——
               //    重定向发生在 `dealDamage` 内部，效果层看不到（已知边界，已在 ADR-134 写明）。
               //  · 目标被这一下打死 → 单位已移出战场，`applyStatus` 自然空转（不给尸体挂状态）。
-              applyStatus(state, t, 'zhuo_shao', 1, events);
+              applyStatus(state, t, dot, 1, events);
             }
             // 记录"本次造成了击杀"，供同一张卡的后续效果做条件判定
             if (before > 0 && hpOf(state, t) <= 0) {
@@ -1274,6 +1307,36 @@ export function runEffects(
         drawCard(state, cards, ctx.side, events, rng);
         break;
       }
+      case 'send_hand_to_deck': {
+        // 把一张手牌放回牌库的**指定位置**，且**不抽牌**（ADR-139，杨仪「筹度粮谷」）
+        //
+        // 与 `cycle_to_deck` 的区别：那个是"随机位置 + 必抽 1 张"的置换；
+        // 这个只负责把牌塞回去，抽牌由调用方自己的 `draw` 效果写，
+        // 因此能表达「先抽 N 张，再把其中一张放回底部」这类两段式效果。
+        //
+        // ⚠️ 牌库方向（全项目统一，见 `drawCard` 用 `pop()`）：
+        //     数组**末尾** = 牌库**顶**，数组**开头** = 牌库**底**。
+        //     所以 `deck_top` → `push`，`deck_bottom` → `unshift`。
+        const hand = state.sides[ctx.side].hand;
+        if (!hand.length) break;
+        const pick = eff.mode === 'choose' && typeof ctx.handIndex === 'number'
+          && ctx.handIndex >= 0 && ctx.handIndex < hand.length
+          ? ctx.handIndex                     // 玩家指定；未指定/越界一律退回随机，绝不静默失败
+          : rng.int(hand.length);
+        const [chosen] = hand.splice(pick, 1);
+        if (!chosen) break;
+        const toDeck = state.sides[ctx.side].deck;
+        // 只认顶/底两种明确落点；缺省 = 牌库底（本动作的语义），其余取值降级为随机位置
+        const where: 'deck_top' | 'deck_bottom' | 'random' =
+          eff.to === 'deck_top' ? 'deck_top'
+            : eff.to === 'deck_bottom' || eff.to === undefined ? 'deck_bottom'
+              : 'random';
+        if (where === 'deck_top') toDeck.push(chosen.card.id);
+        else if (where === 'deck_bottom') toDeck.unshift(chosen.card.id);
+        else toDeck.splice(rng.int(toDeck.length + 1), 0, chosen.card.id);
+        events.push({ type: 'CARD_RETURNED_TO_DECK', side: ctx.side, card: chosen.card, to: where });
+        break;
+      }
       case 'return_to_hand': {
         // 返回手牌（ADR-033）：把场上单位收回其拥有者手牌
         for (const t of targets) {
@@ -1285,6 +1348,91 @@ export function runEffects(
           if (def) state.sides[t.side].hand.push({ card: def, mods: [] });
           events.push({ type: 'UNIT_RETURNED', side: t.side, row: t.row, col: t.col, unit: u });
         }
+        break;
+      }
+      case 'override_status': {
+        // 覆盖目标身上某状态的若干**档位**（ADR-142，兀突骨「藤甲统率」）
+        //
+        // 为什么不是"多加几层状态"：一个状态的多个 cap 共用同一个层数 —— 藤甲的
+        // `reduce_physical`（物理 −N）与 `vulnerable_fire`（遇火 +N）都等于层数。
+        // 想把减伤抬到 2 而又不让"怕火"跟着涨（甚至要**不再怕火**），只能覆盖档位。
+        //
+        // 三条语义（`capValue` 里实现，测试钉死）：
+        //   · **仅当该状态存在于目标身上时才生效**（被净化 → 覆盖失效；重新获得 → 自动恢复）；
+        //   · **绝对值覆盖**（`vulnerable_fire: 0` = 彻底不再怕火）；
+        //   · **幂等**：同一 (状态, 档位) 的旧覆盖先删除再写，反复触发不会堆一长串。
+        const statusId = eff.status;
+        const caps = eff.caps;
+        if (!statusId || !caps) break;
+        const list = targets.length ? targets : chosenFor(eff.target);
+        for (const t of list) {
+          if (t.kind !== 'unit' && t.kind !== 'hand') continue;
+          for (const [cap, value] of Object.entries(caps)) {
+            if (typeof value !== 'number') continue;
+            const rule = { statusId, cap: cap as StatusCap, value };
+            const isSame = (m: { kind: string; rule?: { statusId: string; cap: string } }) =>
+              m.kind === 'rule' && m.rule?.statusId === statusId && m.rule?.cap === cap;
+            if (t.kind === 'unit') {
+              const u = getUnit(state, t.side, t.row, t.col);
+              if (!u) continue;
+              u.mods = u.mods.filter((m) => !isSame(m));
+              u.mods.push({ id: `rule#${statusId}#${cap}#${nextUidSeq(state)}`, kind: 'rule', rule });
+              events.push({
+                type: 'STATUS_OVERRIDDEN', side: t.side,
+                target: { kind: 'unit', row: t.row, col: t.col }, statusId, cap: rule.cap, value,
+              });
+            } else {
+              // 手牌：写成 HandMod，这张牌**打出时**再搬进单位的 mods（见 `engine.playCard`）
+              const hc = state.sides[t.side].hand[t.index];
+              if (!hc) continue;
+              hc.mods = hc.mods.filter((m) => !isSame(m));
+              hc.mods.push({ id: `rule#${statusId}#${cap}#${nextUidSeq(state)}`, kind: 'rule', rule });
+              events.push({
+                type: 'STATUS_OVERRIDDEN', side: t.side,
+                target: { kind: 'hand', index: t.index }, statusId, cap: rule.cap, value,
+              });
+            }
+          }
+        }
+        break;
+      }
+      case 'self_to_hand': {
+        // 阵亡后**重建于手牌**（ADR-141，孟获「蛮王」）
+        //
+        // 为什么不能直接用 `return_to_hand`：那个按**场上坐标**找目标，而亡语触发时单位
+        // 已经被 `killUnit` 移出战场（`setUnit(null)` 排在 `onDeathResolver` 之前），
+        // 所以它永远找不到"自己"。这里不碰战场 —— 直接用亡语 ctx 里带着的**阵亡单位对象**
+        //（`ctx.source`）把这张卡**重新造一份手牌**，就是"消失之后再在手里重建"。
+        //
+        // 次数与累计惩罚记在 `state.recalls[cardId]`（按卡计数，孟获同名唯一）：
+        // 放 state 而不是手牌 mod，因为"第几次收回"必须跨「手牌 ↔ 战场」存活 ——
+        // 单位在场上时手牌 mod 已经不存在了。
+        //
+        //   第 n 次收回 → 费用 −(n × value)、生命上限 −(n × health)（缺省每次 −1）
+        //   超过 `count` 次（缺省 6）→ 按 `overflow`：`'enemy'`（缺省）转给对手手牌，
+        //                              `'none'` 不再重建（正常进弃牌堆）
+        const dead = ctx.source;
+        const def = dead ? cards.get(dead.cardId) : undefined;
+        if (!def) break;
+        const maxTimes = eff.count ?? 6;
+        const n = (state.recalls?.[def.id] ?? 0) + 1;
+        state.recalls = state.recalls ?? {};
+        state.recalls[def.id] = n;
+        const exceeded = n > maxTimes;
+        const overflow = eff.overflow ?? 'enemy';
+        if (exceeded && overflow === 'none') break;
+        const toSide: Side = exceeded ? other(ctx.side)
+          : eff.target?.side === 'enemy' ? other(ctx.side) : ctx.side;
+        // 累计值（而不是每次叠一层 mod）：重建时按"第 n 次"一次性写全，手牌上永远只有一条修正
+        const costDelta = (eff.value ?? -1) * n;
+        const healthDelta = (eff.health ?? -1) * n;
+        const mods: HandMod[] = [];
+        if (costDelta) mods.push({ id: `recallcost#${def.id}#${n}`, kind: 'cost', value: costDelta });
+        if (healthDelta) mods.push({ id: `recallhp#${def.id}#${n}`, kind: 'health', value: healthDelta });
+        state.sides[toSide].hand.push({ card: def, mods });
+        events.push({
+          type: 'CARD_REBUILT_IN_HAND', side: toSide, card: def, times: n, exceeded, costDelta, healthDelta,
+        });
         break;
       }
       case 'clash': {
@@ -1657,9 +1805,24 @@ export function runEffects(
         }
         break;
       case 'gain_command': {
-        // 本回合临时统率（gain_command）
+        // 统率（gain_command）
+        //
+        // 缺省 = **本回合临时统率**：只动 `cur`，且**夹在本回合上限以内**
+        //（回合开始时 `cur` 已经回满，所以"回合开始 +1"这种写法在缺省模式下**没有收益**）。
+        //
+        // `permanent: true` = **永久提升统率上限**（ADR-139，蒋琬「足食」）：
+        // 同时抬 `max` 与 `cur`，上限封顶 `COMMAND.MAX`（10）。
+        // 这是"每回合 +1 统率"这类成长型后勤技唯一能落地的写法。
         const cmd = state.sides[ctx.side].command;
-        cmd.cur = Math.min(cmd.max, cmd.cur + (eff.value ?? 1));
+        const delta = eff.value ?? 1;
+        if (eff.permanent) {
+          const before = cmd.max;
+          cmd.max = Math.max(0, Math.min(COMMAND.MAX, cmd.max + delta));
+          cmd.cur = Math.max(0, Math.min(cmd.max, cmd.cur + (cmd.max - before)));
+          events.push({ type: 'COMMAND_MAX_CHANGED', side: ctx.side, max: cmd.max, delta: cmd.max - before });
+        } else {
+          cmd.cur = Math.min(cmd.max, cmd.cur + delta);
+        }
         break;
       }
       case 'destroy': {
@@ -1678,6 +1841,27 @@ export function runEffects(
             const lord = state.sides[t.side].lord;
             lord.attackThisTurn = Math.max(0, (lord.attackThisTurn ?? 0) + (eff.attack ?? 0));
             events.push({ type: 'LORD_ATTACK_GAINED', side: t.side, attack: lord.attackThisTurn });
+            continue;
+          }
+          if (t.kind === 'hand') {
+            // 手牌数值修正（ADR-141）：`modify` 也能作用于**手牌**
+            //（孟获「蛮王」＝手牌里的蛮族人物 +2/+2）。
+            // 手牌没有派生属性可改，所以写成 HandMod，等这张牌**被打出时**
+            // 由 `engine.playCard` 一次性结算到上场的单位身上
+            //（与 `cost_modifier` 作用于手牌是同一套约定，光环施加的同样带 auraId、重算先清后加）。
+            const hc2 = state.sides[t.side].hand[t.index];
+            if (!hc2) continue;
+            const dAtk2 = dynAtk ?? eff.attack ?? 0;
+            const dHp2 = dynHp ?? eff.health ?? 0;
+            if (dAtk2) {
+              hc2.mods.push({ id: `handatk#${nextUidSeq(state)}`, kind: 'attack', value: dAtk2, auraId: ctx.auraId });
+            }
+            if (dHp2) {
+              hc2.mods.push({ id: `handhp#${nextUidSeq(state)}`, kind: 'health', value: dHp2, auraId: ctx.auraId });
+            }
+            if (ctx.auraId === undefined && (dAtk2 || dHp2)) {
+              events.push({ type: 'HAND_MODIFIED', side: t.side, index: t.index, kind: dAtk2 ? 'attack' : 'health', value: dAtk2 || dHp2 });
+            }
             continue;
           }
           if (t.kind !== 'unit') continue;

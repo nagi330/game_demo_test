@@ -668,6 +668,25 @@ function playCard(
 
   if (isCharacter && slot) {
     const u = makeUnit(card, state.turn, nextUidSeq(state));
+    // 手牌数值修正（ADR-141）：打出时**一次性结算到单位身上**
+    //   · 光环施加的（`auraId` 有值）在打出前已随 `recomputeAuras` 清掉，不会带进场 —— 符合预期：
+    //     孟获在场上时手牌里的蛮族 +2/+2，打出去的瞬间孟获的光环就不再罩着它了；
+    //   · 非光环的（如「蛮王」每次收回留下的 −1 费 / −1 血上限）是**永久代价**，要跟着进场。
+    // 费用一侧不用在这里处理：`effectiveCost` 在算 `cost` 时已经把 cost mod 计进去了。
+    const handAtk = hc.mods.filter((m) => m.kind === 'attack' && m.auraId === undefined)
+      .reduce((sum, m) => sum + (m.value ?? 0), 0);
+    const handHp = hc.mods.filter((m) => m.kind === 'health' && m.auraId === undefined)
+      .reduce((sum, m) => sum + (m.value ?? 0), 0);
+    if (handAtk) u.mods.push({ id: `handatk#${nextUidSeq(state)}`, kind: 'permanent', attack: handAtk });
+    if (handHp) u.mods.push({ id: `handhp#${nextUidSeq(state)}`, kind: 'permanent', health: handHp });
+    // 规则覆盖（ADR-142）：手牌上带的「某状态某档位按新值结算」跟着这张牌进场。
+    // 例：兀突骨「藤甲统率」给手牌里的藤甲兵留下 {teng_jia, reduce_physical: 2} +
+    //     {teng_jia, vulnerable_fire: 0}，这张牌打出后它的藤甲就是「物理 −2 且不怕火」。
+    for (const m of hc.mods) {
+      if (m.kind !== 'rule' || !m.rule || m.auraId !== undefined) continue;
+      u.mods.push({ id: `rule#${nextUidSeq(state)}`, kind: 'rule', rule: m.rule });
+    }
+    if (handAtk || handHp) applyMods(u);          // maxHp 由 applyMods 夹在 ≥1
     setUnit(state, side, slot.row, slot.col, u);
     events.push({ type: 'UNIT_SUMMONED', side, row: slot.row, col: slot.col, unit: u });
     // 入场效果（战吼）
@@ -688,8 +707,10 @@ function playCard(
     for (const sk of onPlay) {
       emitSkillTriggered(state, side, u, sk, 'on_play', events);
       // 抉择（ADR-071）：给了 modes 就按 modeIndex 挑分支，否则用 effects
+      // `handIndex`（ADR-139）：战吼里"由玩家挑一张手牌"的效果（如杨仪式弃/放回手牌）读它，
+      // 与 USE_SKILL / USE_LORD_SKILL 同一套约定；缺省时效果自己退回随机。
       runEffects(state, ctx.cards, effectsOf(sk, action.modeIndex),
-        { side, source: u, chosen, chosen2, chosenRow: slot.row, chosenCol: slot.col }, rng, events);
+        { side, source: u, chosen, chosen2, chosenRow: slot.row, chosenCol: slot.col, handIndex: action.handIndex }, rng, events);
     }
     if (card.effects?.length) {
       runEffects(state, ctx.cards, card.effects, { side, source: u }, rng, events);

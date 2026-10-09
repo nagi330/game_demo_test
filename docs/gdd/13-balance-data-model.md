@@ -265,9 +265,9 @@ ADR-089 之前只拦了前者，于是「分出胜负前其他人无法对两人
 | `remove_status` | status | 移除状态 |
 | `move` | destination | 移动到指定格 |
 | `destroy` | — | 直接摧毁 |
-| `modify` | attack / health, value, duration | 属性修正 |
+| `modify` | attack / health, value, duration | 属性修正（数值用 `modify`，规则级加强用 `override_status`）。**目标可以是手牌**（ADR-141）：手牌没有派生属性，改写 `HandMod.kind: 'attack' / 'health'`，在**打出时**由 `engine.playCard` 一次性结算到单位身上。⚠️ 带 `auraId` 的（光环施加，如孟获「蛮王」给手牌里的蛮族 +2/+2）**不跟着进场**；不带的是永久代价（孟获每次收回的 −1 血上限） |
 | `gain_armor` | value | 获得护甲（主将） |
-| `cost_modifier` | value, limit | 费用修正 |
+| `cost_modifier` | value, limit | 费用修正（作用于手牌 → 写 `HandMod.kind: 'cost'`） |
 | `transform` | to | 变形/进化（技能效果直接执行） |
 | `upgrade` | to | 玩家确认的兵种升变；目标卡只需存在于卡池，不消耗牌库/手牌 |
 | `attack_bonus` | value、condition | 本次普通攻击临时增加伤害，不改变单位属性；可按攻击目标及双方主公生命比较设置条件 |
@@ -552,6 +552,9 @@ condition: { lord_full_hp: { side: self, value: true } }
 | `clash` | target, then | **拼点**：双方各翻一张，比点数；结果写入 `event` 供条件判定 |
 | `scry` | target, count, to | 查看/移动卡池顶或底（"查看卡池第一张牌""放到最底层"）|
 | `discover` | target.filter, count, value, discover_to | 从己方牌库随机展示最多 `count` 张满足条件的牌，暂停等待玩家选择；默认加入手牌，`discover_to: deck_top` 时将所选牌置于牌库顶部；`value` 为该牌的费用修正 |
+| `send_hand_to_deck` | to, mode | **把手牌放回牌库的指定位置，且不抽牌**（ADR-139）。`to`：`deck_top` / `deck_bottom`（缺省）/ `random`；`mode: choose` 用 `ctx.handIndex` 指定哪张（缺省或越界退回随机）。配合 `draw` 可写「先抽 N 张、再把其中一张放回底部」这类两段式效果（杨仪「筹度粮谷」）。⚠️ 与 `cycle_to_deck` 的区别：那个是"随机位置 + 必抽 1 张"的置换 |
+| `override_status` | status, caps, target | **把目标身上某状态的若干档位（cap）覆盖为指定值**（ADR-142，兀突骨「藤甲统率」）。`status` = 作用的状态（如 `teng_jia`），`caps` = `{ <cap>: <绝对值> }`（如 `{ reduce_physical: 2, vulnerable_fire: 0 }` ＝ 物理 −2 且不再怕火），`target` 支持 `zone: hand`（手牌写 `HandMod.kind: rule`，**打出时随牌进场**）。⚠️ **仅当该状态确实存在于目标身上时才生效**（被净化即失效、重新获得即恢复）；**绝对值**不是增减量；同一 (状态,档位) 幂等。**为什么不用加层数**：一个状态的多个 cap 共用层数（藤甲的减伤与怕火同源），加层会一起放大 |
+| `gain_command` | value, **permanent** | 统率。缺省只加**本回合可用值** `cur` 且夹在 `max` 内；**`permanent: true`（ADR-139）同时抬统率上限**（封顶 `COMMAND.MAX` = 10）并发 `COMMAND_MAX_CHANGED`。⚠️ 回合开始会把 `cur` 回满，所以「回合开始 +N 统率」**必须**用 `permanent: true`，否则收益恒为 0 |
 | `silence` | target, duration | 禁用技能（"技能禁用一回合"）|
 | `flip` | target | 翻面（"将卡牌翻面"，翻面期间不可被选中）|
 | `sacrifice` | target | 牺牲己方单位并记下它的血量（ADR-071） |

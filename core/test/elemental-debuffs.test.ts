@@ -493,10 +493,13 @@ test('净化：三系都是 debuff，按类驱散（华佗「青囊」remove_kin
 test('真实卡数据：水困/中毒的 apply_status **不带 duration**（写了会把永久变回限时）', () => {  // ADR-116 的教训：卡牌 YAML 的字段写错（turns vs duration）能一路静默通过，
   // 只有"从卡牌数据出发"的测试才抓得到。ADR-132 把三者都改成永久，
   // 于是反向也要钉住：**不许再出现 duration**。
+  //
+  // ⚠️ ADR-138 更新：水/毒的「打出去就挂」也全局化到效果层了，所以**毒箭不再显式施加中毒**
+  //（显式 1 层 + 自动 1 层 = 每次 2 层，与本卡文案不符）。仍显式施加的只剩下面两张，
+  // 其中虎步军的选择器**含主公**（自动规则只挂场上单位），保留显式那条是有意的。
   const cases: Array<[string, string, string]> = [
     ['shu_hubujun', '越水', 'shui_kun'],
     ['shu_guanyu', '水淹七军', 'shui_kun'],
-    ['shu_wudangfeijun', '毒箭', 'zhong_du'],
   ];
   for (const [cardId, skillName, statusId] of cases) {
     const card = realCard(cardId);
@@ -509,6 +512,10 @@ test('真实卡数据：水困/中毒的 apply_status **不带 duration**（写�
     assert.equal((eff as unknown as Record<string, unknown>).turns, undefined,
       'apply_status 的字段是 duration，不是 turns —— turns 会被静默忽略');
   }
+  // 毒箭改为**只打毒伤**，挂层交给全局规则（ADR-138）—— 不许有人再把显式那条加回来
+  const dujian = (realCard('shu_wudangfeijun').skills ?? []).find((s) => s.name === '毒箭')!;
+  assert.equal((dujian.effects ?? []).some((e) => e.status === 'zhong_du'), false,
+    '毒箭不该再显式施加中毒：毒攻伤害会自动挂 1 层，显式那条会变成 2 层');
 });
 
 test('真实卡数据：禁用（jin_yong）仍是 1 回合 —— 水淹七军只把水困改成永久，没动禁技', () => {

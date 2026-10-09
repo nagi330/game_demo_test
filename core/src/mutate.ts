@@ -8,7 +8,7 @@
 
 import { BOARD, DECK, STATUSES, type StatusDef } from './constants.ts';
 import { createRng } from './rng.ts';
-import { allUnits, applyMods, capStacks, getUnit, hasCap, hasCapOn, hasKeyword, hasTrait, isBasicTroop, makeUnit, nextUidSeq, other, setUnit, statusStacks, upgradeProgress } from './state.ts';
+import { allUnits, applyMods, capValue, getUnit, hasCap, hasCapOn, hasKeyword, hasTrait, isBasicTroop, makeUnit, nextUidSeq, other, setUnit, statusStacks, upgradeProgress } from './state.ts';
 import type { CardDef, CardType, DamageType, GameEvent, HandCard, MatchState, Row, Side, SkillDef, Unit } from './types.ts';
 
 export type TargetRef =
@@ -369,8 +369,11 @@ export function dealDamage(
   //   vulnerable_fire —— 受到 fire 伤害时 +N（"遇火即燃"）
   //   thorns —— 本次实际受伤后，来源单位反弹 N 点
   // 三个能力都是**状态驱动**（藤甲兵入场自挂），故只认能力、不认卡 id。
-  const reducePhysical = capStacks(u.statuses, 'reduce_physical');
-  const vulnerableFire = capStacks(u.statuses, 'vulnerable_fire');
+  // ⚠️ 一律走 `capValue`（ADR-142）：它在层数之上多套一层「规则覆盖」，
+  //    让「藤甲强化」能把 `reduce_physical` 单独抬到 2、同时把 `vulnerable_fire` 压到 0，
+  //    而不必靠加层数（加层数会把减伤与怕火一起放大）。没有覆盖时与 `capStacks` 完全等价。
+  const reducePhysical = capValue(u, 'reduce_physical');
+  const vulnerableFire = capValue(u, 'vulnerable_fire');
   let finalAmount = amount;
   if (damageType === 'physical' && reducePhysical > 0) {
     finalAmount = Math.max(0, finalAmount - reducePhysical);
@@ -407,7 +410,7 @@ export function dealDamage(
   //      （实测：20 攻打 6 血白毦兵，hp = −14 却仍在场，死亡结算被跳过）；
   //   ② 「被打死也照样回敬」的语义会丢失（与自动反击的「同时结算」不一致）。
   // 来源的**坐标**取自 killerRef —— `sourceUnit`（Unit）本身不携带 row/col。
-  const thorns = capStacks(u.statuses, 'thorns');
+  const thorns = capValue(u, 'thorns');
   if (actual > 0 && thorns > 0 && sourceUnit && killerRef && sourceUnit.uid !== u.uid) {
     const { side: srcSide, row: srcRow, col: srcCol } = killerRef;
     const v = getUnit(state, srcSide, srcRow, srcCol);

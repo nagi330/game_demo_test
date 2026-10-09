@@ -6472,11 +6472,6 @@
         "text": "战技：指定一名敌方单位，施加中毒（永久；该方回合结束时**永久降低 N 点生命上限**，N = 层数，层数不封顶；本身不造成伤害），并造成 1 点毒攻伤害。",
         "effects": [
           {
-            "action": "apply_status",
-            "status": "zhong_du",
-            "stacks": 1
-          },
-          {
             "action": "damage",
             "value": 1,
             "damage_type": "poison"
