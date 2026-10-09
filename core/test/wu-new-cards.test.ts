@@ -77,6 +77,20 @@ test('蒋钦 水军都督：强化水攻伤害', () => {
   assert.equal(result.state.sides.enemy.rows.front[0], null, '1 点水攻 +3 应击杀 2 血目标');
 });
 
+test('李异 协同追击：其他来源造成水攻后额外追击一次，额外伤害不递归', () => {
+  const state = stateWith(['wu_quancong']);
+  setUnit(state, 'own', 'front', 1, makeUnit(data.cards.get('wu_liyi')!, 0, 20));
+  setUnit(state, 'enemy', 'front', 0, makeUnit(data.cards.get('wei_caopi')!, 0, 5));
+  const result = applyAction(state, ctx, {
+    type: 'PLAY_CARD', cardIndex: 0, row: 'front', col: 2,
+    target: { side: 'enemy', row: 'front', col: 0 },
+  });
+  assert.equal(result.ok, true, result.error ?? '');
+  const damage = result.events.filter((e): e is Extract<GameEvent, { type: 'DAMAGE' }> => e.type === 'DAMAGE');
+  assert.equal(damage.length, 2, '决水本体与李异追击各结算一次');
+  assert.equal(getUnit(result.state, 'enemy', 'front', 0)?.hp, 4, '目标应受到 3+1 点水攻伤害');
+});
+
 test('董袭 护主：主公伤害转由董袭承担', () => {
   const state = stateWith(['wu_dongxi']);
   const result = applyAction(state, ctx, { type: 'PLAY_CARD', cardIndex: 0, row: 'front', col: 0 });

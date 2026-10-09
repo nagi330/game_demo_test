@@ -185,31 +185,36 @@ test('程昱 审时度势：牺牲满血人物时，伤害量等于其血量上�
   assert.equal(dealt, 4, '满血牺牲 → 伤害 = 血量上限');
 });
 
-/* ================= 贾诩：控制权转移 ================= */
+/* ================= 贾诩：离间强制攻击 ================= */
 
-test('贾诩 离间毒计：夺取 3 费以下的敌方人物', () => {
+test('贾诩 离间计：选择敌方武将或兵种，并按 50% 概率强制其攻击同伴', () => {
   realCard('wei_jiaxu');
   const { state, ctx } = scenario({ ownHand: ['wei_jiaxu'] });
-  const cheap = u('cheap', 2, 2);
-  cheap.cost = 2;
-  setUnit(state, 'enemy', 'front', 0, cheap);
+  setUnit(state, 'enemy', 'front', 0, u('target', 2, 5));
+  setUnit(state, 'enemy', 'front', 1, u('ally', 1, 5));
 
-  const r = applyAction(state, ctx, { type: 'PLAY_CARD', cardIndex: 0, row: 'front', col: 1 });
-  assert.ok(r.events.some((e) => e.type === 'CONTROL_TAKEN'), '应产生控制权转移事件');
-  const mine = ['front', 'front'].some((row) => r.state.sides.own.rows[row as 'front' | 'front'].some((x) => x?.cardId === 'cheap'));
-  assert.ok(mine, '低费敌方人物应倒戈到己方');
+  const played = applyAction(state, ctx, { type: 'PLAY_CARD', cardIndex: 0, row: 'front', col: 1 });
+  assert.ok(played.ok, played.error ?? '贾诩应能上场');
+  const used = applyAction(played.state, ctx, {
+    type: 'USE_SKILL', row: 'front', col: 1,
+    target: { side: 'enemy', row: 'front', col: 0 },
+  });
+  assert.ok(used.ok, used.error ?? '离间计应能选择敌方武将');
+  assert.ok(!used.events.some((e) => e.type === 'CONTROL_TAKEN'), '离间计不应改变控制权');
+  const skill = base('wei_jiaxu').skills?.find((s) => s.id === 'li_jian_ji');
+  assert.equal(skill?.effects?.[0]?.chance, 0.5);
 });
 
 /* ================= 郭嘉：策略牌减费 + 打出策略牌抽牌 ================= */
 
-test('郭嘉 天机演算：光环给手牌策略牌减 1 费', () => {
+test('郭嘉 天机演算：光环给手牌战法减 2 费', () => {
   realCard('wei_guojia');
   const { state, ctx } = scenario({ ownHand: ['wei_guojia', 'test_draw_tactic'] });
   const r = applyAction(state, ctx, { type: 'PLAY_CARD', cardIndex: 0, row: 'front', col: 1 });
   const hc = r.state.sides.own.hand.find((x) => x.card.id === 'test_draw_tactic');
   assert.ok(hc, '手牌里应有策略牌');
-  assert.ok(hc!.mods.some((m) => m.kind === 'cost' && m.value === -1), '策略牌应被减 1 费');
-  assert.equal(effectiveCost(hc!), base('test_draw_tactic').cost - 1, '实际费用应少 1');
+  assert.ok(hc!.mods.some((m) => m.kind === 'cost' && m.value === -2), '战法应被减 2 费');
+  assert.equal(effectiveCost(hc!), base('test_draw_tactic').cost - 2, '实际费用应少 2');
 });
 
 test('郭嘉 演算抽牌：打出策略牌时抽 1 张', () => {
@@ -238,17 +243,13 @@ test('许褚 虎痴：对敌方武将发起决斗，双方被锁定', () => {
   assert.ok(getUnit(r.state, 'enemy', 'front', 0)?.statuses.jue_dou, '对手应进入决斗');
 });
 
-/* ================= 陆抗：复制友方技能 ================= */
+/* ================= 陆抗：息兵 ================= */
 
-test('陆抗 谦冲如常：复制一名友方单位的技能', () => {
-  realCard('wu_lukang');
-  const caster = base('test_strategist');      // 夹具里带主动技「火计」的谋臣
-  const { state, ctx } = scenario({ ownHand: ['wu_lukang'] });
-  setUnit(state, 'own', 'front', 0, makeUnit(caster, 1, 80));
-  const r = applyAction(state, ctx, { type: 'PLAY_CARD', cardIndex: 0, row: 'front', col: 1 });
-  assert.ok(r.events.some((e) => e.type === 'SKILL_COPIED'), '应产生复制技能事件');
-  const lukang = getUnit(r.state, 'own', 'front', 1)!;
-  assert.ok((lukang.skills ?? []).some((s) => s.name === '火计'), '陆抗应获得火计');
+test('陆抗 息兵：回合结束治疗未行动的其他己方单位', () => {
+  const card = realCard('wu_lukang');
+  const skill = card.skills?.find((s) => s.id === 'xi_bing');
+  assert.equal(skill?.trigger, 'turn_end');
+  assert.match(skill?.text ?? '', /未攻击/);
 });
 
 /* ================= 田丰：封锁主公技 + 抽牌 ================= */
@@ -281,18 +282,13 @@ test('华佗 医圣：治疗一位己方人物 2 点（真实卡）', () => {
   assert.equal((r.state.sides.own.rows.front[1] as { hp: number }).hp, 3, '1 → 3（+2）');
 });
 
-/* ================= 丁奉：条件费用规则 ================= */
+/* ================= 丁奉：雪中奋短兵 ================= */
 
-test('丁奉 奋勇：己方有 1 血人物时费用 -1', () => {
+test('丁奉 雪中奋短兵：光环强化后续召唤单位', () => {
   const card = realCard('wu_dingfeng');
-  assert.ok(card.cost_rule, '丁奉应带条件费用规则');
-  const { state } = scenario({ ownHand: [] });
-  // 无 1 血友军 → 规则不生效
-  const hc = { card, mods: [] };
-  assert.equal(effectiveCost(hc, 0), card.cost, '条件不满足时按卡面费用');
-  // 放一个 1 血友军
-  setUnit(state, 'own', 'front', 0, u('dying', 2, 1, [], 'shu'));
-  assert.equal(card.cost_rule?.value, -1, '规则应为 -1');
+  assert.equal(card.cost, 4);
+  assert.deepEqual([card.attack, card.health], [2, 2]);
+  assert.equal(card.skills?.[0]?.id, 'xue_zhong_fen_duan_bing');
 });
 
 /* ================= 十常侍之乱：削减敌方主帅统率上限 ================= */
@@ -693,10 +689,12 @@ test('许褚 虎痴：单挑锁定连**普通攻击**也挡（原先只挡了技
   realCard('wei_xuchu');
   const { state, ctx } = scenario({ ownHand: ['wei_xuchu'] });
   setUnit(state, 'own', 'front', 0, uReady('帮手', 2, 2, 'shu'));   // 第三方
-  setUnit(state, 'enemy', 'front', 0, uReady('敌将', 3, 3));
+  setUnit(state, 'enemy', 'front', 0, uReady('敌将', 3, 20));
 
   const r0 = applyAction(state, ctx, { type: 'PLAY_CARD', cardIndex: 0, row: 'front', col: 1 });
   assert.ok(r0.ok, `应能打出许褚：${r0.error}`);
+  const hu = getUnit(r0.state, 'own', 'front', 1)!;
+  hu.hp = hu.maxHp = 20;
   const r = applyAction(r0.state, ctx, {
     type: 'USE_SKILL', row: 'front', col: 1, target: { side: 'enemy', row: 'front', col: 0 },
   });

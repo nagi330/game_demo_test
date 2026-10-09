@@ -31,7 +31,7 @@ test('曹植：入场本回合每打出战法抽一张，下一回合不再触�
   const played = applyAction(state, ctx, { type: 'PLAY_CARD', cardIndex: 0, row: 'front', col: 0 });
   assert.equal(played.ok, true, played.error ?? '');
 
-  const firstTactic = applyAction(played.state, ctx, { type: 'PLAY_CARD', cardIndex: 0 });
+  const firstTactic = applyAction(played.state, ctx, { type: 'PLAY_CARD', cardIndex: 1 });
   assert.equal(firstTactic.ok, true, firstTactic.error ?? '');
   assert.equal(firstTactic.state.sides.own.hand.length, 2, '本回合释放战法应额外抽 1 张');
 
@@ -55,16 +55,16 @@ test('曹植：亡语抽两张牌', () => {
   assert.equal(state.sides.own.hand.length, 2);
 });
 
-test('曹洪：架盾，战吼使己方主公恢复 5 点生命', () => {
+test('曹洪：架盾，战吼使己方主公恢复 3 点生命', () => {
   const state = stateWith(['wei_caohong']);
   state.sides.own.lord.hp = 20;
   const result = applyAction(state, ctx, { type: 'PLAY_CARD', cardIndex: 0, row: 'front', col: 0 });
   assert.equal(result.ok, true, result.error ?? '');
-  assert.equal(result.state.sides.own.lord.hp, 25);
+  assert.equal(result.state.sides.own.lord.hp, 23);
   assert.ok(result.state.sides.own.rows.front[0]?.kw.includes('jia_dun'));
 });
 
-test('曹真：架盾，战吼使双方场上所有角色获得 +1/+1', () => {
+test('曹真：架盾，己方回合结束使双方场上所有角色获得 +1/+1', () => {
   const state = stateWith(['wei_caozhen']);
   const own = makeUnit(data.cards.get('neutral_infantry')!, 1, 11);
   const enemy = makeUnit(data.cards.get('neutral_infantry')!, 1, 12);
@@ -72,10 +72,14 @@ test('曹真：架盾，战吼使双方场上所有角色获得 +1/+1', () => {
   setUnit(state, 'enemy', 'front', 1, enemy);
   const result = applyAction(state, ctx, { type: 'PLAY_CARD', cardIndex: 0, row: 'front', col: 0 });
   assert.equal(result.ok, true, result.error ?? '');
-  assert.equal(result.state.sides.own.rows.front[1]?.atk, 2);
-  assert.equal(result.state.sides.own.rows.front[1]?.maxHp, 3);
-  assert.equal(result.state.sides.enemy.rows.front[1]?.atk, 2);
-  assert.equal(result.state.sides.enemy.rows.front[1]?.maxHp, 3);
+  assert.equal(result.state.sides.own.rows.front[1]?.atk, 1);
+  assert.equal(result.state.sides.own.rows.front[1]?.maxHp, 2);
+  const ended = applyAction(result.state, ctx, { type: 'END_TURN' });
+  assert.equal(ended.ok, true, ended.error ?? '');
+  assert.equal(ended.state.sides.own.rows.front[1]?.atk, 2);
+  assert.equal(ended.state.sides.own.rows.front[1]?.maxHp, 3);
+  assert.equal(ended.state.sides.enemy.rows.front[1]?.atk, 2);
+  assert.equal(ended.state.sides.enemy.rows.front[1]?.maxHp, 3);
 });
 
 test('刘晔：战吼时手牌不超过一张则抽一张', () => {

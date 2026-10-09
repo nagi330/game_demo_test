@@ -107,7 +107,8 @@ test('曹丕发现的卡牌：减 1 费后按修正费用出牌', () => {
     type: 'CHOOSE_DISCOVER', cardId: 'wei_caozhang',
   });
   assert.equal(chosen.ok, true, chosen.error ?? '');
-  chosen.state.sides.own.command = { cur: 2, max: 10 };
+  // 曹彰现在是 6 费，曹丕发现效果只减 1 费，因此修正费用为 5。
+  chosen.state.sides.own.command = { cur: 5, max: 10 };
   const cast = applyAction(chosen.state, { cards: data.cards, lords: data.lords }, {
     type: 'PLAY_CARD', cardIndex: 0, row: 'back', col: 0,
   });

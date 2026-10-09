@@ -615,7 +615,11 @@ test('真实卡数据：没有卡面文案再把灼烧写成「回合结束」�
     const texts = [card.memo ?? '', ...(card.skills ?? []).map((s) => s.text ?? '')];
     for (const t of texts) {
       if (!t.includes('灼烧')) continue;
-      if (/回合结束[^。；]*灼烧|灼烧[^。；]*回合结束/.test(t)) offenders.push(`${card.name}：${t}`);
+      // 允许“在回合结束时造成火攻并挂灼烧”这类延迟伤害；这里只拦截把灼烧本身
+      // 写成回合结束结算的文案。
+      if (/回合结束[^。；]*(灼烧结算|灼烧伤害|受到灼烧)|灼烧[^。；]*(回合结束时结算|回合结束时造成)/.test(t)) {
+        offenders.push(`${card.name}：${t}`);
+      }
     }
   }
   assert.deepEqual(offenders, [],

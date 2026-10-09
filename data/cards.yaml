@@ -158,8 +158,6 @@
   cost: 3
   attack: 2
   health: 4
-  keywords:
-  - jia_dun
   tags:
   - huang_jin
   memo: 身板够厚的架盾，跟着关羽扛线
@@ -832,118 +830,169 @@
   name: 曹昂
   faction: wei
   type: general
-  cost: 2
-  attack: 1
-  health: 3
-  keywords:
-  - jia_dun
+  cost: 7
+  attack: 4
+  health: 4
   tags:
   - cao_clan
-  memo: 1 攻 3 血还带架盾，纯肉盾
+  memo: 让马救主与储位旁落
   gender: male
   type_explicit: true
   skills:
-  - id: ''
-    name: 舍身
-    text: 架盾
+  - id: rang_ma_jiu_zhu
+    name: 让马救主
+    kind: trigger
+    trigger: on_play
+    text: 战吼：使己方主公获得5点护甲。
+    effects:
+    - action: gain_armor
+      value: 5
+  - id: chu_wei_pang_luo
+    name: 储位旁落
+    kind: trigger
+    trigger: on_death
+    text: 亡语：使手牌中统帅消耗最高的一张曹氏宗亲获得储君。
+    effects:
+    - action: grant_hand
+      value: -2
+      hand_attack: 2
+      hand_health: 2
+      hand_skill:
+        id: chu_jun
+        name: 储君
+        kind: aura
+        text: 统帅消耗减少2点，获得+2/+2。
+      target:
+        side: self
+        zone: hand
+        filter:
+          tag: cao_clan
+        count: 1
+        mode: highest_cost
   flavor: ''
 - id: wei_caozhang
   name: 曹彰
   faction: wei
   type: general
-  cost: 3
-  attack: 3
-  health: 3
+  cost: 6
+  attack: 4
+  health: 5
   tags:
   - cao_clan
-  memo: 战吼二选一：抽 1 张，或本回合 +1 攻
+  memo: 弃战法蓄力，受伤后愈战愈勇
   gender: male
   keywords: []
   skills:
-  - id: meng_xi
-    name: 猛袭
+  - id: shang_wu_yan_wen
+    name: 尚武厌文
     kind: trigger
     trigger: on_play
-    text: 战吼：选择一项 —— ① 抽 1 张牌；② 本回合攻击力 +1。
-    modes:
-    - name: 蓄势（抽 1 张牌）
-      effects:
-      - action: draw
-        value: 1
-    - name: 奋击（本回合攻击 +1）
-      effects:
-      - action: modify
-        attack: 1
-        duration: this_turn
-        target:
-          source: true
+    text: 战吼：随机弃置手牌中的一张战法，使自身攻击力增加等同于该牌统帅消耗的数值。
+    effects:
+    - action: discard
+      mode: random
+      target:
+        side: self
+        zone: hand
+        filter:
+          type: tactic
+      count: 1
+    - action: modify
+      value_from_discarded: cost
+      target:
+        source: true
+  - id: yi_qi_yi_li
+    name: 意气益厉
+    kind: trigger
+    trigger: on_damaged
+    text: 每次受到伤害后，攻击力+1。
+    effects:
+    - action: modify
+      attack: 1
+      target:
+        source: true
   flavor: ''
 - id: wei_xiahouen
   name: 夏侯恩
   faction: wei
   type: general
-  cost: 3
-  attack: 2
-  health: 3
-  memo: 阵亡时给己方补 1 张牌
+  cost: 2
+  attack: 3
+  health: 2
+  memo: 负剑，阵亡时随机强化武将
   gender: male
   keywords: []
   skills:
-  - id: jian_shi
-    name: 剑侍
+  - id: fu_jian
+    name: 负剑
     kind: trigger
     trigger: on_death
-    text: 阵亡时，己方抽一张牌。
+    text: 亡语：使场上随机一名武将获得+2攻击力，可选中敌方武将。
     effects:
-    - action: draw
-      value: 1
+    - action: modify
+      attack: 2
+      target:
+        side: both
+        filter:
+          type: general
+        count: 1
+        mode: random
   flavor: ''
 - id: wei_zhangyan
   name: 张燕
   faction: wei
   type: general
-  cost: 3
+  cost: 2
   attack: 2
-  health: 3
-  keywords:
-  - xian_gong
+  health: 2
   tags:
   - huang_jin
-  memo: 上场即可攻击的快攻件
+  memo: 光环强化己方普通兵种
   gender: male
   skills:
-  - id: ''
-    name: 急行
-    text: 上场时获得先攻
+  - id: wan_jun_tong_shuai
+    name: 万军统帅
+    kind: aura
+    text: 在场时，己方所有普通兵种攻击力+1。
+    effects:
+    - action: modify
+      attack: 1
+      target:
+        side: self
+        filter:
+          basic_troop: true
+        count: all
   flavor: ''
 - id: wei_caoren
   name: 曹仁
   faction: wei
   type: general
-  cost: 4
-  attack: 3
-  health: 5
+  cost: 10
+  attack: 5
+  health: 8
   tags:
   - cao_clan
-  memo: 第一回合免一次伤害，第二回合转为架盾
+  memo: 架盾并召集五名基础兵
   gender: male
-  keywords: []
+  keywords:
+  - jia_dun
   skills:
-  - id: tie_bi_tong_qiang
-    name: 铁壁铜墙
+  - id: da_jiang_jun
+    name: 大将军
     kind: trigger
     trigger: on_play
     effects:
-    - action: apply_status
-      status: jia_dun_status
-      target:
-        source: true
-    - action: apply_status
-      status: sheng_dun_status
-      stacks: 1
-      target:
-        source: true
-    text: 上场第二回合架盾并在上场第一回合获得「披坚」（免疫一次伤害）。
+    - action: summon
+      unit: neutral_shieldman
+    - action: summon
+      unit: neutral_infantry
+    - action: summon
+      unit: neutral_cavalry
+    - action: summon
+      unit: neutral_archer
+    - action: summon
+      unit: neutral_shieldman
+    text: 战吼：召唤盾兵、步兵、骑兵和弓兵各一名，再额外召唤一名盾兵。
   flavor: ''
 - id: wei_caoxiu
   name: 曹休
@@ -1032,24 +1081,24 @@
   name: 曹洪
   faction: wei
   type: general
-  cost: 5
+  cost: 4
   attack: 3
-  health: 5
+  health: 4
   keywords:
   - jia_dun
   tags:
   - cao_clan
-  memo: 架盾并使主公恢复 5 点生命
+  memo: 架盾并为主公献马
   gender: male
   skills:
-  - id: jiu_ji
-    name: 救急
+  - id: xian_ma
+    name: 献马
     kind: trigger
     trigger: on_play
-    text: 战吼：使己方主公恢复 5 点生命。
+    text: 战吼：为己方主公恢复3点生命。
     effects:
     - action: heal
-      value: 5
+      value: 3
       target:
         side: self
         lord: true
@@ -1058,21 +1107,21 @@
   name: 曹真
   faction: wei
   type: general
-  cost: 5
+  cost: 9
   attack: 4
-  health: 5
+  health: 6
   keywords:
   - jia_dun
   tags:
   - cao_clan
-  memo: 架盾并使场上所有角色获得 +1/+1
+  memo: 架盾，己方回合结束时强化全场
   gender: male
   skills:
-  - id: zhen_guo
-    name: 镇国
+  - id: da_si_ma
+    name: 大司马
     kind: trigger
-    trigger: on_play
-    text: 战吼：使场上所有角色攻击力和生命值 +1。
+    trigger: turn_end
+    text: 己方回合结束时，使场上所有角色获得+1/+1。
     effects:
     - action: modify
       attack: 1
@@ -1201,41 +1250,32 @@
   faction: wei
   type: general
   cost: 5
-  attack: 4
+  attack: 3
   health: 5
-  memo: 打低统率 +1 攻，打高统率 +1 血
+  memo: 解樊城，击杀受伤单位后获得先攻
   gender: male
   keywords: []
   skills:
-  - id: ya_fu_zhi_feng
-    name: 亚夫之风
+  - id: jie_fan_cheng
+    name: 解樊城
     kind: trigger
     trigger: on_play
     effects:
-    - action: modify
-      attack: 1
+    - action: damage
+      value: 3
+      target:
+        side: enemy
+        filter:
+          damaged: true
+        count: 1
+        mode: choose
+    - action: apply_status
+      status: xian_gong_status
       target:
         source: true
       condition:
-        exists:
-          side: enemy
-          filter:
-            type: character
-            cost_below_source: true
-    - action: modify
-      health: 1
-      target:
-        source: true
-      condition:
-        count:
-          selector:
-            side: enemy
-            filter:
-              type: character
-              cost_below_source: true
-          op: ==
-          value: 0
-    text: 对低于自己统帅的敌军时攻击+1；对不低于自己统帅的敌军时血量+1。
+        event: killed
+    text: 战吼：选择一名受伤的敌方单位，对其造成3点伤害。若该伤害使目标阵亡，徐晃获得先攻。
   flavor: ''
 - id: wei_yujin
   name: 于禁
@@ -1390,7 +1430,8 @@
           type: general
         count: 1
         mode: choose
-    text: 指定敌方一名武将(非主公)与自己对决;分出胜负前,其他人无法对两人进行攻击.(只能使用一次)
+    - action: duel
+    text: 主动技：选择一名敌方武将与许褚决斗，双方立即互相攻击一次。（每局一次）
   flavor: ''
 - id: wei_zhonghui
   name: 钟会
@@ -1495,10 +1536,11 @@
     kind: trigger
     trigger: on_card_played
     duration: this_turn
+    same_side: true
+    played_rightmost: true
     target:
-      filter:
-        type: tactic
-    text: 本回合每释放一个战法，抽一张牌。
+      filter: {}
+    text: 上场当回合，每当你打出手牌最右侧的牌时，抽1张牌。
     effects:
     - action: draw
       value: 1
@@ -1623,8 +1665,8 @@
   type: strategist
   cost: 5
   attack: 1
-  health: 4
-  memo: 己方策略牌 −1 费；每打一张策略牌抽 1
+  health: 2
+  memo: 战吼和亡语发现战法，己方战法减费
   gender: male
   keywords: []
   skills:
@@ -1633,34 +1675,47 @@
     kind: aura
     effects:
     - action: cost_modifier
-      value: -1
+      value: -2
       target:
         side: self
         zone: hand
         filter:
           type: tactic
         count: all
-    text: 郭嘉上场时,我方策略牌需要统帅-1,如果每打出一张策略牌,既可抽一张卡牌.
-  - id: yan_suan_chou_pai
-    name: 演算抽牌
+    text: 在场时，己方战法的统帅消耗减少2点。
+  - id: yi_ji_chou_fa
+    name: 遗计
     kind: trigger
-    trigger: on_card_played
+    trigger: on_play
+    same_side: true
     effects:
-    - action: draw
-      value: 1
-    target:
-      filter:
-        type: tactic
-    text: 郭嘉上场时,我方策略牌需要统帅-1,如果每打出一张策略牌,既可抽一张卡牌.
+    - action: discover
+      count: 3
+      target:
+        side: self
+        filter:
+          type: tactic
+  - id: yi_ji_chou_fa_death
+    name: 遗计
+    kind: trigger
+    trigger: on_death
+    effects:
+    - action: discover
+      count: 3
+      target:
+        side: self
+        filter:
+          type: tactic
+    text: 战吼、亡语：各从己方牌库发现一张战法，加入手牌。
   flavor: ''
 - id: wei_simayi
   name: 司马懿
   faction: wei
   type: strategist
-  cost: 5
+  cost: 9
   attack: 1
-  health: 6
-  memo: 不动就全场 1 伤；动过手就拆对手牌库一张
+  health: 10
+  memo: 不动积蓄蓄谋，行动后爆发并可篡权
   gender: male
   keywords: []
   skills:
@@ -1668,32 +1723,76 @@
     name: 谋定后动
     kind: trigger
     trigger: turn_end
-    text: 回合结束时，若司马懿本回合没有任何行动，对所有敌方人物造成 1 点伤害；若行动且造成过伤害，则弃掉对方牌库一张；场上只剩司马懿时后者同时生效。
+    text: 己方回合结束时，若本回合未行动，抽1张牌并获得1层蓄谋（最多3层）；若本回合行动且造成过伤害，对所有敌方人物造成等同蓄谋层数的伤害，随后移除所有蓄谋。
     effects:
-    - action: damage
+    - action: draw
       value: 1
+      condition:
+        acted_this_turn: false
+    - action: apply_status
+      status: xu_mou
+      stacks: 1
+      target:
+        source: true
+      condition:
+        acted_this_turn: false
+    - action: damage
+      value_from_status: xu_mou
       target:
         side: enemy
         filter:
           type: character
         count: all
       condition:
-        acted_this_turn: false
-    - action: mill
-      count: 1
-      target:
-        side: enemy
-      condition:
-        any_of:
+        all_of:
         - acted_this_turn: true
-          dealt_damage_this_turn: true
-        - count:
-            selector:
-              side: ally
-              filter:
-                type: character
-            op: ==
-            value: 1
+        - dealt_damage_this_turn: true
+    - action: remove_status
+      status: xu_mou
+      target:
+        source: true
+      condition:
+        all_of:
+        - acted_this_turn: true
+        - dealt_damage_this_turn: true
+  - id: cuan_quan
+    name: 篡权
+    kind: active
+    cost: 0
+    frequency: once
+    requires:
+      deck_tag:
+        tag: cao_clan
+        op: <
+        value: 3
+    effects:
+    - action: replace_lord
+      purge_tag: cao_clan
+      lord_id: wei_simayi_lord
+      lord_name: 司马懿
+      lord_faction: wei
+      lord_skill_def:
+        id: ying_shi_lang_gu
+        name: 鹰视狼顾
+        kind: active
+        cost: 2
+        frequency: once_per_turn
+        target:
+          side: enemy
+          filter:
+            type: character
+          count: 1
+          mode: choose
+        effects:
+        - action: damage
+          value: 3
+        - action: mill
+          count: 1
+          from_deck: top
+          target:
+            side: enemy
+        text: 每回合一次，消耗2点统率，对一名指定敌方单位造成3点伤害，并移除敌方牌库顶的1张牌。
+      text: 仅当己方牌库中的曹氏宗亲少于3张时可发动：移除己方场上、手牌及牌库中的所有曹氏宗亲，不触发亡语；随后消灭己方主公，并由司马懿替代。
   flavor: ''
 - id: wei_xunyu
   name: 荀彧
@@ -1702,22 +1801,23 @@
   cost: 5
   attack: 1
   health: 5
-  memo: 主帅统率上限永久 +2，本回合人物牌再 −1 费
+  memo: 发现谋臣并使其减费
   gender: male
   keywords: []
   skills:
-  - id: wang_zuo_zhi_ce
-    name: 王佐之策
+  - id: wang_zuo_zhi_cai
+    name: 王佐之才
     kind: trigger
     trigger: on_play
     effects:
-    - action: gain_command
-      value: 2
-    - action: cost_modifier
-      value: -1
+    - action: discover
+      count: 1
+      value: -2
       target:
         side: self
-    text: 永久增加主帅两点统帅，且当前回合所有手牌里的人物卡牌减少一个统帅消耗。
+        filter:
+          type: strategist
+    text: 战吼：从己方牌库发现一张谋臣，加入手牌，并使其统率消耗减少2点。
   flavor: ''
 - id: wei_jiaxu
   name: 贾诩
@@ -1726,39 +1826,25 @@
   cost: 7
   attack: 1
   health: 5
-  memo: 把 3 费以下的敌将拐过来用一回合
+  memo: 离间敌方单位，使其误伤同伴
   gender: male
   keywords: []
   skills:
-  - id: li_jian_du_ji
-    name: 离间毒计
-    kind: trigger
-    trigger: on_play
-    effects:
-    - action: take_control
+  - id: li_jian_ji
+    name: 离间计
+    kind: active
+    frequency: once_per_turn
+    target:
+      side: enemy
+      filter:
+        types: [general, troop]
       count: 1
-      target:
-        side: enemy
-        filter:
-          type: character
-          cost_max: 3
-        count: 1
-        mode: choose
-    - action: apply_status
-      status: hun_luan
-      duration: 1
-      target:
-        side: enemy
-        filter:
-          type: character
-        count: all
-      condition:
-        exists:
-          side: enemy
-          filter:
-            type: character
-            cost_max: 3
-    text: 指定一个不大于 3 统率的敌方将来临时变为己方将领 1 回合；大于 3 统率的敌方将领每次行动有一半的机率随机选择任意一名人物单位进行攻击（敌我不限）。
+      mode: choose
+    effects:
+    - action: force_attack
+      chance: 0.5
+      attack_side: own
+    text: 战技：选择一名敌方武将或兵种，有50%概率使其立即对另一名随机的非主公敌方单位进行一次普通攻击。
   flavor: ''
 - id: wu_liyi
   name: 李异
@@ -1767,9 +1853,29 @@
   cost: 2
   attack: 2
   health: 2
-  memo: 2 费 2/2 普通卡，低费填充
+  memo: 统领水军并协同追击
   gender: male
   keywords: []
+  skills:
+  - id: tong_shuai_shui_jun
+    name: 统帅水军
+    kind: trigger
+    trigger: on_play
+    text: 战吼：从牌库发现一张具有水攻伤害效果的牌。
+    effects:
+    - action: discover
+      count: 1
+      target: { side: self, filter: { damage_type: water } }
+  - id: xie_tong_zhui_ji
+    name: 协同追击
+    kind: trigger
+    trigger: on_water_damage
+    text: 其他己方来源造成水攻伤害后，对一名受伤敌方单位额外造成1点水攻伤害；该伤害不会再次触发本技能。
+    effects:
+    - action: damage
+      value: 1
+      damage_type: water
+      target: { side: enemy, filter: { type: character, damaged: true, include_lord: false }, count: 1, mode: random }
   flavor: ''
 - id: wu_songqian
   name: 宋谦
@@ -1778,54 +1884,77 @@
   cost: 2
   attack: 2
   health: 3
-  memo: 2 费 2/3 扎实身材，无技能纯站场
+  memo: 敌回合蓄力，己方回合轻进自损
   gender: male
   keywords: []
+  skills:
+  - id: fen_ji
+    name: 奋戟
+    kind: trigger
+    trigger: enemy_turn_start
+    effects:
+    - action: modify
+      attack: 1
+      target: { source: true }
+  - id: qing_jin
+    name: 轻进
+    kind: trigger
+    trigger: turn_start
+    effects:
+    - action: damage
+      value: 1
+      minimum_hp: 1
+      target: { source: true }
   flavor: ''
 - id: wu_zhuran
   name: 朱然
   faction: wu
   type: general
-  cost: 2
+  cost: 3
   attack: 2
-  health: 2
-  keywords:
-  - jia_dun
-  memo: 2 费前排嘲讽，敌方必须先打掉它
+  health: 3
+  keywords: []
+  memo: 截江封锁目标的主公技或战技
+  skills:
+  - id: jie_jiang
+    name: 截江
+    kind: trigger
+    trigger: on_play
+    target: { side: enemy, filter: { type: character, include_lord: true }, count: 1, mode: choose }
+    text: 战吼：对指定敌方目标造成1点伤害；目标为主公时禁用主公技，否则禁用战技，持续至敌方下个回合结束。
+    effects:
+    - action: damage
+      value: 1
+    - action: apply_status
+      status: zhuran_lord_lock
+      condition: { chosen_kind: lord }
+    - action: apply_status
+      status: zhuran_skill_lock
+      condition: { chosen_kind: unit }
   gender: male
   flavor: ''
 - id: wu_zumao
   name: 祖茂
   faction: wu
   type: general
-  cost: 2
-  attack: 1
-  health: 3
-  memo: 主帅的肉盾 —— 伤害全由祖茂扛，他倒下保护就没了
+  cost: 3
+  attack: 2
+  health: 4
+  memo: 换帻替友将承受伤害
   gender: male
   type_explicit: true
   keywords: []
   skills:
-  - id: ti_zhu
-    name: 替主
-    kind: aura
-    text: 己方主帅受到伤害时，改由祖茂承受。
+  - id: huan_bo
+    name: 换帻
+    kind: trigger
+    trigger: on_play
+    target: { side: ally, filter: { type: character, exclude_source: true }, count: 1, mode: choose }
+    text: 战吼：秘密选择另一名己方单位，由祖茂承受其伤害，直至祖茂离场；首次转移伤害时揭示目标。
     effects:
     - action: apply_status
-      status: hu_zhu
+      status: shou_hu
       status_source: self
-      condition:
-        count:
-          selector:
-            side: ally
-            lord: true
-            filter:
-              has_status: hu_zhu
-          op: ==
-          value: 0
-      target:
-        side: ally
-        lord: true
   flavor: ''
 - id: wu_mazhong
   name: 马忠
@@ -1834,7 +1963,7 @@
   cost: 3
   attack: 2
   health: 3
-  memo: 入场给敌方一个人物下套，50% 让它动不了
+  memo: 设伏压制受伤敌将，恢复满血后解除
   gender: male
   keywords: []
   skills:
@@ -1842,17 +1971,15 @@
     name: 设伏
     kind: trigger
     trigger: on_play
+    target: { side: enemy, filter: { type: general, damaged: true }, count: 1, mode: choose }
+    text: 战吼：选择受伤敌方武将，使其攻击力变为0并获得震慑，直至其恢复满生命值。
     effects:
     - action: apply_status
+      status: attack_zero
+      duration: until_full_health
+    - action: apply_status
       status: zhen_she
-      duration: 1
-      chance: 0.5
-      target:
-        side: enemy
-        filter:
-          type: character
-        count: 1
-        mode: random
+      duration: until_full_health
   flavor: ''
 - id: wu_quancong
   name: 全琮
@@ -1887,49 +2014,59 @@
   faction: wu
   type: general
   cost: 4
-  attack: 4
-  health: 4
-  memo: 己方有 1 血残兵时自己少 1 费
-  cost_rule:
-    condition:
-      exists:
-        side: ally
-        filter:
-          type: character
-          health_max: 1
-    value: -1
+  attack: 2
+  health: 2
+  memo: 雪中奋短兵，强化后续召唤的单位
   gender: male
-  keywords: []
+  keywords:
+  - xian_gong
   skills:
-  - id: ''
-    name: 奋勇
-    text: 如果己方场上有受伤而且为1血人物，就降低一点统帅消耗。
+  - id: xue_zhong_fen_duan_bing
+    name: 雪中奋短兵
+    kind: aura
+    text: 光环：后续召唤的武将、谋臣或兵种获得先攻，但攻击力和生命上限各-2，最低1。
+    effects:
+    - action: apply_status
+      status: dingfeng_aura
+      target: { source: true }
   flavor: ''
 - id: wu_handang
   name: 韩当
   faction: wu
   type: general
   cost: 4
-  attack: 4
-  health: 4
-  memo: 上场那回合点名 2 点伤害
+  attack: 3
+  health: 3
+  memo: 救援友军并以火攻接应
   gender: male
   keywords: []
   skills:
-  - id: jian_wu_xu_fa
-    name: 箭无虚发
+  - id: jiu_yuan
+    name: 救援
     kind: trigger
     trigger: on_play
     effects:
-    - action: damage
-      value: 2
+    - action: heal
+      value: 3
       target:
-        side: enemy
-        filter:
-          type: character
+        side: ally
+        filter: { type: character }
         count: 1
         mode: choose
-    text: 上场第一回合时，对指定敌人造成2点伤害。
+    text: 战吼：为一名友方单位恢复3点生命。
+  - id: huo_gong_jie_ying
+    name: 火攻接应
+    kind: trigger
+    trigger: on_play
+    effects:
+    - action: apply_status
+      status: zhuo_shao
+      stacks: 1
+      target:
+        side: enemy
+        filter: { type: character, include_lord: false }
+        count: all
+    text: 战吼：所有敌方单位获得1层灼烧。
   flavor: ''
 - id: wu_huanggai
   name: 黄盖
@@ -1938,7 +2075,7 @@
   cost: 4
   attack: 3
   health: 4
-  memo: 自掉 1 血换敌人半数概率混乱，混乱成功再抽 1
+  memo: 苦肉诈降并在下个敌回合结束火攻
   gender: male
   keywords:
   - zhan_ji
@@ -1951,23 +2088,35 @@
     effects:
     - action: damage
       value: 1
-      target:
-        source: true
-    - action: apply_status
-      status: hun_luan
-      duration: 1
+      target: { source: true }
+    - action: roll
       chance: 0.5
-      target:
-        side: enemy
-        filter:
-          type: character
-        count: 1
-        mode: choose
-    - action: draw
+      roll_id: ku_rou_success
+    - action: apply_status
+      status: jin_gong
+      duration: until_next_turn
+      condition: { roll: ku_rou_success }
+      target: { side: enemy, filter: { type: general }, count: 1, mode: choose }
+    - action: apply_status
+      status: ku_rou_fire_ready
+      duration: until_next_turn
+      condition: { roll: ku_rou_success }
+      target: { source: true }
+  - id: ku_rou_huo_gong
+    name: 苦肉火攻
+    kind: trigger
+    trigger: enemy_turn_end
+    effects:
+    - action: damage
       value: 1
-      condition:
-        event: none
-    text: 每回合可一次机会自己掉一血指定一名敌人混乱（50%概率），如果混乱成功，则抽一张卡牌.
+      damage_type: fire
+      condition: { source_status: ku_rou_fire_ready }
+      target: { side: enemy, filter: { type: character, include_lord: false }, count: all }
+    - action: remove_status
+      status: ku_rou_fire_ready
+      condition: { source_status: ku_rou_fire_ready }
+      target: { source: true }
+    text: 战技：选择敌方武将，自身受1点伤害；50%使其下个回合无法普通攻击；成功则在下个敌方回合结束时对所有敌方单位造成1点火攻伤害，各挂1层灼烧。
   flavor: ''
 - id: wu_lukang
   name: 陆抗
@@ -1976,51 +2125,49 @@
   cost: 4
   attack: 2
   health: 4
-  memo: 复制手里或场上友方将领的一个技能
+  memo: 休兵养士，回合结束治疗未行动友军
   gender: male
   keywords: []
   skills:
-  - id: qian_chong_ru_chang
-    name: 谦冲如常
+  - id: xi_bing
+    name: 息兵
     kind: trigger
-    trigger: on_play
+    trigger: turn_end
     effects:
-    - action: copy_skill
-      target:
-        side: ally
-        zone: both
-        filter:
-          type: character
-          exclude_source: true
-        count: 1
-        mode: choose
-    text: 自上场时，可选择手里或场上友方将领的技能一次。
+    - action: heal
+      value: 1
+      target: { side: ally, filter: { type: character, exclude_source: true, attacked_this_turn: false, acted_this_turn: false }, count: all }
+    text: 己方回合结束时，为本回合未攻击且未使用战技的其他己方单位恢复1点生命。
   flavor: ''
 - id: wu_sunjian
   name: 孙坚
   faction: wu
   type: general
-  cost: 4
-  attack: 4
-  health: 3
-  memo: 阵亡拼点，赢了让一张手牌免费下场
+  cost: 6
+  attack: 5
+  health: 5
+  memo: 聚义兴师发现武将，阵亡传承孙氏遗志
   gender: male
   keywords: []
   skills:
-  - id: jiang_dong_meng_hu
-    name: 江东猛虎
+  - id: ju_yi_xing_shi
+    name: 聚义兴师
+    kind: trigger
+    trigger: on_play
+    effects:
+    - action: discover
+      count: 1
+      target: { side: self, filter: { type: general } }
+    text: 战吼：从牌库发现一张武将。
+  - id: yi_zhi_xiang_cheng
+    name: 遗志相承
     kind: trigger
     trigger: on_death
     effects:
-    - action: clash
-      clashMode: roll
-      target:
-        side: enemy
-    - action: draw
-      value: 1
-      condition:
-        event: clash_won
-    text: 阵亡时与敌方拼点。如果拼点获胜，则随机让己方手牌中一名人物不消耗统率上场（但不能触发这张牌的上场效果）。
+    - action: cost_modifier
+      value: -1
+      target: { side: ally, zone: hand, filter: { type: general }, count: all }
+    text: 亡语：使手牌中所有武将统帅消耗-1。
   flavor: ''
 - id: wu_zhoutai
   name: 周泰
@@ -2068,33 +2215,55 @@
   cost: 4
   attack: 3
   health: 5
-  memo: 受伤后每回合自回 1 血，越拖越难死
+  memo: 标记敌军后与其战斗时蓄力反击
   gender: male
   keywords: []
   skills:
   - id: yi_yi_dai_lao
     name: 以逸待劳
     kind: trigger
-    trigger: turn_start
+    trigger: on_play
     effects:
-    - action: heal
-      value: 1
-      target:
-        source: true
-    text: 自己在场时，如果受伤，每回合恢复自己一点血量。
+    - action: apply_status
+      status: pi_kun
+      target: { side: enemy, filter: { type: character, include_lord: false }, count: all }
+    text: 战吼：标记所有敌方单位为疲困；与被标记单位战斗时，本次攻击+2。
+  - id: pi_kun_fan_ji
+    name: 疲困反击
+    kind: trigger
+    trigger: on_attack
+    effects:
+    - action: attack_bonus
+      value: 2
+      condition: { attack_target: { has_status: pi_kun } }
   flavor: ''
 - id: wu_ganning
   name: 甘宁
   faction: wu
   type: general
   cost: 5
-  attack: 5
-  health: 5
-  keywords:
-  - xian_gong
-  memo: 第一回合先攻，并让全场敌人 −1 攻一回合
+  attack: 3
+  health: 3
+  keywords: []
+  memo: 锦帆水军转攻，召唤锦帆军并劫营扰敌
   gender: male
   skills:
+  - id: jin_fan_tong_ling
+    name: 锦帆统领
+    kind: aura
+    text: 光环：将己方无属性或物理伤害改为水攻。
+    effects:
+    - action: apply_status
+      status: water_convert
+      target: { side: ally, filter: { type: character }, count: all }
+  - id: jin_fan_ju_zhong
+    name: 锦帆聚众
+    kind: trigger
+    trigger: on_play
+    effects:
+    - action: summon
+      unit: wu_jinfanjun
+    text: 战吼：召唤一名锦帆军。
   - id: bai_qi_jie_ying
     name: 百骑劫营
     kind: trigger
@@ -2102,42 +2271,35 @@
     effects:
     - action: modify
       attack: -1
-      duration: 1
+      duration: until_enemy_turn_end
       target:
         side: enemy
         filter:
           type: character
         count: all
-    text: 第一回合上场时获得先攻，且所有场上敌方人物 -1 攻一回合。
+    text: 战吼：使所有敌方单位攻击力-1，持续至下个敌方回合结束。
   flavor: ''
 - id: wu_lingtong
   name: 凌统
   faction: wu
   type: general
-  cost: 5
-  attack: 4
-  health: 5
+  cost: 7
+  attack: 3
+  health: 4
   keywords:
   - xian_gong
-  memo: 先攻；攻击时半数概率震慑目标
+  memo: 逍遥津死战，召唤东吴精骑断后
   gender: male
   skills:
-  - id: guo_shi_zhi_feng
-    name: 国士之风
+  - id: xiao_yao_jin_si_zhan
+    name: 逍遥津死战
     kind: trigger
-    trigger: on_attack
+    trigger: on_play
     effects:
-    - action: apply_status
-      status: zhen_she
-      duration: 1
-      chance: 0.5
-      target:
-        side: enemy
-        filter:
-          type: character
-        count: 1
-        mode: random
-    text: 获得先攻，并且对攻击的敌人有 50% 概率造成震慑。
+    - action: summon
+      unit: wu_dongwujingqi
+      status: die_at_turn_end
+    text: 战吼：召唤一个东吴精骑，该骑兵在本回合结束时阵亡。
   flavor: ''
 - id: wu_lvmeng
   name: 吕蒙
@@ -2187,7 +2349,7 @@
       value_from:
         side: ally
         filter:
-          type: character
+          type: general
       target:
         side: enemy
         filter:
@@ -2200,42 +2362,24 @@
   name: 程普
   faction: wu
   type: general
-  cost: 6
+  cost: 5
   attack: 4
   health: 5
-  memo: 上场震慑一名敌人；攻击时给随机友军回 1 血
+  memo: 三朝虎臣扶持后辈武将
   gender: male
   keywords: []
   skills:
-  - id: hao_yong
-    name: 豪勇
+  - id: san_chao_hu_chen
+    name: 三朝虎臣
     kind: trigger
-    trigger: on_play
+    trigger: on_ally_attack
+    frequency: once_per_turn
     effects:
-    - action: apply_status
-      status: zhen_she
-      duration: 1
-      target:
-        side: enemy
-        filter:
-          type: character
-        count: 1
-        mode: choose
-    text: 上场时选择一名敌方人物震慑一回合（无法行动）；攻击时，恢复随机友军 1 点血量。
-  - id: chi_zhong
-    name: 持重
-    kind: trigger
-    trigger: on_attack
-    effects:
-    - action: heal
-      value: 1
-      target:
-        side: ally
-        filter:
-          type: character
-        count: 1
-        mode: random
-    text: 上场时选择一名敌方人物震慑一回合（无法行动）；攻击时，恢复随机友军 1 点血量。
+    - action: modify
+      attack: 1
+      health: 1
+      target: { event: attacker }
+    text: 每回合一次，其他己方武将普通攻击后若存活，使其获得+1/+1。
   flavor: ''
 - id: wu_taishici
   name: 太史慈

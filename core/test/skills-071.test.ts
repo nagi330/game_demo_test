@@ -27,7 +27,7 @@ import { dirname, join } from 'node:path';
 import { applyAction, playTargetPlan, unitSkillTargetPlan } from '../src/engine.ts';
 import { getUnit, makeUnit, setUnit } from '../src/state.ts';
 import { applyStatus, dealDamage, lordRef, unitRef } from '../src/mutate.ts';
-import { recomputeAuras, resolveTargets, effectsOf } from '../src/effects.ts';
+import { recomputeAuras, resolveTargets, effectsOf, runEffects } from '../src/effects.ts';
 import { createRng } from '../src/rng.ts';
 import { STATUSES } from '../src/constants.ts';
 import { TEST_CARDS, scenario } from './fixtures.ts';
@@ -70,51 +70,27 @@ const mk = (
 const hasEvent = (evs: GameEvent[], t: GameEvent['type']) => evs.some((e) => e.type === t);
 
 /* ============================================================
-   B-3 抉择（二选一）— 曹彰「猛袭」
+   B-3 曹彰：尚武厌文 / 意气益厉
    ============================================================ */
 
-test('B-3 抉择：modeIndex 0 走「抽 1 张」，1 走「本回合攻击 +1」', () => {
-  realCard('wei_caozhang');
-
-  // 分支 ① 抽 1 张（scenario 默认牌库为空，必须自己放牌，否则走的是粮尽）
-  const a = scenario({ ownHand: ['wei_caozhang'] });
-  a.state.sides.own.deck = ['neutral_infantry'];
-  const ra = applyAction(a.state, a.ctx, {
-    type: 'PLAY_CARD', cardIndex: 0, row: 'front', col: 0, modeIndex: 0,
-  });
-  assert.ok(ra.ok, `打出应成功：${ra.error}`);
-  assert.equal(ra.state.sides.own.deck.length, 0, '分支 ①：应抽掉 1 张');
-  assert.equal(ra.state.sides.own.hand.length, 1, '分支 ①：手牌应为 1 张（抽到的牌）');
-  const cao = getUnit(ra.state, 'own', 'front', 0)!;
-  assert.equal(cao.atk, cao.baseAtk, '分支 ① 不应改攻击力');
-
-  // 分支 ② 本回合攻击 +1
-  const b = scenario({ ownHand: ['wei_caozhang'] });
-  const rb = applyAction(b.state, b.ctx, {
-    type: 'PLAY_CARD', cardIndex: 0, row: 'front', col: 1, modeIndex: 1,
-  });
-  assert.ok(rb.ok, `打出应成功：${rb.error}`);
-  const cao2 = getUnit(rb.state, 'own', 'front', 1)!;
-  assert.equal(cao2.atk, cao2.baseAtk + 1, '分支 ② 应 +1 攻');
-  assert.equal(rb.state.sides.own.hand.length, 0, '分支 ② 不应抽牌');
-  assert.ok(rb.events.some((e) => e.type === 'STAT_MODIFIED'), '应发 STAT_MODIFIED 供客户端播动画');
+test('B-3 曹彰尚武厌文：弃置战法并按其费用增加攻击力', () => {
+  const { state, ctx } = scenario({ ownHand: ['wei_caozhang', 'tactic_huogong'] });
+  const r = applyAction(state, ctx, { type: 'PLAY_CARD', cardIndex: 0, row: 'front', col: 0 });
+  assert.ok(r.ok, r.error ?? '曹彰应能上场');
+  const u = getUnit(r.state, 'own', 'front', 0)!;
+  assert.equal(r.state.sides.own.discard.at(-1)?.id, 'tactic_huogong');
+  assert.equal(u.atk, u.baseAtk + 3, '火攻为 3 费，曹彰应增加 3 点攻击力');
 });
 
-test('B-3 抉择：缺省 / 越界 modeIndex 一律安全退回 modes[0]（AI 与旧 UI 的兜底）', () => {
-  realCard('wei_caozhang');
-  for (const modeIndex of [undefined, -1, 2, 99, 1.5, NaN]) {
-    const { state, ctx } = scenario({ ownHand: ['wei_caozhang'] });
-    state.sides.own.deck = ['neutral_infantry'];
-    const r = applyAction(state, ctx, {
-      type: 'PLAY_CARD', cardIndex: 0, row: 'front', col: 0, modeIndex,
-    });
-    assert.ok(r.ok, `modeIndex=${String(modeIndex)} 应仍能打出：${r.error}`);
-    // modes[0] = 抽 1 张 → 手牌恰好 1 张，且攻击力没变
-    assert.equal(r.state.sides.own.hand.length, 1,
-      `modeIndex=${String(modeIndex)} 应走 modes[0]（抽 1 张）`);
-    const u = getUnit(r.state, 'own', 'front', 0)!;
-    assert.equal(u.atk, u.baseAtk, `modeIndex=${String(modeIndex)} 不应走 +1 攻分支`);
-  }
+test('B-3 曹彰意气益厉：每次受到伤害后攻击力增加 1', () => {
+  const { state, ctx } = scenario({ ownHand: ['wei_caozhang'] });
+  const r = applyAction(state, ctx, { type: 'PLAY_CARD', cardIndex: 0, row: 'front', col: 0 });
+  assert.ok(r.ok, r.error ?? '曹彰应能上场');
+  const u = getUnit(r.state, 'own', 'front', 0)!;
+  const before = u.atk;
+  runEffects(r.state, ctx.cards, [{ action: 'damage', value: 1, target: { side: 'ally', source: true } }],
+    { side: 'own', source: u }, createRng(1), []);
+  assert.equal(getUnit(r.state, 'own', 'front', 0)!.atk, before + 1);
 });
 
 test('B-3 抉择：effectsOf 是分支取值的唯一真源（纯函数）', () => {
@@ -345,46 +321,14 @@ test('B-8 牺牲：sacrifice 把「血量上限」与「当前血量」分别写
 });
 
 /* ============================================================
-   B-9 复制技能（手里或场上）— 陆抗「谦冲如常」
+   陆抗「息兵」
    ============================================================ */
 
-test('B-9 复制技能：场上有其他友方人物时，复制场上的技能', () => {
-  realCard('wu_lukang');
-  const { state, ctx } = scenario({ ownHand: ['wu_lukang'], own: { front: ['test_strategist'] } });
-  setUnit(state, 'own', 'front', 0, makeUnit(base('test_strategist'), 0, 90));
-
-  const r = applyAction(state, ctx, {
-    type: 'PLAY_CARD', cardIndex: 0, row: 'front', col: 1,
-    target: { side: 'own', row: 'front', col: 0 },
-  });
-  assert.ok(r.ok, `打出应成功：${r.error}`);
-  const lu = getUnit(r.state, 'own', 'front', 1)!;
-  assert.ok(lu.skills!.some((s) => s.id === 'fireball'), '应复制到场上的「火计」');
-  const copied = r.events.filter((e) => e.type === 'SKILL_COPIED');
-  assert.equal(copied.length, 1, '「可选择……一次」= 只复制一个技能');
-});
-
-test('B-9 复制技能：场上没有其他友方人物时，同一个选择器自动退回**手牌**', () => {
-  realCard('wu_lukang');
-  const { state, ctx } = scenario({ ownHand: ['wu_lukang', 'test_strategist'] });
-
-  const r = applyAction(state, ctx, { type: 'PLAY_CARD', cardIndex: 0, row: 'front', col: 0 });
-  assert.ok(r.ok, `打出应成功：${r.error}`);
-  const lu = getUnit(r.state, 'own', 'front', 0)!;
-  assert.ok(lu.skills!.some((s) => s.id === 'fireball'),
-    '卡面写「手里或场上」：zone: both 的候选池里必须还有手牌那条路');
-  const copied = r.events.filter((e) => e.type === 'SKILL_COPIED');
-  assert.equal(copied.length, 1, '只应复制一次');
-  assert.equal((copied[0] as Extract<GameEvent, { type: 'SKILL_COPIED' }>).from, '测试谋臣',
-    '来源应显示为手牌里的那张卡');
-});
-
-test('B-9 复制技能：不会把陆抗自己算成「友方将领」', () => {
-  realCard('wu_lukang');
-  const { state, ctx } = scenario({ ownHand: ['wu_lukang'] });
-  const r = applyAction(state, ctx, { type: 'PLAY_CARD', cardIndex: 0, row: 'front', col: 0 });
-  assert.ok(r.ok);
-  assert.ok(!hasEvent(r.events, 'SKILL_COPIED'), '没有别的友方人物时不该复制自己的技能');
+test('陆抗 息兵：回合结束治疗本回合未行动的其他己方单位', () => {
+  const card = realCard('wu_lukang');
+  const skill = card.skills?.find((s) => s.id === 'xi_bing');
+  assert.equal(skill?.trigger, 'turn_end');
+  assert.match(skill?.text ?? '', /未攻击/);
 });
 
 /* ============================================================
@@ -436,88 +380,72 @@ test('B-10 抽到非策略牌为止：只在打出**策略牌**时触发', () =>
 });
 
 /* ============================================================
-   B-11 守护·只护主将 — 祖茂「替主」
+   B-11 守护·任意友军 —— 祖茂「换帻」
    ============================================================ */
 
 function withZumao(): { state: MatchState; ctx: ReturnType<typeof scenario>['ctx'] } {
   realCard('wu_zumao');
   const s = scenario({ ownHand: ['wu_zumao'] });
-  const r = applyAction(s.state, s.ctx, { type: 'PLAY_CARD', cardIndex: 0, row: 'front', col: 0 });
+  setUnit(s.state, 'own', 'front', 1, mk('guarded', 1, 5, {}, 'shu'));
+  const r = applyAction(s.state, s.ctx, {
+    type: 'PLAY_CARD', cardIndex: 0, row: 'front', col: 0,
+    target: { side: 'own', row: 'front', col: 1 },
+  });
   assert.ok(r.ok, `祖茂应能打出：${r.error}`);
   return { state: r.state, ctx: s.ctx };
 }
 
-test('B-11 护主：主帅受伤时转由祖茂承受，且带 lord 标记', () => {
+test('B-11 换帻：选择的友军受伤时转由祖茂承受', () => {
   const { state, ctx } = withZumao();
-  const lordHp = state.sides.own.lord.hp;
+  const targetHp = getUnit(state, 'own', 'front', 1)!.hp;
   const zumaoHp = getUnit(state, 'own', 'front', 0)!.hp;
-
   const evs: GameEvent[] = [];
-  dealDamage(state, ctx.cards, lordRef('own'), 1, evs, 'test');   // 祖茂 2 血，用 1 点避免直接打死
-
-  assert.equal(state.sides.own.lord.hp, lordHp, '主帅血量不该掉');
-  assert.equal(getUnit(state, 'own', 'front', 0)!.hp, zumaoHp - 1, '伤害应转给祖茂');
-  const red = evs.find((e) => e.type === 'DAMAGE_REDIRECTED');
-  assert.ok(red, '应产生 DAMAGE_REDIRECTED');
-  assert.equal((red as Extract<GameEvent, { type: 'DAMAGE_REDIRECTED' }>).lord, true,
-    '客户端要靠 lord 标记把飘字指到主公条上');
+  dealDamage(state, ctx.cards, unitRef('own', 'front', 1), 2, evs, 'test');
+  assert.equal(getUnit(state, 'own', 'front', 1)!.hp, targetHp, '被选中的友军不应掉血');
+  assert.equal(getUnit(state, 'own', 'front', 0)!.hp, zumaoHp - 2, '伤害应转给祖茂');
+  assert.ok(evs.some((e) => e.type === 'DAMAGE_REDIRECTED'), '应产生伤害转移事件');
 });
 
-test('B-11 护主：**只**护主帅 —— 其他友方单位受伤不转移', () => {
+test('B-11 换帻：未被选中的友军不受保护', () => {
   const { state, ctx } = withZumao();
-  const ally = mk('ally', 1, 10, {}, 'shu');
-  setUnit(state, 'own', 'front', 3, ally);
+  setUnit(state, 'own', 'front', 3, mk('other', 1, 10, {}, 'shu'));
   const zumaoHp = getUnit(state, 'own', 'front', 0)!.hp;
-
   const evs: GameEvent[] = [];
-  dealDamage(state, ctx.cards, unitRef('own', 'front', 3), 4, evs, 'test');
-
-  assert.equal(getUnit(state, 'own', 'front', 3)!.hp, 6, '友方单位应自己吃下伤害');
-  assert.equal(getUnit(state, 'own', 'front', 0)!.hp, zumaoHp, '祖茂不该替友方单位挨打');
-  assert.ok(!hasEvent(evs, 'DAMAGE_REDIRECTED'), '不该发生转移');
+  dealDamage(state, ctx.cards, unitRef('own', 'front', 3), 3, evs, 'test');
+  assert.equal(getUnit(state, 'own', 'front', 3)!.hp, 7, '未被选中的友军应自己承受伤害');
+  assert.equal(getUnit(state, 'own', 'front', 0)!.hp, zumaoHp, '祖茂不应替其他友军承伤');
+  assert.ok(!hasEvent(evs, 'DAMAGE_REDIRECTED'), '不应发生伤害转移');
 });
 
-test('B-11 护主：祖茂阵亡后保护立即失效（光环随之撤销）', () => {
+test('B-11 换帻：祖茂离场后保护失效', () => {
   const { state, ctx } = withZumao();
-  const rng = createRng(state.seed);
-  // 直接把祖茂打死，然后按引擎的做法重算光环
-  dealDamage(state, ctx.cards, unitRef('own', 'front', 0), 999, [], 'test');
-  recomputeAuras(state, ctx.cards, rng, []);
-  assert.equal(getUnit(state, 'own', 'front', 0), null, '祖茂应已阵亡');
-  assert.equal(state.sides.own.lord.statuses?.hu_zhu, undefined,
-    '光环消失后主帅身上的「护主」应被清掉');
-
-  const lordHp = state.sides.own.lord.hp;
-  dealDamage(state, ctx.cards, lordRef('own'), 3, [], 'test');
-  assert.equal(state.sides.own.lord.hp, lordHp - 3, '没有守护时主帅应正常掉血');
-});
-
-test('B-11 护主：跨过回合边界保护仍在 —— 光环维持的状态不该被「回合到期」清掉', () => {
-  const { state, ctx } = withZumao();
-  // 光环状态必须**无到期**，否则会在自己回合结束时被清，
-  // 而「护主」要挡的恰恰是对手回合的伤害（实现时最容易漏的一步）
-  assert.equal(state.sides.own.lord.statuses!.hu_zhu!.turns, undefined,
-    '光环施加的状态应交给光环管生命周期，不能带 turns');
-
-  const r1 = applyAction(state, ctx, { type: 'END_TURN' });        // 进入敌方回合
-  assert.ok(r1.ok, `结束回合应成功：${r1.error}`);
-  assert.ok(r1.state.sides.own.lord.statuses?.hu_zhu, '换手后「护主」仍应在主帅身上');
-
-  const lordHp = r1.state.sides.own.lord.hp;
-  const zumaoHp = getUnit(r1.state, 'own', 'front', 0)!.hp;
-  const evs: GameEvent[] = [];
-  dealDamage(r1.state, ctx.cards, lordRef('own'), 1, evs, 'test');
-  assert.equal(r1.state.sides.own.lord.hp, lordHp, '敌方回合内主帅仍应受保护');
-  assert.equal(getUnit(r1.state, 'own', 'front', 0)!.hp, zumaoHp - 1, '伤害仍应转给祖茂');
-});
-
-test('B-11 护主：srcUid 指向阵亡者时保护自动失效（不依赖光环重算）', () => {
-  const { state, ctx } = withZumao();
-  const before = state.sides.own.lord.hp;
-  // 手动把祖茂移出场，但**不**重算光环 —— findLordGuard 必须自己认出守护者已不在
   setUnit(state, 'own', 'front', 0, null);
-  dealDamage(state, ctx.cards, lordRef('own'), 5, [], 'test');
-  assert.equal(state.sides.own.lord.hp, before - 5, '守护者不在场 → 主帅自己挨打');
+  const before = getUnit(state, 'own', 'front', 1)!.hp;
+  dealDamage(state, ctx.cards, unitRef('own', 'front', 1), 2, [], 'test');
+  assert.equal(getUnit(state, 'own', 'front', 1)!.hp, before - 2, '祖茂离场后目标应正常掉血');
+});
+
+test('B-11 换帻：守护跨回合持续，且祖茂阵亡后自动失效', () => {
+  const { state, ctx } = withZumao();
+  const r1 = applyAction(state, ctx, { type: 'END_TURN' });
+  assert.ok(r1.ok, `结束回合应成功：${r1.error}`);
+  const guardedHp = getUnit(r1.state, 'own', 'front', 1)!.hp;
+  const zumaoHp = getUnit(r1.state, 'own', 'front', 0)!.hp;
+  dealDamage(r1.state, ctx.cards, unitRef('own', 'front', 1), 1, [], 'test');
+  assert.equal(getUnit(r1.state, 'own', 'front', 1)!.hp, guardedHp);
+  assert.equal(getUnit(r1.state, 'own', 'front', 0)!.hp, zumaoHp - 1);
+  setUnit(r1.state, 'own', 'front', 0, null);
+  const afterLeave = getUnit(r1.state, 'own', 'front', 1)!.hp;
+  dealDamage(r1.state, ctx.cards, unitRef('own', 'front', 1), 1, [], 'test');
+  assert.equal(getUnit(r1.state, 'own', 'front', 1)!.hp, afterLeave - 1);
+});
+
+test('B-11 换帻：shou_hu 是任意友军范围，祖茂为 3 费 2/4 武将', () => {
+  const card = realCard('wu_zumao');
+  assert.deepEqual([card.cost, card.attack, card.health], [3, 2, 4]);
+  assert.equal(card.type, 'general');
+  assert.equal(card.type_explicit, true);
+  assert.equal(STATUSES.shou_hu!.guard_scope, 'any');
 });
 
 test('B-11 守护范围：shou_hu 是 any、hu_zhu 是 lord，两者在状态表里都注册', () => {
@@ -555,12 +483,11 @@ test('回归：shou_hu（any）仍然接管被守护单位的伤害', () => {
    出牌前的「要选什么」：判定下沉到 core（BACKLOG §3，UI 不自己猜）
    ============================================================ */
 
-test('playTargetPlan：抉择卡返回分支名、且不要求选目标（曹彰）', () => {
+test('playTargetPlan：曹彰战吼不要求玩家选择目标', () => {
   realCard('wei_caozhang');
   const { state } = scenario({ ownHand: ['wei_caozhang'] });
   const plan = playTargetPlan(state, 'own', base('wei_caozhang'));
-  assert.equal(plan.modes.length, 2, '「猛袭」应给出两个分支');
-  assert.ok(plan.modes[0]!.includes('抽'), `第一个分支应是抽牌：${plan.modes[0]}`);
+  assert.equal(plan.modes.length, 0, '曹彰不再是抉择卡');
   assert.equal(plan.choices.length, 0, '分支里没有 choose 选择器 → 不需要选目标');
 });
 
@@ -600,13 +527,11 @@ test('playTargetPlan：程昱要两个选择（先牺牲谁、再恢复给谁）
   assert.ok(plan.choices[0]!.targets.every((t) => t.side === 'own'));
 });
 
-test('playTargetPlan：陆抗的目标池含手牌 —— UI 选不到，标记 includesHand', () => {
+test('playTargetPlan：陆抗息兵不要求玩家选择目标', () => {
   realCard('wu_lukang');
-  const { state } = scenario({ ownHand: ['wu_lukang', 'test_strategist'] });
+  const { state } = scenario({ ownHand: ['wu_lukang'] });
   const plan = playTargetPlan(state, 'own', base('wu_lukang'));
-  assert.equal(plan.choices.length, 1);
-  assert.equal(plan.choices[0]!.includesHand, true, '「手里或场上」应把含手牌这件事告诉 UI');
-  assert.equal(plan.choices[0]!.targets.length, 0, '手牌不是选项目标');
+  assert.equal(plan.choices.length, 0);
 });
 
 test('playTargetPlan：貂蝉只列男性敌人（女性/兵种不进候选）', () => {
@@ -768,11 +693,11 @@ test('ADR-072：数据里「1 攻武将」都有显式标注，其余人物类�
   assert.deepEqual(problems, [], `类型与攻击力不自洽：\n${problems.join('\n')}`);
 });
 
-test('ADR-072：显式标注的 1 攻武将与默认谋臣各自正确（祖茂/曹昂/张宝/向宠）', () => {
+test('ADR-072：显式标注的低攻武将与默认谋臣各自正确（祖茂/曹昂/张宝/向宠）', () => {
   const byId = new Map(ALL.map((c) => [c.id, c]));
-  // 设计者 2026-09-23：祖茂即便 1 攻仍是武将，可以显式标注
-  assert.equal(byId.get('wu_zumao')!.attack, 1, '祖茂按 ADR-068 的 2 费 1/3');
-  assert.equal(byId.get('wu_zumao')!.health, 3);
+  // 吴国新设计：祖茂为 3 费 2/4 武将，仍保留显式类型标注。
+  assert.equal(byId.get('wu_zumao')!.attack, 2);
+  assert.equal(byId.get('wu_zumao')!.health, 4);
   assert.equal(byId.get('wu_zumao')!.type, 'general', '1 攻仍显式定为武将');
   assert.equal(byId.get('wu_zumao')!.type_explicit, true, '需要显式标注，否则校验器报错');
   for (const id of ['wei_caogang', 'qun_zhangbao']) {

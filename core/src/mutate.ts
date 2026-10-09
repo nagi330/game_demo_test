@@ -125,6 +125,18 @@ export function registerOnDrawResolver(fn: OnDrawResolver): void {
   onDrawResolver = fn;
 }
 
+/** 抽牌进入手牌后重算光环（例如郭嘉对战法的费用修正）。 */
+export type AfterDrawResolver = (
+  state: MatchState, cards: Map<string, CardDef>, events: GameEvent[],
+  rng: ReturnType<typeof createRng>,
+) => void;
+
+let afterDrawResolver: AfterDrawResolver | null = null;
+
+export function registerAfterDrawResolver(fn: AfterDrawResolver): void {
+  afterDrawResolver = fn;
+}
+
 /**
  * 「亡语」解析器（ADR-050）。
  *
@@ -256,6 +268,7 @@ export function drawCard(
   }
 
   s.hand.push({ card, mods: [] });            // ADR-038：包成手牌实例
+  afterDrawResolver?.(state, cards, events, rng ?? createRng(state.rngState));
   // 手牌上限：超出部分在回合结束时弃置（见 engine.endTurn）
 }
 
@@ -291,6 +304,15 @@ export function dealDamage(
   deathSource?: { side: Side; row?: Row; col?: number },
 ): number {
   if (amount <= 0 || !refAlive(state, ref)) return 0;
+
+  // 甘宁「锦帆统领」：己方物理/无属性伤害统一转为水攻；显式火/毒/水不改写。
+  if (sourceUnit && damageType === 'physical') {
+    const sourceSide = (['own', 'enemy'] as Side[]).find((sd) =>
+      allUnits(state, sd).some((r) => r.unit.uid === sourceUnit.uid));
+    if (sourceSide && allUnits(state, sourceSide).some((r) => hasCap(r.unit, 'water_convert'))) {
+      damageType = 'water';
+    }
+  }
 
   if (ref.kind === 'lord') {
     const lord = state.sides[ref.side].lord;
@@ -495,6 +517,13 @@ export function healTarget(
   const u = getUnit(state, ref.side, ref.row, ref.col);
   if (!u) return;
   u.hp = Math.min(u.maxHp, u.hp + amount);
+  if (u.hp >= u.maxHp) {
+    for (const [id, inst] of Object.entries(u.statuses)) {
+      if (!inst.untilFullHealth) continue;
+      delete u.statuses[id];
+      events.push({ type: 'STATUS_EXPIRED', side: ref.side, row: ref.row, col: ref.col, status: id });
+    }
+  }
   events.push({ type: 'HEAL', target: ref, amount, hp: u.hp });
 }
 
@@ -586,6 +615,8 @@ export function applyStatus(
   auraId?: string,
   /** 施加当回合不递减（ADR-089）—— 见 StatusInstance.skipTick */
   skipTick = false,
+  /** 目标恢复满血时解除（马忠「设伏」） */
+  untilFullHealth = false,
 ): void {
   if (ref.kind === 'hand') return;                    // 手牌用 HandMod（ADR-038）
   const def = STATUSES[status];
@@ -600,14 +631,18 @@ export function applyStatus(
     // 光环施加的状态（ADR-071）：生命周期由光环决定 —— 每次 recomputeAuras 都先清后加。
     // 若还按 `duration: 'turns'` 记 1 回合，它会在**自己回合结束**的那一刻被清掉，
     // 而「护主」要挡的恰恰是**对手回合**的伤害，等于形同虚设。
-    const turnsL = auraId !== undefined && turns === undefined ? undefined
+    const turnsL = untilFullHealth ? undefined
+      : auraId !== undefined && turns === undefined ? undefined
       : turns !== undefined ? turns
+      : def?.duration === 'until_enemy_turn_end' ? undefined
       : def?.duration === 'permanent' || def?.duration === 'until_consumed' ? undefined
       : def?.duration === 'turns' || def?.duration === 'this_turn' ? 1 : undefined;
     lord.statuses[status] = {
       stacks: mergeStacks(def, numericL, prevL?.stacks ?? 0, stacks),
       turns: turnsL, srcUid, auraId,
       ...(def?.duration === 'this_turn' && auraId === undefined ? { expiresAtHalfTurn: state.halfTurn } : {}),
+      ...(def?.duration === 'until_enemy_turn_end' ? { expiresAtHalfTurn: state.halfTurn + 1 } : {}),
+      ...(untilFullHealth ? { untilFullHealth: true } : {}),
       ...(skipTick && turnsL !== undefined ? { skipTick: true } : {}),
     };
     if (auraId === undefined) events.push({ type: 'STATUS_APPLIED', side: ref.side, status, stacks, turns: turnsL });
@@ -629,8 +664,10 @@ export function applyStatus(
   const nextStacks = mergeStacks(def, numeric, prev?.stacks ?? 0, stacks);
   // 持续时间：调用方指定优先；否则按状态定义（permanent → 永久）。
   // 光环施加的状态同上：交给光环管生命周期，不吃回合到期（ADR-071）。
-  const nextTurns = auraId !== undefined && turns === undefined ? undefined
+  const nextTurns = untilFullHealth ? undefined
+    : auraId !== undefined && turns === undefined ? undefined
     : turns !== undefined ? turns
+    : def?.duration === 'until_enemy_turn_end' ? undefined
     : prev?.turns !== undefined ? Math.max(prev.turns, 1)
     : def?.duration === 'permanent' || def?.duration === 'until_consumed' ? undefined
     : def?.duration === 'turns' || def?.duration === 'this_turn' ? 1
@@ -638,6 +675,8 @@ export function applyStatus(
   u.statuses[status] = {
     stacks: nextStacks, turns: nextTurns, srcUid, auraId,
     ...(def?.duration === 'this_turn' && auraId === undefined ? { expiresAtHalfTurn: state.halfTurn } : {}),
+    ...(def?.duration === 'until_enemy_turn_end' ? { expiresAtHalfTurn: state.halfTurn + 1 } : {}),
+    ...(untilFullHealth ? { untilFullHealth: true } : {}),
     ...(skipTick && nextTurns !== undefined ? { skipTick: true } : {}),
   };
   if (auraId === undefined) events.push({ type: 'STATUS_APPLIED', side: ref.side, row: ref.row, col: ref.col, status, stacks, turns: nextTurns });
@@ -711,6 +750,16 @@ export function summonUnit(
   if (state.sides[side].rows[row][col]) return null;
   const u = makeUnit(card, state.turn, nextUidSeq(state));
   setUnit(state, side, row, col, u);
+  // 丁奉「雪中奋短兵」：只强化其光环存在后新召唤的单位。
+  // 丁奉「雪中奋短兵」只强化后续召唤的武将、谋臣和兵种，
+  // 不把 token / 军械等其他单位类型误算进来。
+  const dingfengEligible = ['troop', 'general', 'strategist'].includes(card.type);
+  if (dingfengEligible && allUnits(state, side).some((ref) => ref.unit.uid !== u.uid && hasCap(ref.unit, 'future_summon'))) {
+    u.kw = [...new Set([...u.kw, 'xian_gong'])];
+    u.statuses.xian_gong_status = { stacks: 1 };
+    u.mods.push({ id: `dingfeng#${u.uid}`, kind: 'permanent', attack: -2, health: -2 });
+    applyMods(u);
+  }
   events.push({ type: 'UNIT_SUMMONED', side, row, col, unit: u });
   return u;
 }
@@ -890,15 +939,18 @@ export function resolveTurnEndStatuses(
  * 与状态递减同一步：有 turns 的 mod 减 1，减到 0 移除并重算派生属性。
  */
 export function expireMods(state: MatchState, side: Side): void {
-  for (const ref of allUnits(state, side)) {
+  for (const owner of ['own', 'enemy'] as Side[]) {
+    for (const ref of allUnits(state, owner)) {
     const u = ref.unit;
     const before = u.mods.length;
     u.mods = u.mods.filter((m) => {
+      if (m.expiresAtHalfTurn !== undefined && m.expiresAtHalfTurn <= state.halfTurn) return false;
       if (m.kind !== 'temp' || m.turns === undefined) return true;
       m.turns -= 1;
       return m.turns > 0;
     });
     if (u.mods.length !== before) applyMods(u);
+    }
   }
 }
 

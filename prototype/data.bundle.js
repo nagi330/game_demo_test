@@ -185,9 +185,6 @@ window.GameData = {
       "cost": 3,
       "attack": 2,
       "health": 4,
-      "keywords": [
-        "jia_dun"
-      ],
       "tags": [
         "huang_jin"
       ],
@@ -1143,23 +1140,58 @@ window.GameData = {
       "name": "曹昂",
       "faction": "wei",
       "type": "general",
-      "cost": 2,
-      "attack": 1,
-      "health": 3,
-      "keywords": [
-        "jia_dun"
-      ],
+      "cost": 7,
+      "attack": 4,
+      "health": 4,
       "tags": [
         "cao_clan"
       ],
-      "memo": "1 攻 3 血还带架盾，纯肉盾",
+      "memo": "让马救主与储位旁落",
       "gender": "male",
       "type_explicit": true,
       "skills": [
         {
-          "id": "",
-          "name": "舍身",
-          "text": "架盾"
+          "id": "rang_ma_jiu_zhu",
+          "name": "让马救主",
+          "kind": "trigger",
+          "trigger": "on_play",
+          "text": "战吼：使己方主公获得5点护甲。",
+          "effects": [
+            {
+              "action": "gain_armor",
+              "value": 5
+            }
+          ]
+        },
+        {
+          "id": "chu_wei_pang_luo",
+          "name": "储位旁落",
+          "kind": "trigger",
+          "trigger": "on_death",
+          "text": "亡语：使手牌中统帅消耗最高的一张曹氏宗亲获得储君。",
+          "effects": [
+            {
+              "action": "grant_hand",
+              "value": -2,
+              "hand_attack": 2,
+              "hand_health": 2,
+              "hand_skill": {
+                "id": "chu_jun",
+                "name": "储君",
+                "kind": "aura",
+                "text": "统帅消耗减少2点，获得+2/+2。"
+              },
+              "target": {
+                "side": "self",
+                "zone": "hand",
+                "filter": {
+                  "tag": "cao_clan"
+                },
+                "count": 1,
+                "mode": "highest_cost"
+              }
+            }
+          ]
         }
       ],
       "flavor": ""
@@ -1169,44 +1201,57 @@ window.GameData = {
       "name": "曹彰",
       "faction": "wei",
       "type": "general",
-      "cost": 3,
-      "attack": 3,
-      "health": 3,
+      "cost": 6,
+      "attack": 4,
+      "health": 5,
       "tags": [
         "cao_clan"
       ],
-      "memo": "战吼二选一：抽 1 张，或本回合 +1 攻",
+      "memo": "弃战法蓄力，受伤后愈战愈勇",
       "gender": "male",
       "keywords": [],
       "skills": [
         {
-          "id": "meng_xi",
-          "name": "猛袭",
+          "id": "shang_wu_yan_wen",
+          "name": "尚武厌文",
           "kind": "trigger",
           "trigger": "on_play",
-          "text": "战吼：选择一项 —— ① 抽 1 张牌；② 本回合攻击力 +1。",
-          "modes": [
+          "text": "战吼：随机弃置手牌中的一张战法，使自身攻击力增加等同于该牌统帅消耗的数值。",
+          "effects": [
             {
-              "name": "蓄势（抽 1 张牌）",
-              "effects": [
-                {
-                  "action": "draw",
-                  "value": 1
+              "action": "discard",
+              "mode": "random",
+              "target": {
+                "side": "self",
+                "zone": "hand",
+                "filter": {
+                  "type": "tactic"
                 }
-              ]
+              },
+              "count": 1
             },
             {
-              "name": "奋击（本回合攻击 +1）",
-              "effects": [
-                {
-                  "action": "modify",
-                  "attack": 1,
-                  "duration": "this_turn",
-                  "target": {
-                    "source": true
-                  }
-                }
-              ]
+              "action": "modify",
+              "value_from_discarded": "cost",
+              "target": {
+                "source": true
+              }
+            }
+          ]
+        },
+        {
+          "id": "yi_qi_yi_li",
+          "name": "意气益厉",
+          "kind": "trigger",
+          "trigger": "on_damaged",
+          "text": "每次受到伤害后，攻击力+1。",
+          "effects": [
+            {
+              "action": "modify",
+              "attack": 1,
+              "target": {
+                "source": true
+              }
             }
           ]
         }
@@ -1218,23 +1263,31 @@ window.GameData = {
       "name": "夏侯恩",
       "faction": "wei",
       "type": "general",
-      "cost": 3,
-      "attack": 2,
-      "health": 3,
-      "memo": "阵亡时给己方补 1 张牌",
+      "cost": 2,
+      "attack": 3,
+      "health": 2,
+      "memo": "负剑，阵亡时随机强化武将",
       "gender": "male",
       "keywords": [],
       "skills": [
         {
-          "id": "jian_shi",
-          "name": "剑侍",
+          "id": "fu_jian",
+          "name": "负剑",
           "kind": "trigger",
           "trigger": "on_death",
-          "text": "阵亡时，己方抽一张牌。",
+          "text": "亡语：使场上随机一名武将获得+2攻击力，可选中敌方武将。",
           "effects": [
             {
-              "action": "draw",
-              "value": 1
+              "action": "modify",
+              "attack": 2,
+              "target": {
+                "side": "both",
+                "filter": {
+                  "type": "general"
+                },
+                "count": 1,
+                "mode": "random"
+              }
             }
           ]
         }
@@ -1246,22 +1299,33 @@ window.GameData = {
       "name": "张燕",
       "faction": "wei",
       "type": "general",
-      "cost": 3,
+      "cost": 2,
       "attack": 2,
-      "health": 3,
-      "keywords": [
-        "xian_gong"
-      ],
+      "health": 2,
       "tags": [
         "huang_jin"
       ],
-      "memo": "上场即可攻击的快攻件",
+      "memo": "光环强化己方普通兵种",
       "gender": "male",
       "skills": [
         {
-          "id": "",
-          "name": "急行",
-          "text": "上场时获得先攻"
+          "id": "wan_jun_tong_shuai",
+          "name": "万军统帅",
+          "kind": "aura",
+          "text": "在场时，己方所有普通兵种攻击力+1。",
+          "effects": [
+            {
+              "action": "modify",
+              "attack": 1,
+              "target": {
+                "side": "self",
+                "filter": {
+                  "basic_troop": true
+                },
+                "count": "all"
+              }
+            }
+          ]
         }
       ],
       "flavor": ""
@@ -1271,39 +1335,46 @@ window.GameData = {
       "name": "曹仁",
       "faction": "wei",
       "type": "general",
-      "cost": 4,
-      "attack": 3,
-      "health": 5,
+      "cost": 10,
+      "attack": 5,
+      "health": 8,
       "tags": [
         "cao_clan"
       ],
-      "memo": "第一回合免一次伤害，第二回合转为架盾",
+      "memo": "架盾并召集五名基础兵",
       "gender": "male",
-      "keywords": [],
+      "keywords": [
+        "jia_dun"
+      ],
       "skills": [
         {
-          "id": "tie_bi_tong_qiang",
-          "name": "铁壁铜墙",
+          "id": "da_jiang_jun",
+          "name": "大将军",
           "kind": "trigger",
           "trigger": "on_play",
           "effects": [
             {
-              "action": "apply_status",
-              "status": "jia_dun_status",
-              "target": {
-                "source": true
-              }
+              "action": "summon",
+              "unit": "neutral_shieldman"
             },
             {
-              "action": "apply_status",
-              "status": "sheng_dun_status",
-              "stacks": 1,
-              "target": {
-                "source": true
-              }
+              "action": "summon",
+              "unit": "neutral_infantry"
+            },
+            {
+              "action": "summon",
+              "unit": "neutral_cavalry"
+            },
+            {
+              "action": "summon",
+              "unit": "neutral_archer"
+            },
+            {
+              "action": "summon",
+              "unit": "neutral_shieldman"
             }
           ],
-          "text": "上场第二回合架盾并在上场第一回合获得「披坚」（免疫一次伤害）。"
+          "text": "战吼：召唤盾兵、步兵、骑兵和弓兵各一名，再额外召唤一名盾兵。"
         }
       ],
       "flavor": ""
@@ -1429,28 +1500,28 @@ window.GameData = {
       "name": "曹洪",
       "faction": "wei",
       "type": "general",
-      "cost": 5,
+      "cost": 4,
       "attack": 3,
-      "health": 5,
+      "health": 4,
       "keywords": [
         "jia_dun"
       ],
       "tags": [
         "cao_clan"
       ],
-      "memo": "架盾并使主公恢复 5 点生命",
+      "memo": "架盾并为主公献马",
       "gender": "male",
       "skills": [
         {
-          "id": "jiu_ji",
-          "name": "救急",
+          "id": "xian_ma",
+          "name": "献马",
           "kind": "trigger",
           "trigger": "on_play",
-          "text": "战吼：使己方主公恢复 5 点生命。",
+          "text": "战吼：为己方主公恢复3点生命。",
           "effects": [
             {
               "action": "heal",
-              "value": 5,
+              "value": 3,
               "target": {
                 "side": "self",
                 "lord": true
@@ -1466,24 +1537,24 @@ window.GameData = {
       "name": "曹真",
       "faction": "wei",
       "type": "general",
-      "cost": 5,
+      "cost": 9,
       "attack": 4,
-      "health": 5,
+      "health": 6,
       "keywords": [
         "jia_dun"
       ],
       "tags": [
         "cao_clan"
       ],
-      "memo": "架盾并使场上所有角色获得 +1/+1",
+      "memo": "架盾，己方回合结束时强化全场",
       "gender": "male",
       "skills": [
         {
-          "id": "zhen_guo",
-          "name": "镇国",
+          "id": "da_si_ma",
+          "name": "大司马",
           "kind": "trigger",
-          "trigger": "on_play",
-          "text": "战吼：使场上所有角色攻击力和生命值 +1。",
+          "trigger": "turn_end",
+          "text": "己方回合结束时，使场上所有角色获得+1/+1。",
           "effects": [
             {
               "action": "modify",
@@ -1670,56 +1741,42 @@ window.GameData = {
       "faction": "wei",
       "type": "general",
       "cost": 5,
-      "attack": 4,
+      "attack": 3,
       "health": 5,
-      "memo": "打低统率 +1 攻，打高统率 +1 血",
+      "memo": "解樊城，击杀受伤单位后获得先攻",
       "gender": "male",
       "keywords": [],
       "skills": [
         {
-          "id": "ya_fu_zhi_feng",
-          "name": "亚夫之风",
+          "id": "jie_fan_cheng",
+          "name": "解樊城",
           "kind": "trigger",
           "trigger": "on_play",
           "effects": [
             {
-              "action": "modify",
-              "attack": 1,
+              "action": "damage",
+              "value": 3,
               "target": {
-                "source": true
-              },
-              "condition": {
-                "exists": {
-                  "side": "enemy",
-                  "filter": {
-                    "type": "character",
-                    "cost_below_source": true
-                  }
-                }
+                "side": "enemy",
+                "filter": {
+                  "damaged": true
+                },
+                "count": 1,
+                "mode": "choose"
               }
             },
             {
-              "action": "modify",
-              "health": 1,
+              "action": "apply_status",
+              "status": "xian_gong_status",
               "target": {
                 "source": true
               },
               "condition": {
-                "count": {
-                  "selector": {
-                    "side": "enemy",
-                    "filter": {
-                      "type": "character",
-                      "cost_below_source": true
-                    }
-                  },
-                  "op": "==",
-                  "value": 0
-                }
+                "event": "killed"
               }
             }
           ],
-          "text": "对低于自己统帅的敌军时攻击+1；对不低于自己统帅的敌军时血量+1。"
+          "text": "战吼：选择一名受伤的敌方单位，对其造成3点伤害。若该伤害使目标阵亡，徐晃获得先攻。"
         }
       ],
       "flavor": ""
@@ -1936,9 +1993,12 @@ window.GameData = {
                 "count": 1,
                 "mode": "choose"
               }
+            },
+            {
+              "action": "duel"
             }
           ],
-          "text": "指定敌方一名武将(非主公)与自己对决;分出胜负前,其他人无法对两人进行攻击.(只能使用一次)"
+          "text": "主动技：选择一名敌方武将与许褚决斗，双方立即互相攻击一次。（每局一次）"
         }
       ],
       "flavor": ""
@@ -2082,12 +2142,12 @@ window.GameData = {
           "kind": "trigger",
           "trigger": "on_card_played",
           "duration": "this_turn",
+          "same_side": true,
+          "played_rightmost": true,
           "target": {
-            "filter": {
-              "type": "tactic"
-            }
+            "filter": {}
           },
-          "text": "本回合每释放一个战法，抽一张牌。",
+          "text": "上场当回合，每当你打出手牌最右侧的牌时，抽1张牌。",
           "effects": [
             {
               "action": "draw",
@@ -2266,8 +2326,8 @@ window.GameData = {
       "type": "strategist",
       "cost": 5,
       "attack": 1,
-      "health": 4,
-      "memo": "己方策略牌 −1 费；每打一张策略牌抽 1",
+      "health": 2,
+      "memo": "战吼和亡语发现战法，己方战法减费",
       "gender": "male",
       "keywords": [],
       "skills": [
@@ -2278,7 +2338,7 @@ window.GameData = {
           "effects": [
             {
               "action": "cost_modifier",
-              "value": -1,
+              "value": -2,
               "target": {
                 "side": "self",
                 "zone": "hand",
@@ -2289,25 +2349,45 @@ window.GameData = {
               }
             }
           ],
-          "text": "郭嘉上场时,我方策略牌需要统帅-1,如果每打出一张策略牌,既可抽一张卡牌."
+          "text": "在场时，己方战法的统帅消耗减少2点。"
         },
         {
-          "id": "yan_suan_chou_pai",
-          "name": "演算抽牌",
+          "id": "yi_ji_chou_fa",
+          "name": "遗计",
           "kind": "trigger",
-          "trigger": "on_card_played",
+          "trigger": "on_play",
+          "same_side": true,
           "effects": [
             {
-              "action": "draw",
-              "value": 1
+              "action": "discover",
+              "count": 3,
+              "target": {
+                "side": "self",
+                "filter": {
+                  "type": "tactic"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": "yi_ji_chou_fa_death",
+          "name": "遗计",
+          "kind": "trigger",
+          "trigger": "on_death",
+          "effects": [
+            {
+              "action": "discover",
+              "count": 3,
+              "target": {
+                "side": "self",
+                "filter": {
+                  "type": "tactic"
+                }
+              }
             }
           ],
-          "target": {
-            "filter": {
-              "type": "tactic"
-            }
-          },
-          "text": "郭嘉上场时,我方策略牌需要统帅-1,如果每打出一张策略牌,既可抽一张卡牌."
+          "text": "战吼、亡语：各从己方牌库发现一张战法，加入手牌。"
         }
       ],
       "flavor": ""
@@ -2317,10 +2397,10 @@ window.GameData = {
       "name": "司马懿",
       "faction": "wei",
       "type": "strategist",
-      "cost": 5,
+      "cost": 9,
       "attack": 1,
-      "health": 6,
-      "memo": "不动就全场 1 伤；动过手就拆对手牌库一张",
+      "health": 10,
+      "memo": "不动积蓄蓄谋，行动后爆发并可篡权",
       "gender": "male",
       "keywords": [],
       "skills": [
@@ -2329,11 +2409,29 @@ window.GameData = {
           "name": "谋定后动",
           "kind": "trigger",
           "trigger": "turn_end",
-          "text": "回合结束时，若司马懿本回合没有任何行动，对所有敌方人物造成 1 点伤害；若行动且造成过伤害，则弃掉对方牌库一张；场上只剩司马懿时后者同时生效。",
+          "text": "己方回合结束时，若本回合未行动，抽1张牌并获得1层蓄谋（最多3层）；若本回合行动且造成过伤害，对所有敌方人物造成等同蓄谋层数的伤害，随后移除所有蓄谋。",
           "effects": [
             {
-              "action": "damage",
+              "action": "draw",
               "value": 1,
+              "condition": {
+                "acted_this_turn": false
+              }
+            },
+            {
+              "action": "apply_status",
+              "status": "xu_mou",
+              "stacks": 1,
+              "target": {
+                "source": true
+              },
+              "condition": {
+                "acted_this_turn": false
+              }
+            },
+            {
+              "action": "damage",
+              "value_from_status": "xu_mou",
               "target": {
                 "side": "enemy",
                 "filter": {
@@ -2342,35 +2440,86 @@ window.GameData = {
                 "count": "all"
               },
               "condition": {
-                "acted_this_turn": false
-              }
-            },
-            {
-              "action": "mill",
-              "count": 1,
-              "target": {
-                "side": "enemy"
-              },
-              "condition": {
-                "any_of": [
+                "all_of": [
                   {
-                    "acted_this_turn": true,
-                    "dealt_damage_this_turn": true
+                    "acted_this_turn": true
                   },
                   {
-                    "count": {
-                      "selector": {
-                        "side": "ally",
-                        "filter": {
-                          "type": "character"
-                        }
-                      },
-                      "op": "==",
-                      "value": 1
-                    }
+                    "dealt_damage_this_turn": true
                   }
                 ]
               }
+            },
+            {
+              "action": "remove_status",
+              "status": "xu_mou",
+              "target": {
+                "source": true
+              },
+              "condition": {
+                "all_of": [
+                  {
+                    "acted_this_turn": true
+                  },
+                  {
+                    "dealt_damage_this_turn": true
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "id": "cuan_quan",
+          "name": "篡权",
+          "kind": "active",
+          "cost": 0,
+          "frequency": "once",
+          "requires": {
+            "deck_tag": {
+              "tag": "cao_clan",
+              "op": "<",
+              "value": 3
+            }
+          },
+          "effects": [
+            {
+              "action": "replace_lord",
+              "purge_tag": "cao_clan",
+              "lord_id": "wei_simayi_lord",
+              "lord_name": "司马懿",
+              "lord_faction": "wei",
+              "lord_skill_def": {
+                "id": "ying_shi_lang_gu",
+                "name": "鹰视狼顾",
+                "kind": "active",
+                "cost": 2,
+                "frequency": "once_per_turn",
+                "target": {
+                  "side": "enemy",
+                  "filter": {
+                    "type": "character"
+                  },
+                  "count": 1,
+                  "mode": "choose"
+                },
+                "effects": [
+                  {
+                    "action": "damage",
+                    "value": 3
+                  },
+                  {
+                    "action": "mill",
+                    "count": 1,
+                    "from_deck": "top",
+                    "target": {
+                      "side": "enemy"
+                    }
+                  }
+                ],
+                "text": "每回合一次，消耗2点统率，对一名指定敌方单位造成3点伤害，并移除敌方牌库顶的1张牌。"
+              },
+              "text": "仅当己方牌库中的曹氏宗亲少于3张时可发动：移除己方场上、手牌及牌库中的所有曹氏宗亲，不触发亡语；随后消灭己方主公，并由司马懿替代。"
             }
           ]
         }
@@ -2385,29 +2534,29 @@ window.GameData = {
       "cost": 5,
       "attack": 1,
       "health": 5,
-      "memo": "主帅统率上限永久 +2，本回合人物牌再 −1 费",
+      "memo": "发现谋臣并使其减费",
       "gender": "male",
       "keywords": [],
       "skills": [
         {
-          "id": "wang_zuo_zhi_ce",
-          "name": "王佐之策",
+          "id": "wang_zuo_zhi_cai",
+          "name": "王佐之才",
           "kind": "trigger",
           "trigger": "on_play",
           "effects": [
             {
-              "action": "gain_command",
-              "value": 2
-            },
-            {
-              "action": "cost_modifier",
-              "value": -1,
+              "action": "discover",
+              "count": 1,
+              "value": -2,
               "target": {
-                "side": "self"
+                "side": "self",
+                "filter": {
+                  "type": "strategist"
+                }
               }
             }
           ],
-          "text": "永久增加主帅两点统帅，且当前回合所有手牌里的人物卡牌减少一个统帅消耗。"
+          "text": "战吼：从己方牌库发现一张谋臣，加入手牌，并使其统率消耗减少2点。"
         }
       ],
       "flavor": ""
@@ -2420,52 +2569,34 @@ window.GameData = {
       "cost": 7,
       "attack": 1,
       "health": 5,
-      "memo": "把 3 费以下的敌将拐过来用一回合",
+      "memo": "离间敌方单位，使其误伤同伴",
       "gender": "male",
       "keywords": [],
       "skills": [
         {
-          "id": "li_jian_du_ji",
-          "name": "离间毒计",
-          "kind": "trigger",
-          "trigger": "on_play",
+          "id": "li_jian_ji",
+          "name": "离间计",
+          "kind": "active",
+          "frequency": "once_per_turn",
+          "target": {
+            "side": "enemy",
+            "filter": {
+              "types": [
+                "general",
+                "troop"
+              ]
+            },
+            "count": 1,
+            "mode": "choose"
+          },
           "effects": [
             {
-              "action": "take_control",
-              "count": 1,
-              "target": {
-                "side": "enemy",
-                "filter": {
-                  "type": "character",
-                  "cost_max": 3
-                },
-                "count": 1,
-                "mode": "choose"
-              }
-            },
-            {
-              "action": "apply_status",
-              "status": "hun_luan",
-              "duration": 1,
-              "target": {
-                "side": "enemy",
-                "filter": {
-                  "type": "character"
-                },
-                "count": "all"
-              },
-              "condition": {
-                "exists": {
-                  "side": "enemy",
-                  "filter": {
-                    "type": "character",
-                    "cost_max": 3
-                  }
-                }
-              }
+              "action": "force_attack",
+              "chance": 0.5,
+              "attack_side": "own"
             }
           ],
-          "text": "指定一个不大于 3 统率的敌方将来临时变为己方将领 1 回合；大于 3 统率的敌方将领每次行动有一半的机率随机选择任意一名人物单位进行攻击（敌我不限）。"
+          "text": "战技：选择一名敌方武将或兵种，有50%概率使其立即对另一名随机的非主公敌方单位进行一次普通攻击。"
         }
       ],
       "flavor": ""
@@ -9165,6 +9296,17 @@ window.GameData = {
       "timing": 11,
       "duration": "permanent",
       "memo": "吸收伤害，永久保留"
+    },
+    {
+      "id": "xu_mou",
+      "name": "蓄谋",
+      "kind": "buff",
+      "numeric": true,
+      "scope": "character",
+      "timing": 20,
+      "duration": "permanent",
+      "max_stacks": 3,
+      "memo": "司马懿未行动时积累，行动造成伤害后转为范围伤害"
     },
     {
       "id": "zhen_she",

@@ -273,11 +273,11 @@ function needsHandIndexInPlay(card: CardDef): boolean {
   return (card.skills ?? []).some((sk) => sk.trigger === 'on_play' && scan(sk.effects));
 }
 
-function skillOptions(state: MatchState, w: EvalWeights): AiOption[] {
+function skillOptions(state: MatchState, w: EvalWeights, cards?: Map<string, CardDef>): AiOption[] {
   const side = state.active;
   const out: AiOption[] = [];
   for (const ref of allUnits(state, side)) {
-    const gate = canUseUnitSkill(state, side, ref.row, ref.col);
+    const gate = canUseUnitSkill(state, side, ref.row, ref.col, undefined, cards);
     if (!gate.ok || !gate.skill) continue;
     const sk = gate.skill;
     const p0 = unitSkillTargetPlan(state, side, ref.row, ref.col, 0);
@@ -370,7 +370,7 @@ function handPickCandidates(state: MatchState, side: Side): Array<number | undef
 }
 
 /** 当前局面下全部候选动作（已按 `quick` 预排序、按类别限量） */
-export function generateOptions(state: MatchState, w: EvalWeights): AiOption[] {
+export function generateOptions(state: MatchState, w: EvalWeights, cards?: Map<string, CardDef>): AiOption[] {
   if (state.winner) return [];
 
   // 「发现」待选（main 00f4fc7 的 discover 动作）：引擎在 applyAction 里对**其它任何动作**
@@ -404,7 +404,7 @@ export function generateOptions(state: MatchState, w: EvalWeights): AiOption[] {
   }
   const attacks = attackOptions(state, w);
   const plays = playOptions(state, w);
-  const skills = skillOptions(state, w);
+  const skills = skillOptions(state, w, cards);
   const lords = lordOptions(state, w);
   // 类别内已按 quick 排序；合并后再整体排序，打平时按稳定顺序（攻击 → 出牌 → 技能 → 主公技）取胜者
   return [...attacks, ...plays, ...skills, ...lords].sort((a, b) => b.quick - a.quick);

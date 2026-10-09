@@ -220,7 +220,9 @@ test('ADR-073：真实卡池里不存在「文案提到关键词但卡上没实�
     for (const [cn, kw] of Object.entries(KW_CN)) {
       if (!text.includes(cn)) continue;
       // 关键词也可作为伤害目标的筛选条件，例如霹雳车额外伤害针对架盾单位。
-      const referenced = effs.some(e => e.target?.filter?.keyword === kw || e.bonus_vs_keyword?.keyword === kw);
+      const referenced = effs.some(e => e.target?.filter?.keyword === kw || e.bonus_vs_keyword?.keyword === kw
+        // 丁奉的先攻不是给自身，而是由雪中奋短兵光环授予后续召唤单位。
+        || (kw === 'xian_gong' && e.action === 'apply_status' && e.status === 'dingfeng_aura'));
       if (kws.has(kw) || applied.has(`${kw}_status`) || applied.has(kw) || referenced) continue;
       offenders.push(`${c.id}（${c.name}）文案提到「${cn}」`);
     }
