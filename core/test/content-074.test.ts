@@ -131,22 +131,30 @@ function simayiBoard(withDeck = true) {
   return { state, ctx };
 }
 
-test('ADR-074 司马懿①：本回合没有任何行动 → 回合结束对全体敌人各 1 点', () => {
+test('ADR-141 司马懿谋定后动：本回合未行动 → 抽牌并获得 1 层蓄谋', () => {
   const { state, ctx } = simayiBoard();
+  state.sides.own.deck = ['neutral_infantry'];
   const r = applyAction(state, ctx, { type: 'END_TURN' });
   assert.ok(r.ok);
-  assert.equal(getUnit(r.state, 'enemy', 'front', 0)!.hp, 29, '敌方每个人物各吃 1 点');
-  assert.equal(getUnit(r.state, 'enemy', 'front', 1)!.hp, 29);
-  assert.ok(!has(r.events, 'CARD_MILLED'), '没行动且场上有别人 → 不拆对手牌库');
+  assert.equal(getUnit(r.state, 'own', 'front', 0)!.statuses.xu_mou?.stacks, 1);
+  assert.equal(r.state.sides.own.hand.length, 1, '应抽到 1 张牌');
+  assert.equal(getUnit(r.state, 'enemy', 'front', 0)!.hp, 30, '未行动不应造成伤害');
 });
 
-test('ADR-074 司马懿②：行动过且造成过伤害 → 弃掉对方牌库一张（不造成 AOE）', () => {
+test('ADR-141 司马懿谋定后动：行动造成伤害 → 按蓄谋层数伤害敌方人物并清除蓄谋', () => {
   const { state, ctx } = simayiBoard();
-  const sim = getUnit(state, 'own', 'front', 0)!;
-  const foe = mk('target', 1, 30);
-  setUnit(state, 'enemy', 'front', 2, foe);
+  state.sides.own.deck = ['neutral_infantry', 'neutral_archer', 'neutral_shieldman'];
+  // 先结束一次己方回合，积累 1 层蓄谋。
+  const rested = applyAction(state, ctx, { type: 'END_TURN' });
+  assert.ok(rested.ok);
+  const back = applyAction(rested.state, ctx, { type: 'END_TURN' });
+  assert.ok(back.ok);
+  const currentSim = getUnit(back.state, 'own', 'front', 0)!;
+  assert.equal(currentSim.statuses.xu_mou?.stacks, 1);
+  const foe = mk('target', 0, 30);
+  setUnit(back.state, 'enemy', 'front', 2, foe);
 
-  const atk = applyAction(state, ctx, {
+  const atk = applyAction(back.state, ctx, {
     type: 'ATTACK', from: { row: 'front', col: 0 }, to: { kind: 'unit', row: 'front', col: 2 },
   });
   assert.ok(atk.ok, `攻击应成功：${atk.error}`);
@@ -155,10 +163,9 @@ test('ADR-074 司马懿②：行动过且造成过伤害 → 弃掉对方牌库�
 
   const r = applyAction(atk.state, ctx, { type: 'END_TURN' });
   assert.ok(r.ok);
-  assert.equal(r.events.filter((e) => e.type === 'CARD_MILLED').length, 1, '应恰好弃掉对手牌库一张');
-  assert.equal(r.state.sides.enemy.deck.length, 1, '牌库 3 张：对手回合抽 1 + 被拆 1 → 剩 1');
-  assert.equal(getUnit(r.state, 'enemy', 'front', 0)!.hp, 30, '行动过 → 不触发①的 AOE');
-  assert.ok(sim.hp > 0);
+  assert.equal(getUnit(r.state, 'enemy', 'front', 0)!.hp, 29, '行动造成伤害后按 1 层蓄谋造成伤害');
+  assert.equal(getUnit(r.state, 'enemy', 'front', 1)!.hp, 29);
+  assert.equal(getUnit(r.state, 'own', 'front', 0)!.statuses.xu_mou, undefined, '爆发后清除蓄谋');
 });
 
 test('ADR-074 司马懿：只是行动、没造成伤害 → 两个分支都不触发', () => {
@@ -183,17 +190,15 @@ test('ADR-074 司马懿：只是行动、没造成伤害 → 两个分支都不�
   assert.equal(getUnit(r.state, 'enemy', 'front', 0)!.hp, 30, '行动过 → 也不该触发①的 AOE');
 });
 
-test('ADR-074 司马懿③：场上只剩他一人时，②额外生效（any_of 条件组合）', () => {
+test('ADR-141 司马懿篡权：曹氏宗亲牌库少于 3 张时替代己方主公', () => {
   realCard('wei_simayi');
-  // 己方场上**只有**司马懿 → count(ally characters) == 1
   const { state, ctx } = scenario({ own: { front: ['wei_simayi'] } });
-  setUnit(state, 'enemy', 'front', 0, mk('dummy0', 1, 30));
-  state.sides.enemy.deck = ['neutral_infantry'];
-
-  const r = applyAction(state, ctx, { type: 'END_TURN' });
-  assert.ok(r.ok);
-  assert.ok(has(r.events, 'CARD_MILLED'), '只剩他一人 → 即使没行动也拆牌库');
-  assert.equal(r.state.sides.enemy.deck.length, 0);
+  state.sides.own.deck = ['neutral_infantry'];
+  const r = applyAction(state, ctx, { type: 'USE_SKILL', row: 'front', col: 0 });
+  assert.ok(r.ok, r.error ?? '篡权应能发动');
+  assert.equal(r.state.sides.own.lord.id, 'wei_simayi_lord');
+  assert.equal(getUnit(r.state, 'own', 'front', 0), null, '司马懿应离开场上并替代主公');
+  assert.ok(has(r.events, 'LORD_REPLACED'));
 });
 
 /* ============================================================

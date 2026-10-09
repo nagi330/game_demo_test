@@ -210,7 +210,8 @@ test('黄权「断后」：受创后对敌方全体 1 点火攻 → 每个敌方
   put(s, 'own', 2, 3, realCard('shu_huangquan'));
   put(s, 'enemy', 0, 5);
   put(s, 'enemy', 1, 5);
-  put(s, 'enemy', 2, 5);                      // 同列的攻击者
+  const attacker = { ...DUMMY, id: 'test_fire_attacker', attack: 1 };
+  put(s, 'enemy', 2, 5, attacker);            // 同列的攻击者
 
   const events: GameEvent[] = [];
   const ok = resolveAttack(

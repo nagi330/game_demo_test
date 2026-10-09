@@ -119,7 +119,7 @@ function unitSkillState(st, side, row, col, skillId) {
     return x.kind === 'active' && (!skillId || x.id === skillId);
   })[0];
   if (!sk) return null;
-  var can = Core.canUseUnitSkill(st, side, row, col, skillId);
+  var can = Core.canUseUnitSkill(st, side, row, col, skillId, session && session.ctx && session.ctx.cards);
   // 保留技能 ID，点击卡面上的额外战技按钮时必须用它精确定位技能。
   // 之前只返回名称/可用状态，onUnitSkillClick 按 `skill.id` 查找时拿到
   // undefined，导致所有主动战技都被静默跳过。
@@ -216,7 +216,7 @@ function renderReadyCount(st) {
   var ready = mine.filter(function (r) { return Core.canAttack(st, 'own', r.row, r.col).ok; }).length;
   var skills = mine.filter(function (r) {
     return !Core.canAttack(st, 'own', r.row, r.col).ok
-      && Core.canUseUnitSkill(st, 'own', r.row, r.col).ok;
+      && Core.canUseUnitSkill(st, 'own', r.row, r.col, undefined, session && session.ctx && session.ctx.cards).ok;
   }).length;
   el.className = ready ? 'is-ok' : 'is-none';
   el.innerHTML = '⚔ 可攻击 <b>' + ready + '</b> / ' + mine.length
@@ -419,7 +419,7 @@ function renderBoard(st) {
             // 三种状态：能动 / 不能攻击但技可用 / 完全不能动（ADR-078）。
             // 中间态很重要：谋臣往往"入场当回合不能攻击、但主动技立刻能用"，
             // 整卡压暗会让人以为它这回合什么都干不了。
-            var canSkill = Core.canUseUnitSkill(st, side, row, col).ok;
+            var canSkill = Core.canUseUnitSkill(st, side, row, col, undefined, session && session.ctx && session.ctx.cards).ok;
             wrap.classList.add(actState.ok ? 'is-ready' : (canSkill ? 'is-skillready' : 'is-spent'));
             wrap.dataset.actWhy = actState.ok ? ''
               : (canSkill ? '本回合不能攻击，但可以使用主动技' : (actState.reason || '不可行动'));
@@ -444,7 +444,7 @@ function renderBoard(st) {
             showCardDetail(u, side, row, col);
             // 不能行动时，把**原因**一起说清楚（入场当回合 / 已攻击过 / 被震慑…）
             if (actState && !actState.ok) {
-              var canSk = Core.canUseUnitSkill(st, side, row, col).ok;
+              var canSk = Core.canUseUnitSkill(st, side, row, col, undefined, session && session.ctx && session.ctx.cards).ok;
               var d = document.createElement('div');
               d.className = 'why act-why';
               d.textContent = canSk
@@ -455,7 +455,7 @@ function renderBoard(st) {
               var d2 = document.createElement('div');
               d2.className = 'why act-why is-ok';
               // ADR-088 修订：有指向性主动技时，点击与长按是两条路，提示要说清楚
-              var hasSkill = Core.canUseUnitSkill(st, side, row, col).ok
+              var hasSkill = Core.canUseUnitSkill(st, side, row, col, undefined, session && session.ctx && session.ctx.cards).ok
                 && (Core.unitSkillTargetPlan(st, side, row, col).choices || []).some(function (ch) { return ch.targets.length; });
               d2.textContent = hasSkill
                 ? '⚙ 点一下 = 放技能；长按拖动 = 普通攻击'

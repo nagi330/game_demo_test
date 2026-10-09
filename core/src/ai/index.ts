@@ -95,7 +95,7 @@ export function decide(state: MatchState, ctx: EngineContext): AiDecision {
 
   let options: AiOption[];
   try {
-    options = generateOptions(state, w);
+    options = generateOptions(state, w, ctx.cards);
   } catch {
     return { ...empty, action: fallbackAction(state, ctx) };
   }

@@ -97,7 +97,7 @@ export function validateCards(cards: CardDef[]): Issue[] {
          * / `value_from_discarded`），也没有非零 `value`（modify 另看 `attack`/`health`）。
          * 报 warn 而不是 error：占位可能是"机制还没设计"，不该阻断构建，但必须看得见。
          */
-        const dynValue = (['value_from', 'value_from_flag', 'value_from_discarded'] as const)
+        const dynValue = (['value_from', 'value_from_flag', 'value_from_discarded', 'value_from_status'] as const)
           .some((k) => e[k] !== undefined && e[k] !== null);
         if ((e.action === 'damage' || e.action === 'heal') && !dynValue && !e.value) {
           add('warn', c.id, `${where} 的「${e.action}」没有任何数值来源（值 ${String(e.value)}）—— 实际不会发生任何事，是不是占位没翻译完？`);

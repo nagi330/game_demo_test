@@ -139,6 +139,10 @@ export type StatusCap =
   | 'duel_lock'          // 单挑锁定：不可被第三方选中（许褚，ADR-041）
   | 'mark_damage'        // 被标记：受到伤害时触发标记者的联动（法正，ADR-041）
   | 'water_damage'       // 水攻伤害加成
+  | 'water_convert'      // 将来源的物理/无属性伤害转为水攻
+  | 'attack_zero'        // 攻击力固定为 0
+  | 'future_summon'      // 后续召唤的单位获得预设强化
+  | 'die_at_turn_end'    // 当前回合结束时消灭
   // 受伤侧减伤 / 反伤（ADR-108 藤甲兵）—— 此前引擎只在「发起伤害」侧读 damage_type，
   // 受伤侧拿不到属性，这三个能力是藤甲「刀枪不入、遇火即燃」的实现载体。
   // 技能**触发概率**的覆盖（ADR-150，木鹿大王「象兵统领」）：象兵「象阵」写死 50% 震慑，
@@ -159,13 +163,14 @@ export type StatusCap =
   // （灼烧已不在回合末：它是回合开始的第一步，见上面的 `dot_fire`。）
   | 'shrink_max_hp'      // 回合结束时**永久降低 N 点生命上限**（N = 层数，中毒；不造成伤害）
   | 'stage_up'           // 回合结束时**阶段 +1**（层数＝阶段；水困，用于 2^(阶段-1) 的行动税）
+  | 'xu_mou'             // 蓄谋层数（司马懿）
   | 'skip_turn';         // 该方整个回合被跳过（ADR-074，休养生息「下一回合不进行任何活动」）
 
 export interface StatusDef {
   name: string;
   kind: 'buff' | 'debuff';
   numeric: boolean;
-  duration: 'permanent' | 'turns' | 'until_consumed' | 'conditional' | 'this_turn';
+  duration: 'permanent' | 'turns' | 'until_consumed' | 'conditional' | 'this_turn' | 'until_enemy_turn_end';
   scope?: 'character' | 'lord';
   note: string;
   caps?: StatusCap[];    // 能力列表：引擎据此判定行为
@@ -223,7 +228,7 @@ export const STATUSES: Record<string, StatusDef> = {
                 note: '该方主帅不能使用主公技' },
   can_mou:    { name: '参谋', kind: 'buff',   numeric: true,  duration: 'permanent', scope: 'lord',
                 caps: ['extra_lord_skill'], note: '该方主帅每回合主公技次数 +N' },
-  shou_hu:    { name: '守护', kind: 'buff',   numeric: false, duration: 'turns', caps: ['redirect_damage'],
+  shou_hu:    { name: '守护', kind: 'buff',   numeric: false, duration: 'permanent', caps: ['redirect_damage'],
                 guard_scope: 'any',
                 note: '受到的伤害转由守护者承受（援护/分担/护驾共用）' },
   hu_zhu:     { name: '护主', kind: 'buff',   numeric: false, duration: 'turns', caps: ['redirect_damage'],
@@ -243,6 +248,21 @@ export const STATUSES: Record<string, StatusDef> = {
   jin_gong:   { name: '无法攻击', kind: 'debuff', numeric: false, duration: 'turns',
                 caps: ['block_attack'],
                 note: '本回合不能普通攻击' },
+  zhuran_skill_lock: { name: '截江封技', kind: 'debuff', numeric: false, duration: 'until_enemy_turn_end',
+                caps: ['block_skill'], note: '战技被封锁至敌方下个回合结束' },
+  zhuran_lord_lock: { name: '截江封主公技', kind: 'debuff', numeric: false, duration: 'until_enemy_turn_end', scope: 'lord',
+                caps: ['block_lord_skill'], note: '主公技被封锁至敌方下个回合结束' },
+  ku_rou_fire_ready: { name: '苦肉火计', kind: 'buff', numeric: false, duration: 'until_enemy_turn_end',
+                note: '下个敌方回合结束时触发火攻' },
+  pi_kun:     { name: '疲困', kind: 'debuff', numeric: false, duration: 'permanent', note: '朱桓与其战斗时攻击力+2' },
+  attack_zero: { name: '伏击压制', kind: 'debuff', numeric: false, duration: 'conditional',
+                caps: ['attack_zero'], note: '攻击力固定为 0，恢复满生命时解除' },
+  water_convert: { name: '水军转攻', kind: 'buff', numeric: false, duration: 'permanent',
+                caps: ['water_convert'], note: '来源的物理/无属性伤害改为水攻' },
+  dingfeng_aura: { name: '雪中突袭', kind: 'buff', numeric: false, duration: 'permanent',
+                caps: ['future_summon'], note: '后续召唤的单位获得先攻但攻血各降低2' },
+  die_at_turn_end: { name: '断后', kind: 'debuff', numeric: false, duration: 'this_turn',
+                caps: ['die_at_turn_end'], note: '本回合结束时阵亡' },
   shui_gong_bonus: { name: '水攻强化', kind: 'buff', numeric: true, duration: 'permanent',
                 caps: ['water_damage'], note: '水攻伤害 +N' },
   teng_jia:   { name: '藤甲', kind: 'buff', numeric: true, duration: 'permanent',
@@ -251,6 +271,8 @@ export const STATUSES: Record<string, StatusDef> = {
   zhong_yong_status: { name: '忠勇', kind: 'buff', numeric: true, duration: 'permanent',
                 caps: ['thorns'],
                 note: '受到**普通攻击**并实际受伤后，对攻击者额外造成 N 点伤害（与自动反击分开结算；技能伤害不触发）。ADR-110 释放的 thorns cap 的首个使用者' },
+  xu_mou:     { name: '蓄谋', kind: 'buff', numeric: true, duration: 'permanent', max_stacks: 3,
+                note: '司马懿未行动时积累；行动并造成伤害后转为范围伤害' },
   shui_kun:   { name: '水困', kind: 'debuff', numeric: true, duration: 'permanent',
                 caps: ['damage_on_action', 'stage_up'], stack_mode: 'max',
                 note: '**层数＝阶段**（徽章上的数字就是阶段）。① 只有**主动行动**（普攻/主动技）才受水伤，数值 = 2^(阶段-1)：阶段 1/2/3/4 → 1/2/4/8，**无上限**；不行动则完全不受伤 ② 阶段在该方**回合结束时 +1**（施加当回合为阶段 1）③ **永久**，直到被净化；重复施加取较大者、不降级。见 GDD 10 §3.2.2（ADR-116/132）' },
@@ -281,6 +303,7 @@ export const TIMING = {
   ON_DAMAGED: 'on_damaged',
   TURN_END: 'turn_end',
   ENEMY_TURN_END: 'enemy_turn_end',
+  ENEMY_TURN_START: 'enemy_turn_start',
   ON_ATTACK: 'on_attack',
   AFTER_ATTACK: 'after_attack',
   ON_LORD_DAMAGED: 'on_lord_damaged',
@@ -296,7 +319,7 @@ export const ACTIONS = [
   'damage', 'heal', 'draw', 'summon', 'apply_status', 'remove_status',
   'move', 'destroy', 'modify', 'gain_armor', 'gain_command', 'cost_modifier', 'transform', 'random_pick',
   'discard', 'return_to_hand', 'clash', 'flip', 'scry', 'ban_play', 'steal_card', 'survive',
-  'extra_attack', 'take_control', 'copy_skill', 'force_attack',
+  'extra_attack', 'take_control', 'copy_skill', 'force_attack', 'duel',
   'attack_bonus',  // 普通攻击结算前的临时伤害加成
   'add_to_deck',   // 往牌库随机位置塞 N 张指定卡（ADR-050）
   'send_to_deck',  // 把牌库里剩下的指定牌全塞给对方（ADR-050）
@@ -304,6 +327,7 @@ export const ACTIONS = [
   'sacrifice',     // 牺牲一个己方单位，把它的 maxHp/hp 写进 flags（ADR-071，程昱）
   'attack_each',   // 挨个发动**真正的普攻**（含反击），自己阵亡即停（ADR-071，张苞）
   'draw_until',    // 一直抽到抽出一张「非某类型」的牌为止（ADR-071，姜维）
+  'roll',          // 生成可供后续 condition.roll 读取的确定性概率结果
   'mill',          // 弃掉目标方牌库的 N 张牌（ADR-074，司马懿「谋定后动」②）
   'discover',      // 从牌库随机展示候选牌并由玩家选择（曹丕）
   'send_hand_to_deck', // 把一张手牌放回牌库顶/底/随机位置，**不抽牌**（ADR-139，杨仪「筹度粮谷」）
@@ -311,6 +335,8 @@ export const ACTIONS = [
   'deploy_from_hand',  // 手牌 → 场上（免费，按 card_id 精准搬牌；ADR-149，诸葛瞻/诸葛尚「同赴」）
   'override_rule',     // 覆盖**无状态**的规则档位（ADR-150，木鹿大王「象兵统领」抬概率）
   'override_status',   // 覆盖目标身上某状态的若干档位（ADR-142，兀突骨「藤甲统率」）
+  'grant_hand',    // 强化一张手牌
+  'replace_lord',  // 清除指定标签并替换主公
 ] as const;
 
 /** 稀有度（ADR-068）：普通 / 精英。精英卡允许强于同费预算 */

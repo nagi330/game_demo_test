@@ -56,7 +56,7 @@ function needsHandPick(skill: SkillDef): boolean {
 }
 
 export function canUseUnitSkill(
-  state: MatchState, side: Side, row: Row, col: number, skillId?: string,
+  state: MatchState, side: Side, row: Row, col: number, skillId?: string, cards?: Map<string, CardDef>,
 ): Check & { skill?: SkillDef } {
   const u = getUnit(state, side, row, col);
   if (!u) return { ok: false, reason: '该格没有单位' };
@@ -75,6 +75,14 @@ export function canUseUnitSkill(
   // `value_from_discarded: cost`）会读到**上一次弃牌的残值** —— 等于凭空生效，且完全看不出来。
   if (needsHandPick(skill) && state.sides[side].hand.length === 0) {
     return { ok: false, reason: '手牌为空，没有可以弃掉的牌' };
+  }
+  const req = skill.requires?.deck_tag;
+  if (req && cards) {
+    const count = state.sides[side].deck.reduce((n, id) => n + ((cards.get(id)?.tags ?? []).includes(req.tag) ? 1 : 0), 0);
+    const ok = req.op === '>=' ? count >= req.value : req.op === '<=' ? count <= req.value
+      : req.op === '==' ? count === req.value : req.op === '>' ? count > req.value
+      : req.op === '<' ? count < req.value : count !== req.value;
+    if (!ok) return { ok: false, reason: `牌库中${req.tag}数量不满足发动条件` };
   }
   return { ok: true, skill };
 }
@@ -146,6 +154,7 @@ export function lordAttackTargets(state: MatchState, side: Side): TargetResult {
 export function effectiveAttack(state: MatchState, side: Side, row: Row, col: number): number {
   const u = getUnit(state, side, row, col);
   if (!u) return 0;
+  if (hasCap(u, 'attack_zero')) return 0;
   let atk = u.atk;
   atk += statusStacks(u, 'zhen_fen');
   atk -= statusStacks(u, 'xu_ruo');

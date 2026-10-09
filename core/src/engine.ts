@@ -56,7 +56,7 @@ import {
   canPlayCard, canUseLordSkill, canUseUnitSkill, legalTargets, lordAttackTargets, effectiveAttack,
 } from './rules.ts';
 import {
-  dealDamage, discardOverflow, drawCard, effectiveCost, expireHandMods, expireMods, expireStatuses,
+  dealDamage, discardOverflow, drawCard, effectiveCost, expireHandMods, expireMods, expireStatuses, killUnit,
   gainArmor, isBanned, lordRef,
   resolveTurnEndStatuses, resolveTurnStartDamage, resolveTurnStartStatuses, unitRef, type TargetRef,
 } from './mutate.ts';
@@ -186,7 +186,10 @@ function chooseDiscover(
   events: GameEvent[], rng: ReturnType<typeof createRng>,
 ): boolean {
   const pending = state.pendingDiscover;
-  if (!pending || state.active !== pending.side || !pending.candidates.includes(action.cardId)) return false;
+    // 发现可能由亡语、受击等非当前行动方的触发技产生（例如郭嘉亡语）。
+    // 发现的拥有方仍然是 pending.side，但不能要求它恰好是当前回合方，
+    // 否则对方回合触发的发现会永远无法选择，且会卡住后续结算。
+    if (!pending || !pending.candidates.includes(action.cardId)) return false;
   const index = state.sides[pending.side].deck.indexOf(action.cardId);
   if (index < 0) return false;
   const [id] = state.sides[pending.side].deck.splice(index, 1);
@@ -213,6 +216,7 @@ function chooseDiscover(
       card,
       mods: pending.costModifier ? [{ id: 'discover', kind: 'cost', value: pending.costModifier }] : [],
     });
+    recomputeAuras(state, ctx.cards, rng, events);
   }
   const continuation = state.pendingTriggerSkills;
   if (continuation) {
@@ -634,6 +638,8 @@ function startTurn(state: MatchState, ctx: EngineContext, events: GameEvent[], r
   resolveTurnStartStatuses(state, ctx.cards, side, events);
   recomputeAuras(state, ctx.cards, rng, events);                              // 第 3 步 ②光环重算
   runTriggerSkills(state, ctx.cards, side, TIMING.TURN_START, rng, events);   // 第 3 步 ③回合开始技
+  // 敌方回合开始触发技（宋谦「奋戟」等），在行动方完成回合初始化后结算。
+  runTriggerSkills(state, ctx.cards, other(side), TIMING.ENEMY_TURN_START, rng, events);
 }
 
 /** 结算当前行动方的回合结束（第 20~23 步），**不**换手、不开始新回合 */
@@ -643,6 +649,12 @@ function finishTurn(state: MatchState, ctx: EngineContext, events: GameEvent[], 
   runTriggerSkills(state, ctx.cards, side, TIMING.TURN_END, rng, events);     // 第 20 步 ②回合结束技
   // 敌方回合结束时，触发我方单位的对应技能（例如陷阵营的每回合 +1/+1）。
   runTriggerSkills(state, ctx.cards, other(side), TIMING.ENEMY_TURN_END, rng, events);
+  for (const ref of [...allUnits(state, side)]) {
+    if (ref.unit.hp > 0 && Object.entries(ref.unit.statuses).some(([id, inst]) =>
+      inst.stacks > 0 && STATUSES[id]?.caps?.includes('die_at_turn_end'))) {
+      killUnit(state, ctx.cards, ref, events, null);
+    }
+  }
   // 盾兵在敌方回合结束时仍存活，记录一次独立升变进度。
   for (const ref of allUnits(state, other(side))) {
     if (ref.unit.troopKind === 'shield' && isBasicTroop(ref.unit) && ref.unit.hp > 0) {
@@ -709,6 +721,7 @@ function playCard(
   const s = state.sides[side];
   const hc = s.hand[action.cardIndex];
   if (!hc) return false;
+  const playedRightmost = action.cardIndex === s.hand.length - 1;
   if (isBanned(hc)) return false;                 // 被禁止上场（ADR-038）
   const card = hc.card;
   const cost = effectiveCost(hc, costRuleDelta(state, card, side, rng));  // 费用 = 卡面 + cost_rule + mods
@@ -776,7 +789,7 @@ function playCard(
     }
     // 时机表第 7 步：入场后光环重算（ADR-037）
     recomputeAuras(state, ctx.cards, rng, events);
-    runCardPlayedTriggers(state, ctx.cards, card, rng, events);   // ADR-041
+    runCardPlayedTriggers(state, ctx.cards, card, rng, events, side, playedRightmost);   // ADR-041
     recomputeAuras(state, ctx.cards, rng, events);
   } else {
     // 非人物卡：直接执行效果
@@ -789,7 +802,7 @@ function playCard(
         : undefined,
     }, rng, events);
     s.discard.push(card);
-    runCardPlayedTriggers(state, ctx.cards, card, rng, events);   // ADR-041
+    runCardPlayedTriggers(state, ctx.cards, card, rng, events, side, playedRightmost);   // ADR-041
     recomputeAuras(state, ctx.cards, rng, events);
   }
   return true;
@@ -886,7 +899,7 @@ function useUnitSkill(
   const u = getUnit(state, side, action.row, action.col);
   if (!u) return false;
   // 频率 / 震慑 / 费用共用 rules.ts 的判定（AI 与引擎必须同源）
-  const check = canUseUnitSkill(state, side, action.row, action.col, action.skillId);
+  const check = canUseUnitSkill(state, side, action.row, action.col, action.skillId, ctx.cards);
   if (!check.ok) return false;
   const skill = check.skill!;
 

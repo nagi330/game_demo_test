@@ -1043,9 +1043,9 @@ test('先攻：入场当回合即可攻击（与反击无关，ADR-055/062）', 
   t0.baseAtk = 2; t0.baseMaxHp = 2; t0.atk = 2; t0.maxHp = 2; t0.hp = 2;
   setUnit(s, 'enemy', 'front', 0, t0);
 
-  const a = makeUnit(d.cards.get('wei_zhangyan')!, s.turn, 903);   // 张燕：关键词「先攻」
+  const a = makeUnit(d.cards.get('wei_zhangliao')!, s.turn, 903);  // 张辽：关键词「先攻」
   setUnit(s, 'own', 'front', 0, a);
-  assert.ok(a.kw.includes('xian_gong'), '张燕应带先攻关键词');
+  assert.ok(a.kw.includes('xian_gong'), '张辽应带先攻关键词');
   assert.equal(canAttack(s, 'own', 'front', 0).ok, true, '先攻单位入场当回合即可攻击');
 
   // 打死目标也照样吃反击（同时结算）

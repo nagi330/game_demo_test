@@ -79,6 +79,16 @@
   duration: permanent
   memo: "吸收伤害，永久保留"
 
+- id: xu_mou
+  name: 蓄谋
+  kind: buff
+  numeric: true
+  scope: character
+  timing: 20
+  duration: permanent
+  max_stacks: 3
+  memo: "司马懿未行动时积累，行动造成伤害后转为范围伤害"
+
 # ---------- 减益 ----------
 
 - id: zhen_she
@@ -194,7 +204,7 @@
   numeric: false
   scope: character
   timing: 10            # 伤害结算前：转移判定
-  duration: turns
+  duration: permanent
   caps: [redirect_damage]
   guard_scope: any
   memo: "把**被守护单位**受到的伤害转由本单位承担（陈宫「忠烈」）"
@@ -298,6 +308,84 @@
   duration: turns
   caps: [block_attack]
   memo: "本回合不能普通攻击"
+
+- id: zhuran_skill_lock
+  name: 截江封技
+  kind: debuff
+  numeric: false
+  scope: character
+  timing: 5
+  duration: until_enemy_turn_end
+  caps: [block_skill]
+  memo: "朱然截江：敌方战技被封锁至下个敌方回合结束"
+
+- id: zhuran_lord_lock
+  name: 截江封主公技
+  kind: debuff
+  numeric: false
+  scope: lord
+  timing: 5
+  duration: until_enemy_turn_end
+  caps: [block_lord_skill]
+  memo: "朱然截江：敌方主公技被封锁至下个敌方回合结束"
+
+- id: attack_zero
+  name: 伏击压制
+  kind: debuff
+  numeric: false
+  scope: character
+  timing: 5
+  duration: conditional
+  caps: [attack_zero]
+  memo: "攻击力固定为0，恢复满血时解除"
+
+- id: pi_kun
+  name: 疲困
+  kind: debuff
+  numeric: false
+  scope: character
+  timing: 9
+  duration: permanent
+  memo: "朱桓与其战斗时攻击力+2"
+
+- id: ku_rou_fire_ready
+  name: 苦肉火攻
+  kind: buff
+  numeric: false
+  scope: character
+  timing: 20
+  duration: until_enemy_turn_end
+  memo: "黄盖苦肉成功后延迟火攻"
+
+- id: water_convert
+  name: 水军转攻
+  kind: buff
+  numeric: false
+  scope: character
+  timing: 13
+  duration: permanent
+  caps: [water_convert]
+  memo: "来源的物理或无属性伤害改为水攻"
+
+- id: dingfeng_aura
+  name: 雪中突袭
+  kind: buff
+  numeric: false
+  scope: character
+  timing: 13
+  duration: permanent
+  caps: [future_summon]
+  memo: "后续召唤的单位获得先攻并降低攻血"
+
+- id: die_at_turn_end
+  name: 断后
+  kind: debuff
+  numeric: false
+  scope: character
+  timing: 20
+  duration: this_turn
+  caps: [die_at_turn_end]
+  memo: "本回合结束时阵亡"
 
 - id: shui_gong_bonus
   name: 水攻强化
