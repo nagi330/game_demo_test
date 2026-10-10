@@ -719,6 +719,9 @@ function playCard(
   if (!check.ok) return false;
 
   s.command.cur -= cost;
+  // ✅ 约定（ADR-139/144）：`PLAY_CARD.handIndex` 用的是**出牌后**的手牌下标 ——
+  // 效果结算时这张牌已经离手。**调用方负责换算**：UI 在 `finishPlay` 里减 1（若点在打出的牌之后），
+  // AI 在生成候选时同样按"出牌后"枚举。技能路径（USE_SKILL / 主公技）不动手牌，两套下标一致。
   s.hand.splice(action.cardIndex, 1);
   events.push({ type: 'CARD_PLAYED', side, card, row: slot?.row, col: slot?.col, handIndex: action.cardIndex });
 

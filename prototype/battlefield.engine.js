@@ -476,6 +476,11 @@ function renderBoard(st) {
           slot.classList.add('empty');
           slot.addEventListener('click', function (e) {
             e.stopPropagation();
+            // ⚠️ 拖拽落点会在 pointerup 之后**再补一个 click** 给这个格子。手牌那边一直有这道
+            // 300ms 防抖（见下方 hcard 的 click），格子这边原先**漏了** —— 于是"往空格拖一张
+            // 需要选目标的战吼"会立刻被自己的落点点击当成"点空白 = 放弃这次出牌"取消掉，
+            // 表现为：战吼的目标选择一闪而过、弃牌/选目标根本没机会点（ADR-151）。
+            if (Date.now() - dragHandledAt < 300) return;
             onSlotClick(e);
           });
         }
@@ -1515,8 +1520,8 @@ function highlightPlayChoice() {
   var step = total > 1 ? '（第 ' + (pp.idx + 1) + '/' + total + ' 个选择）' : '';
   var extra = choice.includesHand ? '　—— 也可以不选，交给引擎从手牌里取' : '';
   if (!choice.targets.length) {
-    // 没有场上目标（如陆抗只剩手牌路径）→ 直接打出，由引擎兜底
-    finishPlay();
+    // 没有场上目标（如陆抗只剩手牌路径）→ 交给推进器决定下一步/收尾
+    advancePlay();
     return;
   }
   // ADR-077：出牌时要把**本卡的技能全文**摆在眼前 —— 设计者反馈
@@ -1550,22 +1555,43 @@ function beginPlay(cardIndex, row, col, modeIndex) {
     return;
   }
 
-  var choices = plan.choices.filter(function (c) { return c.targets.length; });
-  if (!choices.length) {
-    // 不需要选（或只剩手牌路径）→ 直接打出
+  // ⚠️ ADR-146（出牌版）：**手牌步骤也是"要玩家选"的一步** —— 原先这里把没有场上目标的步骤
+  // 一律过滤掉，于是「弃一张手牌」这类战吼（刘巴「直百」）会被直接打出、弃牌悄悄退化成随机。
+  var needsPick = plan.choices.some(function (c) { return c.targets.length || c.zone === 'hand'; });
+  if (!needsPick) {
     doAction({ type: 'PLAY_CARD', cardIndex: cardIndex, row: row, col: col, modeIndex: modeIndex });
     return;
   }
   pendingPlay = {
     cardIndex: cardIndex, row: row, col: col, modeIndex: modeIndex,
-    plan: plan, idx: 0, picks: {},
+    plan: plan, idx: 0, picks: {}, handIndex: undefined,
   };
-  // 让 idx 指向第一个真的有目标的 choice
-  while (pendingPlay.idx < plan.choices.length && !plan.choices[pendingPlay.idx].targets.length) {
-    pendingPlay.idx++;
+  advancePlay();
+}
+
+/** 推进到下一个"真的要选"的步骤：手牌步骤 → 点手牌模式（不出箭头）；场上步骤 → 箭头 + 高亮 */
+function advancePlay() {
+  var pp = pendingPlay;
+  if (!pp) return;
+  while (pp.idx < pp.plan.choices.length) {
+    var step = pp.plan.choices[pp.idx];
+    var stepNo = '（第 ' + (pp.idx + 1) + '/' + pp.plan.choices.length + ' 步）';
+    if (step.zone === 'hand') {
+      pendingSkill = { handPick: true, playWalk: true };
+      $all('.hcard-wrap').forEach(function (el) { el.classList.add('is-target'); });
+      var hc0 = session.state.sides.own.hand[pp.cardIndex];
+      showDetail('选择手牌' + stepNo, (hc0 ? hc0.card.name : '这张牌') + '：请选择' + step.label,
+        '点一张高亮的手牌' + (step.action === 'discard' ? '弃掉它' : '选它') + '　·　空白处或 Esc 取消');
+      return;
+    }
+    if (step.targets.length) {
+      highlightPlayChoice();
+      startPlayArrow();
+      return;
+    }
+    pp.idx++;      // 既不是手牌、又没有场上目标 → 跳过（交给引擎兜底）
   }
-  highlightPlayChoice();
-  startPlayArrow();
+  finishPlay();
 }
 
 /** 收集到本次选择后，推进到下一个；都齐了就出牌 */
@@ -1576,9 +1602,7 @@ function recordPlayPick(side, row, col) {
   if (!choice || !playChoiceHit(choice, side, row, col)) return false;
   pp.picks[choice.pick] = { side: side, row: row, col: col };
   pp.idx++;
-  while (pp.idx < pp.plan.choices.length && !pp.plan.choices[pp.idx].targets.length) pp.idx++;
-  if (pp.idx >= pp.plan.choices.length) { finishPlay(); return true; }
-  highlightPlayChoice();
+  advancePlay();
   return true;
 }
 
@@ -1591,6 +1615,11 @@ function finishPlay() {
   if (pp.modeIndex !== undefined) action.modeIndex = pp.modeIndex;
   if (pp.picks[1]) action.target = pp.picks[1];
   if (pp.picks[2]) action.target2 = pp.picks[2];
+  // 手牌步骤的结果（ADR-146）：玩家是在牌**还在手里**时点选的，而效果结算时这张牌已经离手
+  // → 这里换算成"出牌后下标"（点在打出的那张之后要减 1；点到打出的那张本身＝未指定）
+  if (typeof pp.handIndex === 'number' && pp.handIndex !== pp.cardIndex) {
+    action.handIndex = pp.handIndex - (pp.handIndex > pp.cardIndex ? 1 : 0);
+  }
   doAction(action);
 }
 
@@ -1906,6 +1935,17 @@ function finishPick(t) {
 
 /** 主公技「选一张手牌」模式（如孙权坐断东南）。返回 true 表示已消费这次点击 */
 function onHandPick(index) {
+  // ADR-146（出牌版）：战吼里的手牌步骤同样是"其中一步" —— 记下并继续
+  if (pendingPlay) {
+    var pstep = pendingPlay.plan.choices[pendingPlay.idx];
+    if (!pstep || pstep.zone !== 'hand') return false;
+    pendingPlay.handIndex = index;
+    pendingPlay.idx += 1;
+    pendingSkill = null;
+    $all('.hcard-wrap').forEach(function (el) { el.classList.remove('is-target'); });
+    advancePlay();
+    return true;
+  }
   // ADR-146：战技的多步选择里，"点手牌"只是**其中一步** —— 记下它、继续问下一步
   if (skillWalk) {
     var step = skillWalk.plan.choices[skillWalk.idx];

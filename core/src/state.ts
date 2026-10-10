@@ -218,14 +218,29 @@ export function capStacks(
  *   · **绝对值覆盖**，不是增减量（`value: 0` 就是彻底关掉这个档位，如"不再怕火"）；
  *   · 同时有多条时**后写的生效**（`mods` 数组顺序），便于"更强的统领覆盖更弱的"。
  */
-export function capValue(u: Unit, cap: StatusCap): number {
-  let n = capStacks(u.statuses, cap);
-  for (const m of u.mods) {
+/**
+ * 该单位在某个档位上**有没有规则覆盖**；没有则 `undefined`。
+ *
+ * ⚠️ 与 `capValue` 的区别很重要：`capValue` 在**没有覆盖时回落到层数**（多半是 0），
+ * 所以"0"既可能是"没有覆盖"也可能是"覆盖成 0"。凡是要区分这两者的地方（如 ADR-150 的
+ * `proc_chance`：没有覆盖就该用卡面写死的概率，而不是当成 0%）必须用本函数。
+ */
+export function capOverride(u: Unit | null, cap: StatusCap): number | undefined {
+  let v: number | undefined;
+  for (const m of u?.mods ?? []) {
     if (m.kind !== 'rule' || !m.rule || m.rule.cap !== cap) continue;
-    if (!((u.statuses[m.rule.statusId]?.stacks ?? 0) > 0)) continue;   // 状态不在了 → 覆盖失效
-    n = m.rule.value;
+    // 带状态的覆盖：状态不在了就失效（被净化 → 覆盖自动撤销）。
+    // 无状态覆盖（ADR-150）不受此限 —— 它本来就不挂在状态上。
+    if (m.rule.statusId !== undefined
+        && !((u?.statuses[m.rule.statusId]?.stacks ?? 0) > 0)) continue;
+    v = m.rule.value;
   }
-  return n;
+  return v;
+}
+
+export function capValue(u: Unit, cap: StatusCap): number {
+  // 覆盖优先于层数（ADR-142）；两者都没有就是 0
+  return capOverride(u, cap) ?? capStacks(u.statuses, cap);
 }
 
 /** 该单位身上所有生效状态的 id */

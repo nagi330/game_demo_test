@@ -16,6 +16,7 @@
  *
  *   检查 A：逐张把"不需要目标的主动技"单位放上场，调 `trySkillTargeting`（点一下单位走的就是它），
  *           要求返回 true（＝已派发）。
+ *   检查 D：**诸葛父子「同赴」**（ADR-149）—— 打出一个另一张一起上场，或从牌库置入手牌。
  *   检查 B：**两步技能**（ADR-146 华佗「青囊」：先弃一张手牌 → 再出箭头选回血目标）——
  *           要求第 1 步进"点手牌"模式且**不出箭头**、第 2 步出箭头、点完结算且
  *           **回血量 = 弃掉那张牌的统率值**。
@@ -226,6 +227,71 @@ try {
     ? silent.skipped
     : `用掉一次后（友军 ${silent.usedHp} 血）再点 → 引擎理由「${silent2.reason}」，面板提示「${silent2.detail}」`;
 
+  /* ---------- 检查 D：诸葛瞻/诸葛尚「同赴」（ADR-149）----------
+     A：两张都在手 → 打出一张，另一张**免费一起上场**，且互相 +1/+1（同心光环）
+     B：另一张只在牌库 → 打出后弹出"发现"面板（候选恰好 1 张），点选后进手牌（从牌库取走） */
+  const pairA = await js(`(function(){
+    session.state.active = 'own';
+    session.state.sides.own.command.cur = 10;
+    for (var r of ['front','back']) for (var c = 0; c < 8; c++) session.state.sides.own.rows[r][c] = null;
+    var z = GD.cards.find(function (c) { return c.id === 'shu_zhugezhan'; });
+    var sh = GD.cards.find(function (c) { return c.id === 'shu_zhugeshang'; });
+    if (!z || !sh) return { skipped: '卡池里没有诸葛父子' };
+    session.state.sides.own.hand = [{ card: z, mods: [] }, { card: sh, mods: [] }];
+    renderAll();
+    doAction({ type: 'PLAY_CARD', cardIndex: 0, row: 'front', col: 0 });
+    return { dispatched: true };
+  })()`);
+  await sleep(5000);                                   // 动画约 4 秒，播完才结算光环
+  const pairAState = await js(`(function(){
+    var f = session.state.sides.own.rows.front;
+    var at = function (i) { return f[i] ? Core.effectiveAttack(session.state, 'own', 'front', i) + '/' + f[i].maxHp : '—'; };
+    return { c0: f[0] ? f[0].name : null, c1: f[1] ? f[1].name : null,
+             s0: at(0), s1: at(1), hand: session.state.sides.own.hand.length,
+             cmd: session.state.sides.own.command.cur };
+  })()`);
+  const pairAOk = !pairA.skipped
+    && pairAState.c0 === '诸葛瞻' && pairAState.c1 === '诸葛尚'
+    && pairAState.s0 === '3/6' && pairAState.s1 === '4/5'        // 2/5+1/+1 与 3/4+1/+1
+    && pairAState.hand === 0;
+  const pairANote = pairA.skipped
+    ? pairA.skipped
+    : `A 一起上场：${pairAState.c0} ${pairAState.s0}、${pairAState.c1} ${pairAState.s1}　手牌 ${pairAState.hand}　统率 ${pairAState.cmd}`;
+
+  const pairB = await js(`(function(){
+    session.state.active = 'own';
+    session.state.sides.own.command.cur = 10;
+    for (var r of ['front','back']) for (var c = 0; c < 8; c++) session.state.sides.own.rows[r][c] = null;
+    var z = GD.cards.find(function (c) { return c.id === 'shu_zhugezhan'; });
+    if (!z) return { skipped: '卡池里没有诸葛瞻' };
+    session.state.sides.own.hand = [{ card: z, mods: [] }];
+    session.state.sides.own.deck = ['shu_zhugeshang', 'neutral_infantry', 'neutral_shieldman'];
+    renderAll();
+    doAction({ type: 'PLAY_CARD', cardIndex: 0, row: 'front', col: 0 });
+    return { dispatched: true };
+  })()`);
+  let panel = false;
+  for (let t = 0; t < 16 && !panel; t++) {
+    await sleep(500);
+    panel = (await js(`!!document.getElementById('discover-pick')`)) === true;
+  }
+  const options = await js(`(function(){
+    var box = document.getElementById('discover-pick');
+    return box ? box.querySelectorAll('.discover-list > *').length : 0;
+  })()`);
+  if (panel) await js(`document.querySelector('#discover-pick .discover-list > *').click()`);
+  await sleep(2500);
+  const pairBState = await js(`(function(){
+    return { hand: session.state.sides.own.hand.map(function (h) { return h.card.name; }),
+             deck: session.state.sides.own.deck.length, pending: !!session.state.pendingDiscover };
+  })()`);
+  const pairBOk = !pairB.skipped && panel && options === 1
+    && pairBState.hand.length === 1 && pairBState.hand[0] === '诸葛尚'
+    && pairBState.deck === 2 && pairBState.pending === false;
+  const pairBNote = pairB.skipped
+    ? pairB.skipped
+    : `B 牌库入手：面板=${panel} 候选=${options}　点选后手牌=${JSON.stringify(pairBState.hand)}　牌库剩 ${pairBState.deck}`;
+
   // ⑤ 汇报
   if (!rows.length) {
     console.log('⚠️ 没有找到"不需要目标的可用主动技"—— 是不是卡池/选择器变了？');
@@ -235,14 +301,18 @@ try {
     for (const r of rows) console.log(`  ${r.dispatched ? '✅' : '❌'} ${r.name}（${r.skill}）`);
     console.log(`\n检查 B · 两步技能（先弃手牌 → 再出箭头选目标）：${twoStepOk ? '✅' : '❌'} ${twoStepNote}`);
     console.log(`检查 C · 技能不可用时点击要"说话"：${silentOk ? '✅' : '❌'} ${silentNote}`);
-    if (bad.length || !twoStepOk || !silentOk) {
+    console.log(`检查 D · 诸葛父子「同赴」：${pairAOk && pairBOk ? '✅' : '❌'} ${pairANote}`);
+    console.log(`　　　　　　${pairBOk ? '✅' : '❌'} ${pairBNote}`);
+    if (bad.length || !twoStepOk || !silentOk || !pairAOk || !pairBOk) {
       if (bad.length) console.error(`❌ ${bad.length} 张点了没反应：${bad.map((r) => r.name).join('、')}`);
       if (!twoStepOk) console.error('❌ 两步技能流程不通过');
       if (!silentOk) console.error('❌ 技能不可用时点击是静默的（玩家会以为卡坏了）');
+      if (!pairAOk) console.error('❌ 诸葛父子没有"一起上场"或互相 +1/+1 不对');
+      if (!pairBOk) console.error('❌ 诸葛父子"从牌库到手牌"这条路径不对');
       await cleanup();
       process.exit(1);
     }
-    console.log('\n✅ 三类技能交互全部正常');
+    console.log('\n✅ 四类交互全部正常（技能派发 / 多步 / 不可用提示 / 父子同赴）');
   }
 } catch (err) {
   console.error('探针失败：', err.message);

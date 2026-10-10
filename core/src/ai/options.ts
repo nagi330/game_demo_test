@@ -25,7 +25,7 @@ import {
 } from '../engine.ts';
 import { cardBudget, isCharacterCard, picksEnemySide, unitValueOf } from './cards.ts';
 import type { EvalWeights } from './profile.ts';
-import type { Action, CardDef, MatchState, Row, Side, SkillDef } from '../types.ts';
+import type { Action, CardDef, CardEffect, MatchState, Row, Side, SkillDef } from '../types.ts';
 
 export type OptionKind = 'attack' | 'play' | 'skill' | 'lord';
 
@@ -226,19 +226,29 @@ function playOptions(state: MatchState, w: EvalWeights): AiOption[] {
       const p0 = playTargetPlan(state, side, card, 0);
       const modeCount = p0.modes.length || 1;
       const combos = combosOf(state, side, (mi) => playTargetPlan(state, side, card, mi), w, modeCount);
-      for (const cb of combos) {
-        out.push({
-          kind: 'play',
-          action: {
-            type: 'PLAY_CARD', cardIndex: i,
-            ...(slot ? { row: slot.row, col: slot.col } : {}),
-            ...(cb.target ? { target: cb.target as { side: Side; row: Row; col: number } } : {}),
-            ...(cb.target2 ? { target2: cb.target2 as { side: Side; row: Row; col: number } } : {}),
-            ...(cb.modeIndex !== undefined ? { modeIndex: cb.modeIndex } : {}),
-          },
-          label: `出 ${card.name}${slot ? ` → 第${slot.col + 1}格` : ''}${cb.label ? ` [${cb.label}]` : ''}`,
-          quick: base + (isChar ? 2 : 0),
-        });
+      // 战吼里的「手牌步骤」（ADR-146 出牌版，刘巴「直百」＝弃一张手牌）也要枚举，
+      // 否则 AI 打这张牌时手牌部分会悄悄退回随机。`handPickCandidates` 给的是**打出前**的下标，
+      // 而 `PLAY_CARD.handIndex` 的约定是**打出后**的下标（这张牌已离手）→ 这里换算。
+      const stepHandPicks = needsHandIndexInPlay(card) ? handPickCandidates(state, side) : [undefined];
+      for (const hp of stepHandPicks) {
+        const handIndex = hp === undefined ? undefined
+          : hp === i ? undefined : hp - (hp > i ? 1 : 0);
+        for (const cb of combos) {
+          out.push({
+            kind: 'play',
+            action: {
+              type: 'PLAY_CARD', cardIndex: i,
+              ...(slot ? { row: slot.row, col: slot.col } : {}),
+              ...(cb.target ? { target: cb.target as { side: Side; row: Row; col: number } } : {}),
+              ...(cb.target2 ? { target2: cb.target2 as { side: Side; row: Row; col: number } } : {}),
+              ...(cb.modeIndex !== undefined ? { modeIndex: cb.modeIndex } : {}),
+              ...(handIndex !== undefined ? { handIndex } : {}),
+            },
+            label: `出 ${card.name}${slot ? ` → 第${slot.col + 1}格` : ''}${cb.label ? ` [${cb.label}]` : ''}`
+              + (handIndex !== undefined ? ` [弃第${handIndex + 1}张]` : ''),
+            quick: base + (isChar ? 2 : 0),
+          });
+        }
       }
     }
   });
@@ -248,6 +258,20 @@ function playOptions(state: MatchState, w: EvalWeights): AiOption[] {
 /* ============================================================
    ③ 人物主动技 / ④ 主公技
    ============================================================ */
+
+/**
+ * 这张**卡**（而不是它的战技）的战吼里有没有"手牌步骤"
+ *
+ * 与 `needsHandIndex` 的区别：那个查的是**技能**（USE_SKILL 路径，手牌不动，下标不用换算），
+ * 这个查的是**卡牌自身的效果 / on_play 战吼**（PLAY_CARD 路径，牌会离手，下标要换算）。
+ */
+function needsHandIndexInPlay(card: CardDef): boolean {
+  const scan = (effs: CardEffect[] | undefined): boolean => (effs ?? []).some((e) =>
+    (e.action === 'discard' && e.mode === 'choose') || e.action === 'cycle_to_deck'
+    || e.action === 'deploy_from_hand');
+  if (scan(card.effects)) return true;
+  return (card.skills ?? []).some((sk) => sk.trigger === 'on_play' && scan(sk.effects));
+}
 
 function skillOptions(state: MatchState, w: EvalWeights): AiOption[] {
   const side = state.active;

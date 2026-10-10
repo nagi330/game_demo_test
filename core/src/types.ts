@@ -353,7 +353,13 @@ export interface StatusInstance {
  * 重新获得状态 → 覆盖自动恢复，因为覆盖是挂在实例上、每次结算现读的）。
  */
 export interface RuleOverride {
-  statusId: string;              // 作用于哪个状态（如 'teng_jia'）
+  /**
+   * 作用于哪个状态（如 `'teng_jia'`）。
+   *
+   * **缺省 = 无状态覆盖**（ADR-150）：与状态无关的档位用它，例如 `proc_chance`
+   * （木鹿大王把象兵的震慑概率从 50% 抬到 100%）—— 单位身上并没有哪个状态代表"概率"。
+   */
+  statusId?: string;
   cap: StatusCap;                // 覆盖哪个档位（如 'reduce_physical'）
   value: number;                 // 覆盖成多少（绝对值，不是增减量）
 }
@@ -608,7 +614,7 @@ export type GameEvent =
   | { type: 'HAND_CHOSEN'; side: Side; card: CardDef; kind: string }
   /** 某状态的某个档位被规则覆盖（ADR-142，兀突骨「藤甲统率」） */
   | { type: 'STATUS_OVERRIDDEN'; side: Side; target: { kind: 'unit' | 'hand'; row?: Row; col?: number; index?: number };
-      statusId: string; cap: StatusCap; value: number }
+      statusId?: string; cap: StatusCap; value: number }
   | { type: 'FATIGUE'; side: Side; amount: number; hp: number }
   | { type: 'CARD_PLAYED'; side: Side; card: CardDef; row?: Row; col?: number; handIndex?: number }
   | { type: 'UNIT_SUMMONED'; side: Side; row: Row; col: number; unit: Unit }

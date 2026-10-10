@@ -18,7 +18,8 @@ import assert from 'node:assert/strict';
 
 import { applyAction, unitSkillTargetPlan } from '../src/engine.ts';
 import { canUseUnitSkill } from '../src/rules.ts';
-import { getUnit, makeUnit, setUnit } from '../src/state.ts';
+import { applyStatus } from '../src/mutate.ts';
+import { getUnit, makeUnit, setUnit, statusStacks } from '../src/state.ts';
 import { TEST_CARDS, scenario } from './fixtures.ts';
 import type { Action, CardDef } from '../src/types.ts';
 
@@ -105,6 +106,7 @@ test('也能治自己（候选池含华佗本人）', () => {
 
 test('治主公：回 2 血 **且**额外抽一张牌', () => {
   const { state, ctx } = setup();
+  state.sides.own.lord.maxHp = 30;
   state.sides.own.lord.hp = 20;
   state.sides.own.deck = ['neutral_infantry', 'neutral_shieldman', 'neutral_archer'];
   const handBefore = state.sides.own.hand.length;
@@ -124,6 +126,51 @@ test('候选池同时含人物与主公（UI 靠这个 plan 出高亮）', () =>
   assert.ok(targets.some((t) => t.kind === 'unit' && t.row === 'front' && t.col === 0), '友军在候选里');
   assert.ok(targets.some((t) => t.kind === 'unit' && t.col === 4), '华佗自己也在候选里');
   assert.equal(plan.choices[0]!.zone, undefined, '不是手牌步骤');
+});
+
+/* ============================================================
+   3.5 净化（2026-10-10 设计者追加：加血的同时清除负面状态）
+   ============================================================ */
+
+test('治疗的同时清除目标的负面状态', () => {
+  const { state, ctx } = setup({ allyHp: 3 });
+  applyStatus(state, { kind: 'unit', side: 'own', row: 'front', col: 0 }, 'zhong_du', 2, []);
+  applyStatus(state, { kind: 'unit', side: 'own', row: 'front', col: 0 }, 'zhen_she', 1, []);
+  assert.equal(statusStacks(getUnit(state, 'own', 'front', 0)!, 'zhong_du'), 2, '先中毒+震慑');
+
+  const r = use(state, ctx, { side: 'own', row: 'front', col: 0 });
+  assert.ok(r.ok, r.error ?? '');
+  const after = getUnit(r.state, 'own', 'front', 0)!;
+  assert.equal(after.hp, 5, '3 → 5（+2）');
+  assert.equal(statusStacks(after, 'zhong_du'), 0, '中毒被清');
+  assert.equal(statusStacks(after, 'zhen_she'), 0, '震慑被清（按 debuff 类别批量驱散）');
+});
+
+test('净化不影响正面状态（只清 debuff）', () => {
+  const { state, ctx } = setup({ allyHp: 3 });
+  applyStatus(state, { kind: 'unit', side: 'own', row: 'front', col: 0 }, 'sheng_dun_status', 1, []);
+  const r = use(state, ctx, { side: 'own', row: 'front', col: 0 });
+  assert.ok(r.ok, r.error ?? '');
+  assert.equal(statusStacks(getUnit(r.state, 'own', 'front', 0)!, 'sheng_dun_status'), 1, '披坚保留');
+});
+
+test('plan 仍然只有**一步**（治疗与净化共用同一个目标，UI 不会问两次）', () => {
+  const { state } = setup();
+  const plan = unitSkillTargetPlan(state, 'own', 'front', 4);
+  assert.equal(plan.choices.length, 1, '同选择器的多条效果必须合并成一步');
+  assert.equal(plan.choices[0]!.zone, undefined, '不是手牌步骤');
+});
+
+test('治主公也一并净化（主公同样会中负面）', () => {
+  const { state, ctx } = setup();
+  state.sides.own.lord.maxHp = 30;      // 抬高上限，免得 +2 被 maxHp 截断
+  state.sides.own.lord.hp = 20;
+  state.sides.own.deck = ['neutral_infantry'];   // ⚠️ 治主公 → 抽 1 张；牌库空会吃疲劳伤害，把 +2 顶掉 1 点
+  applyStatus(state, { kind: 'lord', side: 'own' }, 'duan_liang', 2, []);
+  const r = use(state, ctx, { side: 'own' });
+  assert.ok(r.ok, r.error ?? '');
+  assert.equal(r.state.sides.own.lord.hp, 22, '主公 +2');
+  assert.equal(r.state.sides.own.lord.statuses?.duan_liang, undefined, '断粮被清');
 });
 
 /* ============================================================

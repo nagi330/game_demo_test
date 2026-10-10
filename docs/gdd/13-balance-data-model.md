@@ -552,11 +552,13 @@ condition: { lord_full_hp: { side: self, value: true } }
 
 | action | 参数 | 说明 |
 |---|---|---|
+| `override_rule` | caps | 覆盖**无状态**的规则档位（ADR-150）。与 `override_status` 同源，区别是不带 `status` → 恒生效。当前唯一用途：`proc_chance`（木鹿大王把象兵「象阵」的 50% 抬到 100%）—— 场上写 `mods`、手牌写 `HandMod.kind='rule'` |
+| `deploy_from_hand` | target.filter（`card_id`/`type`/`tag`…）, count | **手牌 → 场上（免费）**：把手牌里按筛选找到的那张**直接搬上场**（ADR-149，诸葛瞻/诸葛尚「同赴」）。与 `summon` 的分工：`summon` 是**凭空造一个**（手牌里那张还在），本动作搬的是**手里已有的那张** —— 不消耗统率、不多出牌。手牌没有匹配项时**空转**；场上满了则**不动手牌**（不吞牌）；新单位的手牌数值修正随牌进场，其「战吼」照常发动 |
 | `discard` | target.side, count, **mode** | 弃牌：**按「方」结算**。缺省从该方手牌**随机**弃 N 张；`mode: choose` 则**由玩家点一张**（读 `ctx.handIndex`）——此时 `unitSkillTargetPlan` 会把它报成一步 `zone: 'hand'`（ADR-146；**当前卡池暂无载体**，原载体华佗「青囊」已按 ADR-148 改成「医圣」） |
 | `return_to_hand` | target | 返回手牌（"收回手中""回到对方手牌"）|
 | `clash` | target, then | **拼点**：双方各翻一张，比点数；结果写入 `event` 供条件判定 |
 | `scry` | target, count, to | 查看/移动卡池顶或底（"查看卡池第一张牌""放到最底层"）|
-| `discover` | target.filter, count, value, discover_to | 从己方牌库随机展示最多 `count` 张满足条件的牌，暂停等待玩家选择；默认加入手牌，`discover_to: deck_top` 时将所选牌置于牌库顶部；`value` 为该牌的费用修正 |
+| `discover` | target.filter, count, value, discover_to | 从己方牌库随机展示最多 `count` 张满足条件的牌，暂停等待玩家选择；默认加入手牌，`discover_to: deck_top` 时将所选牌置于牌库顶部；`value` 为该牌的费用修正 |　**筛选支持 `card_id`**（ADR-149：候选池可精确到一张，用于"把牌库里某张具体卡拉到手"）
 | `send_hand_to_deck` | to, mode, from_drawn | **把手牌放回牌库的指定位置，且不抽牌**（ADR-139）。`to`：`deck_top` / `deck_bottom`（缺省）/ `random`；`mode: choose` 用 `ctx.handIndex` 指定哪张；**没给下标时挂起等玩家选**（`pendingHandChoice`，ADR-144），`from_drawn: N` 把候选锁死在刚抽到的最近 N 张。配合 `draw` 可写「先抽 N 张、再把其中一张放回底部」这类两段式效果（杨仪「筹度粮谷」）。⚠️ 与 `cycle_to_deck` 的区别：那个是"随机位置 + 必抽 1 张"的置换 |
 | `override_status` | status, caps, target | **把目标身上某状态的若干档位（cap）覆盖为指定值**（ADR-142，兀突骨「藤甲统率」）。`status` = 作用的状态（如 `teng_jia`），`caps` = `{ <cap>: <绝对值> }`（如 `{ reduce_physical: 2, vulnerable_fire: 0 }` ＝ 物理 −2 且不再怕火），`target` 支持 `zone: hand`（手牌写 `HandMod.kind: rule`，**打出时随牌进场**）。⚠️ **仅当该状态确实存在于目标身上时才生效**（被净化即失效、重新获得即恢复）；**绝对值**不是增减量；同一 (状态,档位) 幂等。**为什么不用加层数**：一个状态的多个 cap 共用层数（藤甲的减伤与怕火同源），加层会一起放大 |
 | `CHOOSE_HAND`（**动作**，不是效果） | handIndex | 结算中途的手牌选择（ADR-144）：只在 `pendingHandChoice` 挂起时可用，其它动作会被引擎拒绝。由 UI/AI 发出；AI 的候选枚举在 `ai/options.ts`，口径是"费用低的先放回"。 |
@@ -568,7 +570,7 @@ condition: { lord_full_hp: { side: self, value: true } }
 | `draw_until` | until_not_type | 抽到非某类牌为止（ADR-071） |
 | `damage` / `heal` | `value_from_flag` | 数值取自 `ctx.flags` 里的 `"<name>:N"`（ADR-041），
 `sacrifice` 写入 `sacrificed_max_hp` / `sacrificed_hp` |
-| `remove_status` | `remove_kind: debuff \| buff` | 按**类别**批量驱散（ADR-071）。⚠️ ADR-148：原本唯一的载体华佗「青囊」已改成「医圣」，**当前卡池没有任何卡带净化** —— 机制仍在，等一张卡来接 |
+| `remove_status` | `remove_kind: debuff \| buff` | 按**类别**批量驱散（ADR-071）。载体：**华佗「医圣」**（治疗的同时净化，2026-10-10 设计者追加）—— 与治疗共用同一选择器，plan 里合并成**同一步**，UI 不会问两次 |
 
 #### ⑤ 目标选择器补充
 

@@ -54,6 +54,7 @@ var Core = (() => {
     canPlayCard: () => canPlayCard,
     canUseLordSkill: () => canUseLordSkill,
     canUseUnitSkill: () => canUseUnitSkill,
+    capOverride: () => capOverride,
     capStacks: () => capStacks,
     capValue: () => capValue,
     cardPool: () => cardPool,
@@ -579,6 +580,10 @@ var Core = (() => {
     // 把一张手牌放回牌库顶/底/随机位置，**不抽牌**（ADR-139，杨仪「筹度粮谷」）
     "self_to_hand",
     // 阵亡后把手牌重建出来（ADR-141，孟获「蛮王」——亡语作用于**阵亡单位自身**）
+    "deploy_from_hand",
+    // 手牌 → 场上（免费，按 card_id 精准搬牌；ADR-149，诸葛瞻/诸葛尚「同赴」）
+    "override_rule",
+    // 覆盖**无状态**的规则档位（ADR-150，木鹿大王「象兵统领」抬概率）
     "override_status"
     // 覆盖目标身上某状态的若干档位（ADR-142，兀突骨「藤甲统率」）
   ];
@@ -726,14 +731,17 @@ var Core = (() => {
     }
     return n;
   }
-  function capValue(u, cap) {
-    let n = capStacks(u.statuses, cap);
-    for (const m of u.mods) {
+  function capOverride(u, cap) {
+    let v;
+    for (const m of u?.mods ?? []) {
       if (m.kind !== "rule" || !m.rule || m.rule.cap !== cap) continue;
-      if (!((u.statuses[m.rule.statusId]?.stacks ?? 0) > 0)) continue;
-      n = m.rule.value;
+      if (m.rule.statusId !== void 0 && !((u?.statuses[m.rule.statusId]?.stacks ?? 0) > 0)) continue;
+      v = m.rule.value;
     }
-    return n;
+    return v;
+  }
+  function capValue(u, cap) {
+    return capOverride(u, cap) ?? capStacks(u.statuses, cap);
   }
   var activeStatuses = (u) => Object.entries(u?.statuses ?? {}).filter(([, v]) => v.stacks > 0).map(([k]) => k);
   var shieldUnits = (s, side) => allUnits(s, side).filter(({ unit }) => hasTrait(unit, "jia_dun") && unit.hp > 0);
@@ -2150,6 +2158,14 @@ var Core = (() => {
     }
     return true;
   }
+  function firstEmptySlot(state, side) {
+    for (const r of BOARD.ROWS) {
+      for (let c = 0; c < BOARD.COLS; c++) {
+        if (!state.sides[side].rows[r][c]) return { row: r, col: c };
+      }
+    }
+    return null;
+  }
   function effectsOf(sk, modeIndex) {
     const effects = sk.modes?.length ? (() => {
       const i = typeof modeIndex === "number" && Number.isInteger(modeIndex) && modeIndex >= 0 && modeIndex < sk.modes.length ? modeIndex : 0;
@@ -2182,7 +2198,9 @@ var Core = (() => {
     };
     for (const rawEff of effects) {
       const eff = withDefaultLordTarget(rawEff);
-      if (typeof eff.chance === "number" && rng.next() >= eff.chance) continue;
+      const chance = capOverride(ctx.source ?? null, "proc_chance");
+      const roll = chance ?? eff.chance;
+      if (typeof roll === "number" && rng.next() >= roll) continue;
       if (!checkCondition(state, eff.condition, ctx, rng)) continue;
       const dyn = (sel) => sel ? resolveTargets(state, { ...sel, count: "all" }, ctx, rng).length : void 0;
       const dynAtk = dyn(eff.attack_from), dynHp = dyn(eff.health_from);
@@ -2258,6 +2276,7 @@ var Core = (() => {
             if (filter?.type && filter.type !== "character" && card.type !== filter.type) return false;
             if (filter?.type === "character" && !isCharacterType(card.type)) return false;
             if (filter?.tag && !(card.tags ?? []).includes(filter.tag)) return false;
+            if (filter?.card_id && id !== filter.card_id) return false;
             return true;
           });
           const pool = [...candidates];
@@ -2276,6 +2295,43 @@ var Core = (() => {
             side: ctx.side,
             cards: shown.map((id) => cards.get(id)).filter(Boolean)
           });
+          break;
+        }
+        case "deploy_from_hand": {
+          const sel = eff.target;
+          const hand = state.sides[ctx.side].hand;
+          const picks = [];
+          const want = sel?.mode === "choose" && typeof ctx.handIndex === "number" ? ctx.handIndex : void 0;
+          if (want !== void 0 && hand[want] && matchesHandFilter(hand[want], sel?.filter, ctx.source?.cardId)) {
+            picks.push(want);
+          } else {
+            const n = eff.count ?? 1;
+            for (let i = 0; i < hand.length && picks.length < n; i++) {
+              if (matchesHandFilter(hand[i], sel?.filter, ctx.source?.cardId)) picks.push(i);
+            }
+          }
+          for (const i of [...picks].sort((a, b) => b - a)) {
+            const slot = firstEmptySlot(state, ctx.side);
+            if (!slot) break;
+            const hc = hand[i];
+            if (!hc) continue;
+            const u = summonUnit(state, cards, ctx.side, slot.row, slot.col, hc.card.id, events);
+            if (!u) continue;
+            hand.splice(i, 1);
+            const handAtk = hc.mods.filter((m) => m.kind === "attack" && m.auraId === void 0).reduce((sum, m) => sum + (m.value ?? 0), 0);
+            const handHp = hc.mods.filter((m) => m.kind === "health" && m.auraId === void 0).reduce((sum, m) => sum + (m.value ?? 0), 0);
+            if (handAtk) u.mods.push({ id: `handatk#${nextUidSeq(state)}`, kind: "permanent", attack: handAtk });
+            if (handHp) u.mods.push({ id: `handhp#${nextUidSeq(state)}`, kind: "permanent", health: handHp });
+            for (const m of hc.mods) {
+              if (m.kind !== "rule" || !m.rule || m.auraId !== void 0) continue;
+              u.mods.push({ id: `handrule#${nextUidSeq(state)}`, kind: "rule", rule: { ...m.rule } });
+            }
+            applyMods(u);
+            for (const sk of (u.skills ?? []).filter((x) => x.trigger === "on_play")) {
+              emitSkillTriggered(state, ctx.side, u, sk, "on_play", events);
+              runEffects(state, cards, effectsOf(sk), { side: ctx.side, source: u }, rng, events);
+            }
+          }
           break;
         }
         case "summon": {
@@ -2419,27 +2475,28 @@ var Core = (() => {
           }
           break;
         }
-        case "override_status": {
+        case "override_status":
+        case "override_rule": {
           const statusId = eff.status;
           const caps = eff.caps;
-          if (!statusId || !caps) break;
+          if (!caps) break;
           const list = targets.length ? targets : chosenFor(eff.target);
           for (const t of list) {
             if (t.kind !== "unit" && t.kind !== "hand") continue;
             for (const [cap, value] of Object.entries(caps)) {
               if (typeof value !== "number") continue;
-              const rule = { statusId, cap, value };
+              const rule = { ...statusId ? { statusId } : {}, cap, value };
               const isSame = (m) => m.kind === "rule" && m.rule?.statusId === statusId && m.rule?.cap === cap;
               if (t.kind === "unit") {
                 const u = getUnit(state, t.side, t.row, t.col);
                 if (!u) continue;
                 u.mods = u.mods.filter((m) => !isSame(m));
-                u.mods.push({ id: `rule#${statusId}#${cap}#${nextUidSeq(state)}`, kind: "rule", rule });
+                u.mods.push({ id: `rule#${statusId ?? "always"}#${cap}#${nextUidSeq(state)}`, kind: "rule", rule });
                 events.push({
                   type: "STATUS_OVERRIDDEN",
                   side: t.side,
                   target: { kind: "unit", row: t.row, col: t.col },
-                  statusId,
+                  ...statusId ? { statusId } : {},
                   cap: rule.cap,
                   value
                 });
@@ -2447,12 +2504,12 @@ var Core = (() => {
                 const hc = state.sides[t.side].hand[t.index];
                 if (!hc) continue;
                 hc.mods = hc.mods.filter((m) => !isSame(m));
-                hc.mods.push({ id: `rule#${statusId}#${cap}#${nextUidSeq(state)}`, kind: "rule", rule });
+                hc.mods.push({ id: `rule#${statusId ?? "always"}#${cap}#${nextUidSeq(state)}`, kind: "rule", rule });
                 events.push({
                   type: "STATUS_OVERRIDDEN",
                   side: t.side,
                   target: { kind: "hand", index: t.index },
-                  statusId,
+                  ...statusId ? { statusId } : {},
                   cap: rule.cap,
                   value
                 });
@@ -4014,24 +4071,34 @@ var Core = (() => {
         const p0 = playTargetPlan(state, side, card, 0);
         const modeCount = p0.modes.length || 1;
         const combos = combosOf(state, side, (mi) => playTargetPlan(state, side, card, mi), w, modeCount);
-        for (const cb of combos) {
-          out.push({
-            kind: "play",
-            action: {
-              type: "PLAY_CARD",
-              cardIndex: i,
-              ...slot ? { row: slot.row, col: slot.col } : {},
-              ...cb.target ? { target: cb.target } : {},
-              ...cb.target2 ? { target2: cb.target2 } : {},
-              ...cb.modeIndex !== void 0 ? { modeIndex: cb.modeIndex } : {}
-            },
-            label: `\u51FA ${card.name}${slot ? ` \u2192 \u7B2C${slot.col + 1}\u683C` : ""}${cb.label ? ` [${cb.label}]` : ""}`,
-            quick: base + (isChar ? 2 : 0)
-          });
+        const stepHandPicks = needsHandIndexInPlay(card) ? handPickCandidates(state, side) : [void 0];
+        for (const hp of stepHandPicks) {
+          const handIndex = hp === void 0 ? void 0 : hp === i ? void 0 : hp - (hp > i ? 1 : 0);
+          for (const cb of combos) {
+            out.push({
+              kind: "play",
+              action: {
+                type: "PLAY_CARD",
+                cardIndex: i,
+                ...slot ? { row: slot.row, col: slot.col } : {},
+                ...cb.target ? { target: cb.target } : {},
+                ...cb.target2 ? { target2: cb.target2 } : {},
+                ...cb.modeIndex !== void 0 ? { modeIndex: cb.modeIndex } : {},
+                ...handIndex !== void 0 ? { handIndex } : {}
+              },
+              label: `\u51FA ${card.name}${slot ? ` \u2192 \u7B2C${slot.col + 1}\u683C` : ""}${cb.label ? ` [${cb.label}]` : ""}` + (handIndex !== void 0 ? ` [\u5F03\u7B2C${handIndex + 1}\u5F20]` : ""),
+              quick: base + (isChar ? 2 : 0)
+            });
+          }
         }
       }
     });
     return out.sort((a, b) => b.quick - a.quick).slice(0, CAP.play);
+  }
+  function needsHandIndexInPlay(card) {
+    const scan = (effs) => (effs ?? []).some((e) => e.action === "discard" && e.mode === "choose" || e.action === "cycle_to_deck" || e.action === "deploy_from_hand");
+    if (scan(card.effects)) return true;
+    return (card.skills ?? []).some((sk) => sk.trigger === "on_play" && scan(sk.effects));
   }
   function skillOptions(state, w) {
     const side = state.active;

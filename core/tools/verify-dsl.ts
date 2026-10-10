@@ -54,6 +54,10 @@ for (const c of cards) {
   setUnit(state, 'enemy', 'front', 0, makeUnit(base('neutral_infantry'), 1, 1));
   setUnit(state, 'enemy', 'front', 1, makeUnit(base('neutral_shieldman'), 1, 2));
   setUnit(state, 'own', 'front', 0, makeUnit(base('neutral_archer'), 1, 3));
+  // ⚠️ 通用场景里原本**只有兵种**（中立卡池全是 troop）——于是所有按 `type: 'general'`
+  // 筛选的效果都"没有目标"，会被误判成「光环未生效」（首例：谯周「罢兵」双方武将 −1 攻）。
+  // 这里补一个**无标签、无关键词**的武将，让类型筛选有得测。
+  setUnit(state, 'own', 'front', 3, makeUnit(base('shu_wangping'), 1, 4));
   if (c.id === 'wu_sunce') setUnit(state, 'own', 'front', 1, makeUnit(base('neutral_infantry'), 1, 4));
   if (c.id === 'shu_shamoke') setUnit(state, 'own', 'front', 1, makeUnit({ ...base('neutral_infantry'), tags: ['man_zu'] } as CardDef, 1, 4));
 

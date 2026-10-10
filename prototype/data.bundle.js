@@ -4071,6 +4071,19 @@ window.GameData = {
               }
             },
             {
+              "action": "remove_status",
+              "remove_kind": "debuff",
+              "target": {
+                "side": "ally",
+                "filter": {
+                  "type": "character",
+                  "include_lord": true
+                },
+                "count": 1,
+                "mode": "choose"
+              }
+            },
+            {
               "action": "draw",
               "value": 1,
               "condition": {
@@ -7523,7 +7536,10 @@ window.GameData = {
       "troopKind": "cavalry",
       "upgradeFrom": "cavalry",
       "keywords": [],
-      "memo": "无先攻；攻击时 50% 震慑目标",
+      "tags": [
+        "man_zu"
+      ],
+      "memo": "南蛮象兵（ADR-150：挂 man_zu，才吃孟获「蛮王」与木鹿「象兵统领」）； 无先攻；攻击时 50% 震慑目标",
       "note": "**阵营（ADR-130，设计者定）**：归**蜀**。理由：① 象的产地与故事都在**南方**（蜀的南中、吴的交州）—— A 级《三国志·魏书·邓哀王冲传》「時**孫權曾致巨象**，太祖欲知其斤重」（曹冲称象）是三国最著名的象， 但它**是南方送来的贡物**；《后汉书·南蛮西南夷列传》记哀牢、掸国等**南方诸夷出犀、象**； ② **池中先例**：同为演义南蛮出处的**藤甲兵**（乌戈国兀突骨）已在蜀； ③ 结构上群雄骑兵线已满（白马义从／西凉铁骑／乌桓突骑三张 4 费骑兵），且群雄题材是北方与中原军阀， **没有一头象的归属**。 ⚠️ **「象兵」作为部队**：⚠️ **未取到原文** —— 三国史料里查不到明确的\"象兵/象阵\"部队记载， 象在史料中多以**出产/贡物**出现；\"象兵\"主要出自演义与后世游戏（与南蛮绑定）。按考证纪律**不编造出处**， 归蜀的依据是**南中题材 ＋ 藤甲兵先例**。 **技能口径（ADR-130，设计者定）**：**4 费 3/6 骑兵（无先攻）＋「象阵」：攻击时，50% 概率使该目标获得「震慑」**。 · **无先攻**：象不是冲过去的，是碾过去的（设计者定）；3/6 ＝ 9 点 ＝ **正好 4 费基准**。 · **震慑**：全池此前只有张角用它（五雷轰顶每次雷击 50% 震慑），**没有任何部队会施加它** → 全新的部队轴，\n  与蜀的越骑（成长）、西凉铁骑（斩首）、藤甲兵（减伤）四轴分开。\n· **50% 概率**：与张角同款写法（`chance: 0.5`），避免\"每回合稳定点控\"过强。 ⚠️ **时点口径**：DSL 的 `on_attack` **非击杀效果在伤害结算前执行**（只有 `condition.event === 'killed'` 的才延到伤害之后，见 `effects.ts:763-766`），所以卡面写「**攻击时**」而不是\"造成伤害后\" —— 效果等价（打谁震慑谁），但文案必须与实现一致。 ⚠️ **本轮为它新增的引擎能力（ADR-130）**：选择器 `attack_target: true` —— 此前 `ctx.attackTarget` **只能被条件读取**（`condition.attack_target`，西凉铁骑「突骑」在用）， **没有\"以攻击目标为作用对象\"的选择器**（选择器原只有 `source`／`event: killer|victim`／`chosen`／`lord` 等； `event: victim` 在攻击语境里只在**目标阵亡**时有效，而死了就不必震慑了）。",
       "skills": [
         {
@@ -8161,6 +8177,823 @@ window.GameData = {
         }
       ],
       "flavor": "籌度糧穀，不稽思慮，斯須便了。"
+    },
+    {
+      "id": "shu_zhugezhan",
+      "name": "诸葛瞻",
+      "faction": "shu",
+      "type": "general",
+      "cost": 4,
+      "attack": 2,
+      "health": 5,
+      "memo": "与子同赴绵竹；父子同场互相 +1/+1",
+      "note": "4 费 2/5 = 7 点（基准 9，−2），差额全在技能上。 「同赴」（ADR-149 新动作 deploy_from_hand）：打出时若**诸葛尚在手牌**则他免费一同上场， 否则从牌库把诸葛尚**置入你的手牌** —— 两张卡因此**必然凑齐**，不靠运气； 两张同手时等于「4 费打出 3/6 ＋ 4/5」（同心光环互相 +1/+1，总 18 点属性），这是有意的爆发点， 代价是必须抽到两张（约 30% 的对局中期能凑齐）。 两张都不在牌库/手牌时两个效果各自空转，不会卡流程。 若实机偏强：先把「同心」从 +1/+1 降到 +1/+0，再考虑压本体，不要动费用。\n",
+      "gender": "male",
+      "keywords": [],
+      "skills": [
+        {
+          "id": "tong_fu",
+          "name": "同赴",
+          "kind": "trigger",
+          "trigger": "on_play",
+          "text": "战吼：若诸葛尚在你手牌中，他同时上场；否则从牌库中将诸葛尚置入你的手牌。",
+          "effects": [
+            {
+              "action": "deploy_from_hand",
+              "count": 1,
+              "target": {
+                "side": "ally",
+                "zone": "hand",
+                "filter": {
+                  "card_id": "shu_zhugeshang"
+                }
+              }
+            },
+            {
+              "action": "discover",
+              "count": 3,
+              "target": {
+                "filter": {
+                  "card_id": "shu_zhugeshang"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": "tong_xin",
+          "name": "同心",
+          "kind": "aura",
+          "text": "光环：诸葛尚在场上时，诸葛瞻 +1/+1。",
+          "effects": [
+            {
+              "action": "modify",
+              "attack": 1,
+              "health": 1,
+              "target": {
+                "source": true
+              },
+              "condition": {
+                "exists": {
+                  "side": "ally",
+                  "filter": {
+                    "card_id": "shu_zhugeshang"
+                  }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": "mian_zhu",
+          "name": "绵竹",
+          "kind": "trigger",
+          "trigger": "on_death",
+          "text": "亡语：己方场上与手牌里的人物永久 +1 攻。",
+          "effects": [
+            {
+              "action": "modify",
+              "attack": 1,
+              "target": {
+                "side": "ally",
+                "filter": {
+                  "type": "character"
+                },
+                "count": "all"
+              }
+            },
+            {
+              "action": "modify",
+              "attack": 1,
+              "target": {
+                "side": "ally",
+                "zone": "hand",
+                "filter": {
+                  "type": "character"
+                },
+                "count": "all"
+              }
+            }
+          ]
+        }
+      ],
+      "flavor": "吾父子荷国重恩，不早斩黄皓，使败国殄民，用生何为！"
+    },
+    {
+      "id": "shu_zhugeshang",
+      "name": "诸葛尚",
+      "faction": "shu",
+      "type": "general",
+      "cost": 4,
+      "attack": 3,
+      "health": 4,
+      "memo": "与父同赴；父子同场互相 +1/+1",
+      "note": "4 费 3/4 = 7 点（基准 9，−2），与诸葛瞻同一套「同赴」+「同心」。 父子两卡互为对照：瞻是 2/5 偏守（亡语给全场与手牌 +1 攻），尚是 3/4 偏攻（亡语反噬击杀者 3 点）—— 两张单出都是\"合格的 4 费但偏弱\"，凑齐才形成真正的威胁。 史实：与父同日同地殉于绵竹（《华阳国志·卷七》），遗言「父子荷国重恩……用生何为」。\n",
+      "gender": "male",
+      "keywords": [],
+      "skills": [
+        {
+          "id": "tong_fu",
+          "name": "同赴",
+          "kind": "trigger",
+          "trigger": "on_play",
+          "text": "战吼：若诸葛瞻在你手牌中，他同时上场；否则从牌库中将诸葛瞻置入你的手牌。",
+          "effects": [
+            {
+              "action": "deploy_from_hand",
+              "count": 1,
+              "target": {
+                "side": "ally",
+                "zone": "hand",
+                "filter": {
+                  "card_id": "shu_zhugezhan"
+                }
+              }
+            },
+            {
+              "action": "discover",
+              "count": 3,
+              "target": {
+                "filter": {
+                  "card_id": "shu_zhugezhan"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": "tong_xin",
+          "name": "同心",
+          "kind": "aura",
+          "text": "光环：诸葛瞻在场上时，诸葛尚 +1/+1。",
+          "effects": [
+            {
+              "action": "modify",
+              "attack": 1,
+              "health": 1,
+              "target": {
+                "source": true
+              },
+              "condition": {
+                "exists": {
+                  "side": "ally",
+                  "filter": {
+                    "card_id": "shu_zhugezhan"
+                  }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": "si_jie",
+          "name": "死节",
+          "kind": "trigger",
+          "trigger": "on_death",
+          "text": "亡语：对击杀者造成 3 点伤害。",
+          "effects": [
+            {
+              "action": "damage",
+              "value": 3,
+              "target": {
+                "event": "killer"
+              }
+            }
+          ]
+        }
+      ],
+      "flavor": "乃驱马赴魏军而死。"
+    },
+    {
+      "id": "shu_liaohua",
+      "name": "廖化",
+      "faction": "shu",
+      "type": "general",
+      "cost": 3,
+      "attack": 2,
+      "health": 4,
+      "memo": "先攻；落单时化身真正的先锋",
+      "note": "3 费 2/4 = 6 点（基准 7，−1）+ 先攻（≈1），差额换「落单时 4/5」。 与罗宪「孤城」**同触发器、相反 payoff**：罗宪 4 费 2/6 架盾是\"自守\"，廖化是\"抢节奏\"—— 同一触发器撑起一个「孤军」小主题。 先攻必须是**卡面关键词**（不要用光环临时授予，否则条件不满足时会忽有忽无，玩家读不出来）。 ⚠️ 卡面与 note **不得**把「蜀中无大将，廖化作先锋」标成正史或演义：2026-10-10 维基文库 insource 全站复核，「蜀中無大將」只命中《掃迷帚/24》《如此京華/08》（均为清末小说）， 演义 0 命中（演义仅 120 回）。可引的正史：右车骑将军、假节、领并州刺史（遥领）、 景耀五年谏姜维出狄道「兵不戢，必自焚」。\n",
+      "gender": "male",
+      "keywords": [
+        "xian_gong"
+      ],
+      "skills": [
+        {
+          "id": "du_xian_feng",
+          "name": "独先锋",
+          "kind": "aura",
+          "text": "光环：己方场上没有其他人物时，廖化 +2 攻 +1 生命。",
+          "effects": [
+            {
+              "action": "modify",
+              "attack": 2,
+              "health": 1,
+              "target": {
+                "source": true
+              },
+              "condition": {
+                "count": {
+                  "selector": {
+                    "side": "ally",
+                    "filter": {
+                      "type": "character"
+                    }
+                  },
+                  "op": "==",
+                  "value": 1
+                }
+              }
+            }
+          ]
+        }
+      ],
+      "flavor": "兵不戢，必自焚。"
+    },
+    {
+      "id": "shu_muludawang",
+      "name": "木鹿大王",
+      "faction": "shu",
+      "type": "general",
+      "cost": 5,
+      "attack": 3,
+      "health": 5,
+      "tags": [
+        "man_zu"
+      ],
+      "memo": "象兵统领：把他的象兵养成必中",
+      "note": "5 费 3/5 = 8 点（基准 11，−3），差额是\"体系核心\"的价钱（对照兀突骨 5 费 3/6）。 「象兵统领」加强的是**象兵**（不是木鹿自己）：场上与手牌的象兵 +1/+1， 且其〈象阵〉的震慑概率由 50% 抬到 **100%**。 概率用 **ADR-150 的无状态规则覆盖**（`override_rule` + `proc_chance`）—— 与兀突骨 「藤甲统率」同一套规则覆盖层，只是这次覆盖的档位不挂在任何状态上。 配套：`shu_xiangbing` 已补 `man_zu` 标签（否则它既不算南蛮、也吃不到孟获「蛮王」）。\n",
+      "gender": "male",
+      "keywords": [],
+      "skills": [
+        {
+          "id": "xiang_bing_tong_ling",
+          "name": "象兵统领",
+          "kind": "trigger",
+          "trigger": "on_play",
+          "text": "战吼：己方场上与手牌里的象兵 +1/+1，且「象阵」的震慑概率从 50% 提升到 100%。",
+          "effects": [
+            {
+              "action": "modify",
+              "attack": 1,
+              "health": 1,
+              "target": {
+                "side": "ally",
+                "filter": {
+                  "card_id": "shu_xiangbing"
+                },
+                "count": "all"
+              }
+            },
+            {
+              "action": "modify",
+              "attack": 1,
+              "health": 1,
+              "target": {
+                "side": "ally",
+                "zone": "hand",
+                "filter": {
+                  "card_id": "shu_xiangbing"
+                },
+                "count": "all"
+              }
+            },
+            {
+              "action": "override_rule",
+              "caps": {
+                "proc_chance": 1
+              },
+              "target": {
+                "side": "ally",
+                "filter": {
+                  "card_id": "shu_xiangbing"
+                },
+                "count": "all"
+              }
+            },
+            {
+              "action": "override_rule",
+              "caps": {
+                "proc_chance": 1
+              },
+              "target": {
+                "side": "ally",
+                "zone": "hand",
+                "filter": {
+                  "card_id": "shu_xiangbing"
+                },
+                "count": "all"
+              }
+            }
+          ]
+        }
+      ],
+      "flavor": "驱兽呼风，象阵踏营。"
+    },
+    {
+      "id": "shu_dailaidongzhu",
+      "name": "带来洞主",
+      "faction": "shu",
+      "type": "general",
+      "cost": 3,
+      "attack": 2,
+      "health": 3,
+      "tags": [
+        "man_zu"
+      ],
+      "memo": "引援：落地带两个蛮族步兵",
+      "note": "3 费 2/3 = 5 点（基准 7，−2）+ 召唤 2 个 1/1（2 点）＝合计 7 点，正好贴线。 （原案 2 个 1/2 会到 9 点，超 2 点，故衍生物取 1/1；要 1/2 就把本体提到 4 费。） 召唤走现成的 `summon` + `count`（实测：自带 1 + 召唤 2 = 场上 3）。\n",
+      "gender": "male",
+      "keywords": [],
+      "skills": [
+        {
+          "id": "yin_yuan",
+          "name": "引援",
+          "kind": "trigger",
+          "trigger": "on_play",
+          "text": "战吼：召唤两个 1/1「蛮族步兵」。",
+          "effects": [
+            {
+              "action": "summon",
+              "unit": "token_manzu_bubing",
+              "count": 2
+            }
+          ]
+        }
+      ],
+      "flavor": "引木鹿、兀突骨来助。"
+    },
+    {
+      "id": "shu_jinhuansanjie",
+      "name": "金环三结",
+      "faction": "shu",
+      "type": "general",
+      "cost": 3,
+      "attack": 3,
+      "health": 2,
+      "tags": [
+        "man_zu"
+      ],
+      "keywords": [
+        "xian_gong"
+      ],
+      "memo": "先攻；亡语反噬击杀者 2 点",
+      "note": "3 费 3/2 = 5 点（基准 7，−2）+ 先攻（≈1）+ 亡语（≈1.5）≈ 7.5 点，贴线。 ⚠️ 不用 4/2：那会到 8.5 点，超 1.5；而且先攻 3 攻已能白吃 3 血以下的 2–3 费件。 史实：演义人物（孟获手下第一洞元帅，被赵云一枪刺死）—— 卡面**不要**写赵云。\n",
+      "gender": "male",
+      "skills": [
+        {
+          "id": "fen_tu",
+          "name": "奋突",
+          "kind": "trigger",
+          "trigger": "on_death",
+          "text": "亡语：对击杀者造成 2 点伤害。",
+          "effects": [
+            {
+              "action": "damage",
+              "value": 2,
+              "target": {
+                "event": "killer"
+              }
+            }
+          ]
+        }
+      ],
+      "flavor": "第一洞元帅。"
+    },
+    {
+      "id": "shu_wuyi",
+      "name": "吴懿",
+      "faction": "shu",
+      "type": "general",
+      "cost": 4,
+      "attack": 4,
+      "health": 4,
+      "memo": "主公披坚；与魏延同场一起成长",
+      "note": "4 费 4/4 = 8 点（基准 9，−1），差额换\"主公一次性免伤 + 魏延联动\"。 披坚（`sheng_dun_status`）给**主公**是合法的：`mutate.ts` 的主公受伤路径会专门查 `immune_damage` 护盾（实测：主公拿到状态且真能挡一次伤害）。 ⚠️ 指向自己要用 `{source: true}`；写 `{side: 'self'}` 是\"整方\"的意思，实测会把魏延加两次。 史实：正史作「吴壹」，东州系，刘备定蜀后\"处之显任\"；建兴八年与魏延西入羌中， 大破魏将郭淮、费瑶于阳溪；官至车骑将军、汉中都督（《三国志·卷45》）。\n",
+      "gender": "male",
+      "keywords": [],
+      "skills": [
+        {
+          "id": "he_zhong",
+          "name": "合众",
+          "kind": "trigger",
+          "trigger": "on_play",
+          "text": "战吼：己方主公获得「披坚」；若场上有魏延，魏延与吴懿各 +1/+1。",
+          "effects": [
+            {
+              "action": "apply_status",
+              "status": "sheng_dun_status",
+              "target": {
+                "side": "ally",
+                "lord": true
+              }
+            },
+            {
+              "action": "modify",
+              "attack": 1,
+              "health": 1,
+              "target": {
+                "side": "ally",
+                "filter": {
+                  "card_id": "shu_weiyan"
+                },
+                "count": "all"
+              },
+              "condition": {
+                "exists": {
+                  "side": "ally",
+                  "filter": {
+                    "card_id": "shu_weiyan"
+                  }
+                }
+              }
+            },
+            {
+              "action": "modify",
+              "attack": 1,
+              "health": 1,
+              "target": {
+                "source": true
+              },
+              "condition": {
+                "exists": {
+                  "side": "ally",
+                  "filter": {
+                    "card_id": "shu_weiyan"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      ],
+      "flavor": "与魏延西入羌中，大破郭淮。"
+    },
+    {
+      "id": "shu_qiaozhou",
+      "name": "谯周",
+      "faction": "shu",
+      "type": "strategist",
+      "cost": 3,
+      "attack": 1,
+      "health": 3,
+      "memo": "罢兵：双方武将攻击 −1（含己方）",
+      "note": "3 费 1/3 = 4 点（基准 7，−3），差额是\"全场武将 −1 攻\"的持续压制。 **双刃是设计的一部分**：它压对手也压自己，与蜀国的铺场武将流天然冲突、与谋臣/效果伤害流契合 —— 这正是《仇国论》\"反对用兵\"的机制表达。 实测：光环遍历**双方**，己方 3 → 2、敌方 3 → 2（只压**武将**，不含谋臣/兵种/主公，谯周自己不吃）。\n",
+      "gender": "male",
+      "keywords": [],
+      "skills": [
+        {
+          "id": "ba_bing",
+          "name": "罢兵",
+          "kind": "aura",
+          "text": "光环：双方所有武将攻击 −1。",
+          "effects": [
+            {
+              "action": "modify",
+              "attack": -1,
+              "target": {
+                "side": "both",
+                "filter": {
+                  "type": "general"
+                },
+                "count": "all"
+              }
+            }
+          ]
+        }
+      ],
+      "flavor": "周虽不与政，以儒行见礼。"
+    },
+    {
+      "id": "shu_liuyin",
+      "name": "柳隐",
+      "faction": "shu",
+      "type": "general",
+      "cost": 5,
+      "attack": 3,
+      "health": 7,
+      "keywords": [
+        "jia_dun"
+      ],
+      "memo": "架盾；两条命的黄金围守将",
+      "note": "5 费 3/7 = 10 点，架盾记 −1 → 9 点（基准 11，−2），换\"两条命\"。 与孟获「七擒」/严颜同轴但更硬：**架盾 + 免死**两道墙叠在一起，是蜀国最肉的一张； 代价是 3 攻打不动人，纯粹拖时间。 史实：字休然（189–268），蜀郡成都人；汉中诸围守将，**黄金围**之守魏军攻之不克； 「临阵勇决」；蜀亡后司马昭\"深喜柳隐之忠心\"；《华阳国志》赞\"西河烈烈，秉义居贞\"； **演义完全未登场**（纯正史人物）。\n",
+      "gender": "male",
+      "skills": [
+        {
+          "id": "jian_bi",
+          "name": "坚壁",
+          "kind": "trigger",
+          "trigger": "on_lethal",
+          "frequency": "once",
+          "text": "第一次受到致命伤害时，以 1 点生命存活。",
+          "effects": [
+            {
+              "action": "survive",
+              "target": {
+                "source": true
+              }
+            }
+          ]
+        }
+      ],
+      "flavor": "西河烈烈，秉义居贞。"
+    },
+    {
+      "id": "shu_mizhu",
+      "name": "糜竺",
+      "faction": "shu",
+      "type": "strategist",
+      "cost": 2,
+      "attack": 0,
+      "health": 3,
+      "memo": "助军：本回合统率 +2；亡语抽一张",
+      "note": "2 费 0/3 = 3 点（基准 5，−2），换\"+2 统率 + 亡语抽牌\"。 0 攻是**故意的** —— 它不该参与战斗，只把你的回合买大一点。 史实：徐州富商\"祖世货殖，僮客万人，赀产钜亿\"；刘备落难时\"进妹于先主\"并送奴客二千、 金银货币以助军资；弟糜芳叛降后自缚请罪，刘备\"兄弟罪不相及\"（《三国志·卷38》）。\n",
+      "gender": "male",
+      "keywords": [],
+      "skills": [
+        {
+          "id": "zhu_jun",
+          "name": "助军",
+          "kind": "trigger",
+          "trigger": "on_play",
+          "text": "战吼：己方本回合统率 +2。",
+          "effects": [
+            {
+              "action": "gain_command",
+              "value": 2
+            }
+          ]
+        },
+        {
+          "id": "qing_jia",
+          "name": "倾家",
+          "kind": "trigger",
+          "trigger": "on_death",
+          "text": "亡语：己方抽 1 张牌。",
+          "effects": [
+            {
+              "action": "draw",
+              "value": 1
+            }
+          ]
+        }
+      ],
+      "flavor": "奴客二千，金银货币以助军资。"
+    },
+    {
+      "id": "shu_liuba",
+      "name": "刘巴",
+      "faction": "shu",
+      "type": "strategist",
+      "cost": 3,
+      "attack": 1,
+      "health": 3,
+      "memo": "直百：弃一张手牌，抽两张",
+      "note": "3 费 1/3 = 4 点（基准 7，−3），换\"手牌净 +1 且能筛掉废牌\"。 `discard` 带 `mode: choose` → 玩家自己点要弃的那张（ADR-146 的手牌步骤机制）， 所以是\"铸钱生利\"而不是\"随机烧牌\"。 史实：铸\"直百钱\"，\"数月之间府库充实\"；与诸葛亮、法正、李严、伊籍共造《蜀科》 （《三国志·卷39》）。\n",
+      "gender": "male",
+      "keywords": [],
+      "skills": [
+        {
+          "id": "zhi_bai",
+          "name": "直百",
+          "kind": "trigger",
+          "trigger": "on_play",
+          "text": "战吼：弃一张手牌，然后抽 2 张牌。",
+          "effects": [
+            {
+              "action": "discard",
+              "count": 1,
+              "mode": "choose",
+              "target": {
+                "side": "self",
+                "zone": "hand"
+              }
+            },
+            {
+              "action": "draw",
+              "value": 2
+            }
+          ]
+        }
+      ],
+      "flavor": "数月之间，府库充实。"
+    },
+    {
+      "id": "shu_dengzhi",
+      "name": "邓芝",
+      "faction": "shu",
+      "type": "strategist",
+      "cost": 4,
+      "attack": 1,
+      "health": 4,
+      "memo": "唇齿：落后时抽两张",
+      "note": "4 费 1/4 = 5 点（基准 9，−4），换\"稳定抽 1，主公落后时抽 2\"—— 越危险盟友越有用， 天然的抗雪崩设计。 刻意不走\"双方各抽\"：池中鲁肃「仗义疏财」已经占了\"互惠抽牌\"这个位置。 史实：出使东吴重修盟好，\"蜀有重险之固，吴有三江之阻，合此二长，共为唇齿\"； 孙权答\"和合二国，唯有邓芝\"（《三国志·卷45》）。\n",
+      "gender": "male",
+      "keywords": [],
+      "skills": [
+        {
+          "id": "chun_chi",
+          "name": "唇齿",
+          "kind": "trigger",
+          "trigger": "on_play",
+          "text": "战吼：抽 1 张牌；若己方主公生命低于敌方主公，改为抽 2 张。",
+          "effects": [
+            {
+              "action": "draw",
+              "value": 1
+            },
+            {
+              "action": "draw",
+              "value": 1,
+              "condition": {
+                "lord_hp_vs_enemy": "<"
+              }
+            }
+          ]
+        }
+      ],
+      "flavor": "合此二长，共为唇齿。"
+    },
+    {
+      "id": "shu_yiji",
+      "name": "伊籍",
+      "faction": "shu",
+      "type": "strategist",
+      "cost": 3,
+      "attack": 1,
+      "health": 3,
+      "memo": "机辩：拼点让对手两张手牌变贵",
+      "note": "3 费 1/3 = 4 点（基准 7，−3），换\"五成概率干扰对手手牌 / 保底抽一张\"。 拼点＝掷骰，但不直接造成伤害或击杀，不构成\"单次随机决定胜负\"。 史实：两次出使东吴；孙权讥\"劳事无道之君\"，伊籍当即回\"一拜一起，未足为劳\"； 与诸葛亮、法正、刘巴、李严共造《蜀科》（《三国志·卷38》）。\n",
+      "gender": "male",
+      "keywords": [],
+      "skills": [
+        {
+          "id": "ji_bian",
+          "name": "机辩",
+          "kind": "trigger",
+          "trigger": "on_play",
+          "text": "战吼：与敌方拼点；胜则敌方随机两张手牌统率 +1，败则己方抽 1 张牌。",
+          "effects": [
+            {
+              "action": "clash",
+              "clashMode": "roll",
+              "target": {
+                "side": "enemy"
+              }
+            },
+            {
+              "action": "cost_modifier",
+              "value": 1,
+              "target": {
+                "side": "enemy",
+                "zone": "hand",
+                "count": 2,
+                "mode": "random"
+              },
+              "condition": {
+                "event": "clash_won"
+              }
+            },
+            {
+              "action": "draw",
+              "value": 1,
+              "condition": {
+                "event": "clash_lost"
+              }
+            }
+          ]
+        }
+      ],
+      "flavor": "一拜一起，未足为劳。"
+    },
+    {
+      "id": "shu_sunqian",
+      "name": "孙乾",
+      "faction": "shu",
+      "type": "strategist",
+      "cost": 3,
+      "attack": 1,
+      "health": 3,
+      "memo": "通使：从牌库发现一张群雄牌",
+      "note": "3 费 1/3 = 4 点（基准 7，−3），换\"从牌库三选一\"。**它有构筑前提**：卡组里得有群雄牌， 否则这是一张 3 费白板（`discover` 找不到候选时会安静跳过）。 这是**卡组构筑的钩子**，与\"外交家\"人设一致 —— 群雄卡本来就能进任何阵营卡组 （`deck.ts` 的 `PUBLIC_POOL = ['neutral','qun']`）。 实测：`discover {filter: {faction: 'qun'}}` 只返回群雄牌。 史实：刘备领徐州时辟为从事，此后与简雍、糜竺同为从事中郎，专职往来外交（《三国志·卷38》）。\n",
+      "gender": "male",
+      "keywords": [],
+      "skills": [
+        {
+          "id": "tong_shi",
+          "name": "通使",
+          "kind": "trigger",
+          "trigger": "on_play",
+          "text": "战吼：从牌库中发现一张群雄牌。",
+          "effects": [
+            {
+              "action": "discover",
+              "count": 3,
+              "target": {
+                "filter": {
+                  "faction": "qun"
+                }
+              }
+            }
+          ]
+        }
+      ],
+      "flavor": "往来袁绍、刘表之间的外交通道。"
+    },
+    {
+      "id": "shu_xianglang",
+      "name": "向朗",
+      "faction": "shu",
+      "type": "strategist",
+      "cost": 3,
+      "attack": 1,
+      "health": 4,
+      "memo": "藏书：从牌库三选一",
+      "note": "3 费 1/4 = 5 点（基准 7，−2），换\"任意牌三选一\"—— 文臣里最通用的一张。 与孙乾的区别：向朗**不挑阵营、更稳**；孙乾专挑群雄、更有主题。 史实：师从司马徽，与徐庶、庞统同门；蜀汉最大藏书家\"积聚篇卷，于时最多\"； 马谡败后因知情不举被免官，后\"开门接宾，诱纳后进\"（《三国志·卷41》裴注）。\n",
+      "gender": "male",
+      "keywords": [],
+      "skills": [
+        {
+          "id": "cang_shu",
+          "name": "藏书",
+          "kind": "trigger",
+          "trigger": "on_play",
+          "text": "战吼：从牌库中发现一张牌。",
+          "effects": [
+            {
+              "action": "discover",
+              "count": 3
+            }
+          ]
+        }
+      ],
+      "flavor": "积聚篇卷，于时最多。"
+    },
+    {
+      "id": "shu_liyan",
+      "name": "李严",
+      "faction": "shu",
+      "type": "general",
+      "cost": 5,
+      "attack": 3,
+      "health": 5,
+      "memo": "督运：拼点赢了大把统率，输了自废",
+      "note": "5 费 3/5 = 8 点（基准 11，−3），换\"五成概率 +6 统率 / 五成概率自废 −2/−2\"。 +6 统率约等于多打两张 3 费牌，是爆发回合的开关；而输的代价**落在自己身上**， 所以是\"赌徒武将\"而不是坑队友的陷阱卡。`gain_command` 不加 `permanent`（仅本回合，否则滚雪球）。 史实：与诸葛亮同受遗诏辅政；督运军粮\"运粮不继\"又\"军伪退\"谎报、反诬诸葛亮，被废为平民 （《三国志·卷40》）。\n",
+      "gender": "male",
+      "keywords": [],
+      "skills": [
+        {
+          "id": "du_yun",
+          "name": "督运",
+          "kind": "trigger",
+          "trigger": "on_play",
+          "text": "战吼：与敌方拼点；胜则己方本回合统率 +6，败则李严永久 −2/−2。",
+          "effects": [
+            {
+              "action": "clash",
+              "clashMode": "roll",
+              "target": {
+                "side": "enemy"
+              }
+            },
+            {
+              "action": "gain_command",
+              "value": 6,
+              "condition": {
+                "event": "clash_won"
+              }
+            },
+            {
+              "action": "modify",
+              "attack": -2,
+              "health": -2,
+              "target": {
+                "source": true
+              },
+              "condition": {
+                "event": "clash_lost"
+              }
+            }
+          ]
+        }
+      ],
+      "flavor": "运粮不继，军伪退。"
+    },
+    {
+      "id": "token_manzu_bubing",
+      "name": "蛮族步兵",
+      "faction": "neutral",
+      "type": "token",
+      "cost": 0,
+      "attack": 1,
+      "health": 1,
+      "tags": [
+        "man_zu"
+      ],
+      "memo": "南蛮系召唤的 1/1 衍生物",
+      "gender": "male",
+      "keywords": [],
+      "skills": []
     }
   ],
   "heroes": [

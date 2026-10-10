@@ -6,7 +6,7 @@
  */
 
 import { BOARD, COMMAND, STATUSES, TIMING, type StatusCap } from './constants.ts';
-import { allUnits, applyMods, capStacks, getUnit, hasCap, hasTrait, makeUnit, nextUidSeq, other, setUnit } from './state.ts';
+import { allUnits, applyMods, capOverride, capStacks, capValue, getUnit, hasCap, hasTrait, makeUnit, nextUidSeq, other, setUnit } from './state.ts';
 import { handRef, removeStatus } from './mutate.ts';
 import { effectiveAttack } from './rules.ts';
 // 合并说明（rebase 到 main 时）：两边各加了一个 import —— main 把「抽到时释放」
@@ -977,7 +977,19 @@ export const IMPLEMENTED_ACTIONS: ReadonlySet<string> = new Set([
   'send_hand_to_deck',   // 手牌 → 牌库顶/底/随机（ADR-139，杨仪「筹度粮谷」）
   'self_to_hand',        // 阵亡后重建于手牌（ADR-141，孟获「蛮王」）
   'override_status',     // 覆盖某状态的档位（ADR-142，兀突骨「藤甲统率」）
+  'deploy_from_hand',    // 手牌 → 场上（ADR-149，诸葛瞻/诸葛尚「同赴」）
+  'override_rule',       // 无状态规则覆盖（ADR-150，木鹿大王「象兵统领」）
 ]);
+
+/** 该方第一个空格（前军优先，与 `summon` 的填充顺序一致）；场上满了返回 null */
+function firstEmptySlot(state: MatchState, side: Side): { row: Row; col: number } | null {
+  for (const r of BOARD.ROWS) {
+    for (let c = 0; c < BOARD.COLS; c++) {
+      if (!state.sides[side].rows[r][c]) return { row: r, col: c };
+    }
+  }
+  return null;
+}
 
 /**
  * 抉择分支的取值（ADR-071）
@@ -1051,7 +1063,11 @@ export function runEffects(
     // 范围/随机伤害默认含主公（ADR-087）—— 归一化后再走后面所有分支
     const eff = withDefaultLordTarget(rawEff);
     // 概率：掷一次骰子，不中则跳过（ADR-033）
-    if (typeof eff.chance === 'number' && rng.next() >= eff.chance) continue;
+    // ADR-150：概率可被**规则覆盖**（木鹿大王「象兵统领」把象兵「象阵」的 50% 抬到 100%）。
+    // 读 `proc_chance` 这个档位：没有覆盖就用卡面写死的 chance。
+    const chance = capOverride(ctx.source ?? null, 'proc_chance');
+    const roll = chance ?? eff.chance;
+    if (typeof roll === 'number' && rng.next() >= roll) continue;
     // 条件：结算前查一次局面（ADR-033）
     if (!checkCondition(state, eff.condition, ctx, rng)) continue;
 
@@ -1182,6 +1198,8 @@ export function runEffects(
           if (filter?.type && filter.type !== 'character' && card.type !== filter.type) return false;
           if (filter?.type === 'character' && !isCharacterType(card.type)) return false;
           if (filter?.tag && !(card.tags ?? []).includes(filter.tag)) return false;
+          // ADR-149：按**具体卡**筛（"把牌库里的诸葛尚置入手中"要靠它才是必然，否则退化成随机三选一）
+          if (filter?.card_id && id !== filter.card_id) return false;
           return true;
         });
         const pool = [...candidates];
@@ -1197,6 +1215,54 @@ export function runEffects(
           type: 'DISCOVER_OPTIONS', side: ctx.side,
           cards: shown.map((id) => cards.get(id)!).filter(Boolean),
         });
+        break;
+      }
+      case 'deploy_from_hand': {
+        // 手牌 → 场上（**免费**）：把手里**指定的那张**直接搬上场（ADR-149，
+        // 诸葛瞻/诸葛尚「同赴」：打出一个，另一个若在手牌就一起上场）。
+        //
+        // 与 `summon` 的分工：`summon` 是**凭空造一个**（手牌里那张还在），本动作搬的是
+        // **手牌里已有的那张** —— 不消耗统率、也不多产生一张牌。现有动作做不到这件事：
+        // `discard` 不支持按 `card_id` 过滤，没法精准消耗掉手里那一张。
+        const sel = eff.target;
+        const hand = state.sides[ctx.side].hand;
+        const picks: number[] = [];
+        const want = sel?.mode === 'choose' && typeof ctx.handIndex === 'number' ? ctx.handIndex : undefined;
+        if (want !== undefined && hand[want]
+            && matchesHandFilter(hand[want]!, sel?.filter, ctx.source?.cardId)) {
+          picks.push(want);
+        } else {
+          const n = eff.count ?? 1;
+          for (let i = 0; i < hand.length && picks.length < n; i++) {
+            if (matchesHandFilter(hand[i]!, sel?.filter, ctx.source?.cardId)) picks.push(i);
+          }
+        }
+        for (const i of [...picks].sort((a, b) => b - a)) {   // 从后往前删，避免下标漂移
+          const slot = firstEmptySlot(state, ctx.side);
+          if (!slot) break;                    // 场上满了：宁可不动，也**不吞掉手牌**
+          const hc = hand[i];
+          if (!hc) continue;
+          const u = summonUnit(state, cards, ctx.side, slot.row, slot.col, hc.card.id, events);
+          if (!u) continue;                    // 卡表里查无此卡 → 手牌原样留着
+          hand.splice(i, 1);
+          // 手牌数值修正 / 规则覆盖随牌进场（与 `playCard` 同口径，ADR-141 / ADR-142）
+          const handAtk = hc.mods.filter((m) => m.kind === 'attack' && m.auraId === undefined)
+            .reduce((sum, m) => sum + (m.value ?? 0), 0);
+          const handHp = hc.mods.filter((m) => m.kind === 'health' && m.auraId === undefined)
+            .reduce((sum, m) => sum + (m.value ?? 0), 0);
+          if (handAtk) u.mods.push({ id: `handatk#${nextUidSeq(state)}`, kind: 'permanent', attack: handAtk });
+          if (handHp) u.mods.push({ id: `handhp#${nextUidSeq(state)}`, kind: 'permanent', health: handHp });
+          for (const m of hc.mods) {
+            if (m.kind !== 'rule' || !m.rule || m.auraId !== undefined) continue;
+            u.mods.push({ id: `handrule#${nextUidSeq(state)}`, kind: 'rule', rule: { ...m.rule } });
+          }
+          applyMods(u);
+          // 与召唤同源（ADR-121）：**上场就要派发自己的战吼**
+          for (const sk of (u.skills ?? []).filter((x) => x.trigger === 'on_play')) {
+            emitSkillTriggered(state, ctx.side, u, sk, 'on_play', events);
+            runEffects(state, cards, effectsOf(sk), { side: ctx.side, source: u }, rng, events);
+          }
+        }
         break;
       }
       case 'summon': {
@@ -1381,7 +1447,8 @@ export function runEffects(
         }
         break;
       }
-      case 'override_status': {
+      case 'override_status':
+      case 'override_rule': {
         // 覆盖目标身上某状态的若干**档位**（ADR-142，兀突骨「藤甲统率」）
         //
         // 为什么不是"多加几层状态"：一个状态的多个 cap 共用同一个层数 —— 藤甲的
@@ -1392,35 +1459,36 @@ export function runEffects(
         //   · **仅当该状态存在于目标身上时才生效**（被净化 → 覆盖失效；重新获得 → 自动恢复）；
         //   · **绝对值覆盖**（`vulnerable_fire: 0` = 彻底不再怕火）；
         //   · **幂等**：同一 (状态, 档位) 的旧覆盖先删除再写，反复触发不会堆一长串。
+        // `override_status` 带状态（状态消失即失效）；`override_rule` 不带状态（恒生效，ADR-150）
         const statusId = eff.status;
         const caps = eff.caps;
-        if (!statusId || !caps) break;
+        if (!caps) break;
         const list = targets.length ? targets : chosenFor(eff.target);
         for (const t of list) {
           if (t.kind !== 'unit' && t.kind !== 'hand') continue;
           for (const [cap, value] of Object.entries(caps)) {
             if (typeof value !== 'number') continue;
-            const rule = { statusId, cap: cap as StatusCap, value };
-            const isSame = (m: { kind: string; rule?: { statusId: string; cap: string } }) =>
+            const rule = { ...(statusId ? { statusId } : {}), cap: cap as StatusCap, value };
+            const isSame = (m: { kind: string; rule?: { statusId?: string; cap: string } }) =>
               m.kind === 'rule' && m.rule?.statusId === statusId && m.rule?.cap === cap;
             if (t.kind === 'unit') {
               const u = getUnit(state, t.side, t.row, t.col);
               if (!u) continue;
               u.mods = u.mods.filter((m) => !isSame(m));
-              u.mods.push({ id: `rule#${statusId}#${cap}#${nextUidSeq(state)}`, kind: 'rule', rule });
+              u.mods.push({ id: `rule#${statusId ?? 'always'}#${cap}#${nextUidSeq(state)}`, kind: 'rule', rule });
               events.push({
                 type: 'STATUS_OVERRIDDEN', side: t.side,
-                target: { kind: 'unit', row: t.row, col: t.col }, statusId, cap: rule.cap, value,
+                target: { kind: 'unit', row: t.row, col: t.col }, ...(statusId ? { statusId } : {}), cap: rule.cap, value,
               });
             } else {
               // 手牌：写成 HandMod，这张牌**打出时**再搬进单位的 mods（见 `engine.playCard`）
               const hc = state.sides[t.side].hand[t.index];
               if (!hc) continue;
               hc.mods = hc.mods.filter((m) => !isSame(m));
-              hc.mods.push({ id: `rule#${statusId}#${cap}#${nextUidSeq(state)}`, kind: 'rule', rule });
+              hc.mods.push({ id: `rule#${statusId ?? 'always'}#${cap}#${nextUidSeq(state)}`, kind: 'rule', rule });
               events.push({
                 type: 'STATUS_OVERRIDDEN', side: t.side,
-                target: { kind: 'hand', index: t.index }, statusId, cap: rule.cap, value,
+                target: { kind: 'hand', index: t.index }, ...(statusId ? { statusId } : {}), cap: rule.cap, value,
               });
             }
           }
