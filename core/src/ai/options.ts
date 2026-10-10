@@ -361,6 +361,23 @@ export function generateOptions(state: MatchState, w: EvalWeights): AiOption[] {
       quick: 0,          // 预排序不表态，交给模拟层按"这张牌值多少"取舍
     }));
   }
+  // 结算中途的手牌选择（ADR-144，杨仪「筹度粮谷」）：与「发现」同理 ——
+  // 此刻引擎只接受 `CHOOSE_HAND`，别的动作一律被拒（拒了就是 AI 卡死到超时）。
+  // 排序口径：**费用低的排前面**（"放回牌库底"是损失，先损失最不值钱的那张）。
+  if (state.pendingHandChoice) {
+    const pending = state.pendingHandChoice;
+    const hand = state.sides[pending.side].hand;
+    const idx = pending.indices ?? hand.map((_, i) => i);
+    return idx
+      .filter((i) => i >= 0 && i < hand.length)
+      .sort((a, b) => (hand[a]!.card.cost - hand[b]!.card.cost) || (a - b))
+      .map((i) => ({
+        action: { type: 'CHOOSE_HAND', handIndex: i } as Action,
+        kind: 'play' as OptionKind,
+        label: `选手牌：${hand[i]!.card.name}`,
+        quick: 0,
+      }));
+  }
   const attacks = attackOptions(state, w);
   const plays = playOptions(state, w);
   const skills = skillOptions(state, w);

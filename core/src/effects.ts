@@ -319,6 +319,12 @@ function checkCondition(
     const targetSide = t.side;
     return cond.chosen_side === 'ally' ? targetSide === ctx.side : targetSide !== ctx.side;
   }
+  // ADR-148：所选目标是不是主公（华佗「医圣」）—— 与 chosen_side 同一套读法
+  if (cond.chosen_lord !== undefined) {
+    const t = ctx.chosen;
+    if (!t) return false;
+    if ((t.kind === 'lord') !== cond.chosen_lord) return false;
+  }
   return true;
 }
 
@@ -1235,7 +1241,13 @@ export function runEffects(
       }
       case 'discard': {
         // 弃牌（ADR-033）：作用对象是「一方的手牌」，不是场上单位
+        //
+        // ⚠️ ADR-148：弃牌**一张都没弃成**（目标方手牌为空 / 下标越界）时，必须把
+        // `lastDiscarded` **清掉**。否则后续按"弃掉那张牌"结算的效果
+        //（`value_from_discarded: cost`，周瑜「离间」的伤害 / 华佗「青囊」的治疗）
+        // 会读到**上一回合、甚至上一局**某次弃牌的残值 —— 凭空生效，日志里完全看不出来。
         const n = eff.count ?? 1;
+        let discardedAny = false;
         const sel = eff.target?.side ?? 'enemy';
         const sides: Side[] = sel === 'both' ? ['own', 'enemy']
           : sel === 'self' || sel === 'ally' ? [ctx.side] : [other(ctx.side)];
@@ -1251,9 +1263,11 @@ export function runEffects(
             if (!hc) continue;
             state.sides[side].discard.push(hc.card);
             (state as MatchState & { lastDiscarded?: unknown }).lastDiscarded = { card: hc.card, side };
+            discardedAny = true;
             events.push({ type: 'CARD_DISCARDED', side, card: hc.card });
           }
         }
+        if (!discardedAny) (state as MatchState & { lastDiscarded?: unknown }).lastDiscarded = undefined;
         break;
       }
       case 'add_to_deck': {
@@ -1319,22 +1333,39 @@ export function runEffects(
         //     所以 `deck_top` → `push`，`deck_bottom` → `unshift`。
         const hand = state.sides[ctx.side].hand;
         if (!hand.length) break;
-        const pick = eff.mode === 'choose' && typeof ctx.handIndex === 'number'
-          && ctx.handIndex >= 0 && ctx.handIndex < hand.length
-          ? ctx.handIndex                     // 玩家指定；未指定/越界一律退回随机，绝不静默失败
-          : rng.int(hand.length);
-        const [chosen] = hand.splice(pick, 1);
-        if (!chosen) break;
-        const toDeck = state.sides[ctx.side].deck;
-        // 只认顶/底两种明确落点；缺省 = 牌库底（本动作的语义），其余取值降级为随机位置
         const where: 'deck_top' | 'deck_bottom' | 'random' =
           eff.to === 'deck_top' ? 'deck_top'
             : eff.to === 'deck_bottom' || eff.to === undefined ? 'deck_bottom'
               : 'random';
-        if (where === 'deck_top') toDeck.push(chosen.card.id);
-        else if (where === 'deck_bottom') toDeck.unshift(chosen.card.id);
-        else toDeck.splice(rng.int(toDeck.length + 1), 0, chosen.card.id);
-        events.push({ type: 'CARD_RETURNED_TO_DECK', side: ctx.side, card: chosen.card, to: where });
+        /** 真正把某张手牌搬到牌库（延迟选择时由 `engine.chooseHand` 复用同一段逻辑） */
+        const move = (pick: number): void => {
+          const [chosen] = state.sides[ctx.side].hand.splice(pick, 1);
+          if (!chosen) return;
+          const toDeck = state.sides[ctx.side].deck;
+          if (where === 'deck_top') toDeck.push(chosen.card.id);
+          else if (where === 'deck_bottom') toDeck.unshift(chosen.card.id);
+          else toDeck.splice(rng.int(toDeck.length + 1), 0, chosen.card.id);
+          events.push({ type: 'CARD_RETURNED_TO_DECK', side: ctx.side, card: chosen.card, to: where });
+        };
+        if (eff.mode === 'choose') {
+          const given = ctx.handIndex;
+          if (typeof given === 'number' && given >= 0 && given < hand.length) {
+            move(given);                     // 调用方（UI/AI）已经指明了哪张 —— 直接用
+            break;
+          }
+          // 没指明（或越界）→ **挂起等玩家选**（ADR-144）。绝不能悄悄退回随机：
+          // 卡面写的是"选一张"，随机就是文案与实现不一致。
+          // `from_drawn: N` ⇒ 候选只在"本次结算刚抽到的最近 N 张"里（杨仪的"抽二选一"）。
+          const take = eff.from_drawn ?? 0;
+          const candidates = take > 0 ? hand.length - Math.min(take, hand.length) : 0;
+          const indices: number[] = [];
+          for (let i = candidates; i < hand.length; i++) indices.push(i);
+          state.pendingHandChoice = { side: ctx.side, kind: where, indices };
+          events.push({ type: 'HAND_CHOICE_OPTIONS', side: ctx.side, kind: where, indices });
+          break;
+        }
+        move(typeof ctx.handIndex === 'number' && ctx.handIndex >= 0 && ctx.handIndex < hand.length
+          ? ctx.handIndex : rng.int(hand.length));
         break;
       }
       case 'return_to_hand': {

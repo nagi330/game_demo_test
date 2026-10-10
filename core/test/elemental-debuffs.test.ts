@@ -9,7 +9,9 @@
  * | 水 | `shui_kun` 水困 | **行动时**（普攻 / 主动技结算后） | 受 2^(阶段-1) 点**水**伤（1/2/4/8…，无上限）；**不行动 = 完全不受伤** | 层数＝阶段，不封顶 | **永久** |
  * | 毒 | `zhong_du` 中毒 | 该方**回合结束** | **永久降低 N 点生命上限**（不造成伤害） | N = 层数，不封顶 | **永久** |
  *
- * 三系都可被净化（`kind: 'debuff'` → 华佗「青囊」的 `remove_kind: debuff` 按类驱散）。
+ * 三系都是 `kind: 'debuff'`，可被 `remove_status` + `remove_kind: debuff` 按类驱散。
+ * ⚠️ ADR-148：华佗「青囊」（原本唯一的净化载体）已改成「医圣」，**当前卡池没有任何卡带净化** ——
+ * 机制仍在（本文件验的就是它），但「谁来净化」需要补一张卡（已登记）。
  * 中毒的削上限**不可逆**：净化只能止住，已削的不恢复。
  *
  * ## 本文件的写法约定
@@ -30,8 +32,8 @@ import { applyAction, unitSkillTargetPlan } from '../src/engine.ts';
 import { applyStatus, removeStatus, resolveTurnEndStatuses, resolveTurnStartDamage, unitRef } from '../src/mutate.ts';
 import { getUnit, makeUnit, setUnit, statusStacks } from '../src/state.ts';
 import { STATUSES } from '../src/constants.ts';
-import { scenario } from './fixtures.ts';
-import type { CardDef, GameEvent, MatchState, Side, Unit } from '../src/types.ts';
+import { TEST_CARDS, scenario } from './fixtures.ts';
+import type { Action, CardDef, GameEvent, MatchState, Side, Unit } from '../src/types.ts';
 
 /* ============================================================
    夹具
@@ -316,6 +318,7 @@ test('水困：净化后清零 —— 不再推进、行动也不再收税', () 
 });
 
 test('水困：重复施加**取较大者、不降级**（stack_mode: max）—— 连续施加不会反而削弱', () => {
+  // 对照：直接调 mutate.removeStatus（API 层）逐个移除也应干净
   const { state, get } = board('enemy');
   const ref = unitRef('enemy', 'front', 3);
   applyStatus(state, ref, 'shui_kun', 2, []);
@@ -467,17 +470,44 @@ test('三系节奏：同一回合「回合开始＝灼烧 → 行动时＝水困
    净化与数据收口
    ============================================================ */
 
-test('净化：三系都是 debuff，按类驱散（华佗「青囊」remove_kind: debuff）能一起清掉', () => {
+test('净化：三系都是 debuff，按类驱散（remove_status + remove_kind: debuff）能一起清掉', () => {
+  // ⚠️ ADR-148：华佗改设计后**卡池里已没有带 remove_kind: debuff 的卡**，
+  // 所以这条改为直接验**机制本身**（动作与判定都还在，将来哪张卡接净化都能用）。
   for (const id of ['zhuo_shao', 'shui_kun', 'zhong_du']) {
     assert.equal(STATUSES[id]!.kind, 'debuff',
       `${id} 必须是 debuff，否则「按类别驱散」的净化会漏掉它`);
   }
-  const huatuo = realCard('qun_huatuo');
-  const qingnang = (huatuo.skills ?? []).find((s) => (s.effects ?? []).some((e) => e.action === 'remove_status'));
-  assert.ok(qingnang, '华佗「青囊」应有 remove_status');
-  assert.ok((qingnang!.effects ?? []).some((e) => e.action === 'remove_status' && e.remove_kind === 'debuff'),
-    '青囊按 remove_kind: debuff 批量驱散 —— 三系都在这条覆盖面里');
+  // 用**合成卡**跑一遍真实的「按类别驱散」代码路径（effects.ts 的 remove_kind 分支）——
+  // 不依赖任何真实卡：卡池里当前没有净化载体（ADR-148）。
+  const PURGE: CardDef = {
+    id: 'test_purge', name: '净化师', faction: 'qun', type: 'general', cost: 0, attack: 0, health: 5,
+    keywords: [], gender: 'male', memo: '测试：按类别驱散全部负面',
+    skills: [{
+      id: 'test_purge_sk', name: '净化', kind: 'trigger', trigger: 'on_play',
+      effects: [{ action: 'remove_status', remove_kind: 'debuff',
+        target: { side: 'ally', filter: { type: 'character' }, count: 1, mode: 'choose' } }],
+    }],
+  } as CardDef;
+  // ⚠️ 先注册再建场景：夹具的手牌是按 TEST_CARDS 查表的
+  if (!TEST_CARDS.some((c) => c.id === PURGE.id)) TEST_CARDS.push(PURGE);
+  const { state: s2, ctx: c2 } = scenario({ ownHand: ['test_purge'] });
+  setUnit(s2, 'own', 'front', 0, makeUnit(SANDBAG, 0, 977));
+  applyStatus(s2, unitRef('own', 'front', 0), 'zhuo_shao', 2, []);
+  applyStatus(s2, unitRef('own', 'front', 0), 'shui_kun', 1, []);
+  applyStatus(s2, unitRef('own', 'front', 0), 'zhong_du', 1, []);
+  applyStatus(s2, unitRef('own', 'front', 0), 'sheng_dun_status', 1, []);   // 正面：不该被清
+  const purge = applyAction(s2, c2, {
+    type: 'PLAY_CARD', cardIndex: 0, row: 'front', col: 4, target: { side: 'own', row: 'front', col: 0 },
+  } as Action);
+  assert.ok(purge.ok, purge.error ?? '');
+  const after = getUnit(purge.state, 'own', 'front', 0)!;
+  assert.deepEqual(
+    [statusStacks(after, 'zhuo_shao'), statusStacks(after, 'shui_kun'), statusStacks(after, 'zhong_du')],
+    [0, 0, 0], '三系应被一起清空',
+  );
+  assert.equal(statusStacks(after, 'sheng_dun_status'), 1, '正面状态不受影响（只按 debuff 类别）');
 
+  // 对照：直接调 mutate.removeStatus（API 层）逐个移除也应干净
   const { state, get } = board('enemy');
   const ref = unitRef('enemy', 'front', 3);
   applyStatus(state, ref, 'zhuo_shao', 2, []);

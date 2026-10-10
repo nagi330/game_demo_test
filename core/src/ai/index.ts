@@ -81,6 +81,18 @@ export function decide(state: MatchState, ctx: EngineContext): AiDecision {
       : empty;
   }
 
+  // 结算中途的手牌选择（ADR-144）：同理，此刻唯一的合法动作是 CHOOSE_HAND。
+  if (state.pendingHandChoice) {
+    const pending = state.pendingHandChoice;
+    const hand = state.sides[pending.side].hand;
+    const idx = (pending.indices ?? hand.map((_, i) => i))
+      .filter((i) => i >= 0 && i < hand.length)
+      .sort((a, b) => (hand[a]!.card.cost - hand[b]!.card.cost) || (a - b));   // 先放回最便宜的那张
+    return idx.length
+      ? { ...empty, action: { type: 'CHOOSE_HAND', handIndex: idx[0]! }, candidates: idx.length }
+      : empty;
+  }
+
   let options: AiOption[];
   try {
     options = generateOptions(state, w);

@@ -38,6 +38,13 @@ export interface EffectCondition {
   event?: 'killed' | 'clash_won' | 'clash_lost' | 'damaged'; // 本次结算中的事件
   /** 所选目标属于哪一方（陈宫「忠烈」：选敌将 vs 选友将走不同分支，ADR-069） */
   chosen_side?: 'ally' | 'enemy';
+  /**
+   * 所选目标**是不是主公**（ADR-148，华佗「医圣」＝治人物回 2 血、治主公额外抽一张）。
+   *
+   * `chosen_side` 的姊妹条件：那个判"哪一方"，这个判"是不是主将"。配合
+   * `filter: { include_lord: true }` 的选择器使用（候选池里同时有人物与主公）。
+   */
+  chosen_lord?: boolean;
   /** 完整回合数上限（马超「首回合击杀」= turn_max:1，ADR-070） */
   turn_max?: number;
   /** 本次被击杀者的卡牌类型（马超只认「武将」，ADR-070） */
@@ -97,6 +104,13 @@ export interface CardEffect {
    * 例：`{ reduce_physical: 2, vulnerable_fire: 0 }` ＝ 藤甲强化（物理 −2、不再怕火）。
    */
   caps?: Partial<Record<StatusCap, number>>;
+  /**
+   * `send_hand_to_deck` + `mode: 'choose'` 专用（ADR-144）：**只在本次结算刚抽到的最近 N 张里选**。
+   *
+   * 杨仪「筹度粮谷」＝抽 2 选 1，候选应当是**刚抽到的那两张**，而不是整只手牌
+   *（否则等于"任意弃一张"，比卡面写的强）。缺省 = 全部手牌。
+   */
+  from_drawn?: number;
   value_from_discarded?: 'cost' | 'health';   // 取「最近被弃牌」的属性作为数值（ADR-040）
   value_from_source?: 'attack' | 'health';    // 取来源单位当前攻/血作为数值
   damage_type?: DamageType;       // damage 专用：水攻/火攻/毒攻伤害（缺省 physical，见 DamageType）
@@ -488,6 +502,21 @@ export interface MatchState {
   /** 发现流程暂停时，等待继续结算的同一时机触发技队列。 */
   pendingTriggerSkills?: { side: Side; trigger: string; nextIndex: number };
   /**
+   * 「结算中途要求玩家选一张**手牌**」（ADR-144，杨仪「筹度粮谷」）
+   *
+   * 与 `pendingDiscover` 同一套暂停机制，区别是**候选在手牌里**而不是牌库里。
+   * 为什么必须有它：`mode: 'choose'` 读的是 `ctx.handIndex`，那是**动作提交时**就固定下来的下标；
+   * 而「先抽两张、再选一张放回牌库底」的选择发生在**结算中间**（抽完才知道有哪些候选），
+   * 提交动作时根本传不出正确下标 —— 没有这套暂停就只能退化成随机，与卡面文案不符。
+   */
+  pendingHandChoice?: {
+    side: Side;
+    /** 选完之后做什么（目前只有放回牌库顶/底，为"弃一张""交给对手"留扩展位） */
+    kind: 'deck_top' | 'deck_bottom' | 'random' | 'discard';
+    /** 只允许在这些手牌下标里选（如"刚抽到的那两张"）；缺省 = 全部手牌 */
+    indices?: number[];
+  };
+  /**
    * 「阵亡后重建于手牌」的次数计数（ADR-141，孟获「蛮王」）
    *
    * 按 **cardId** 计数（孟获同名唯一，一个卡组只放 1 张）。放下这里而不是手牌 mod 的原因：
@@ -515,6 +544,8 @@ export type Action =
        */
       handIndex?: number }
   | { type: 'CHOOSE_DISCOVER'; cardId: string }
+  /** 结算中途的**手牌**选择（ADR-144，杨仪「筹度粮谷」）：只在 `pendingHandChoice` 挂起时可用 */
+  | { type: 'CHOOSE_HAND'; handIndex: number }
   /**
    * 升变（ADR-114 / ADR-116）。
    *
@@ -571,6 +602,10 @@ export type GameEvent =
   /** 阵亡后重建于手牌（ADR-141，孟获「蛮王」）：`times` = 第几次收回，`exceeded` = 已超过上限转给对手 */
   | { type: 'CARD_REBUILT_IN_HAND'; side: Side; card: CardDef; times: number; exceeded: boolean;
       costDelta: number; healthDelta: number }
+  /** 结算中途要求玩家选一张手牌（ADR-144）：`indices` = 可选的候选手牌下标 */
+  | { type: 'HAND_CHOICE_OPTIONS'; side: Side; kind: string; indices: number[] }
+  /** 玩家选定了哪张手牌与它的去向（ADR-144，杨仪「筹度粮谷」） */
+  | { type: 'HAND_CHOSEN'; side: Side; card: CardDef; kind: string }
   /** 某状态的某个档位被规则覆盖（ADR-142，兀突骨「藤甲统率」） */
   | { type: 'STATUS_OVERRIDDEN'; side: Side; target: { kind: 'unit' | 'hand'; row?: Row; col?: number; index?: number };
       statusId: string; cap: StatusCap; value: number }

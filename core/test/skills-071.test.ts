@@ -288,15 +288,23 @@ test('B-6 时序：魏延两条分支都在数据里（攻击时 / 受创时）�
 });
 
 /* ============================================================
-   B-7 批量驱散 — 华佗「青囊」
+   B-7 批量驱散 —— 载体改用**合成卡**
+   （ADR-148：原载体华佗「青囊」已改成「医圣」，不再驱散；机制本身保留）
    ============================================================ */
 
-test('B-7 批量驱散：清掉目标身上**全部**负面，buff 不受影响', () => {
-  const hua = realCard('qun_huatuo');
-  assert.ok(hua.skills!.some((s) => s.effects?.some((e) => e.remove_kind === 'debuff')),
-    '「清除其负面效果状态」应翻译成 remove_kind: debuff');
+const PURGE: CardDef = {
+  id: 'test_purge_071', name: '净化师', faction: 'qun', type: 'general', cost: 0, attack: 0, health: 5,
+  keywords: [], gender: 'male', memo: '测试：按类别驱散全部负面',
+  skills: [{
+    id: 'test_purge_071_sk', name: '净化', kind: 'trigger', trigger: 'on_play',
+    effects: [{ action: 'remove_status', remove_kind: 'debuff',
+      target: { side: 'ally', filter: { type: 'character' }, count: 1, mode: 'choose' } }],
+  }],
+} as CardDef;
 
-  const { state, ctx } = scenario({ own: { front: ['qun_huatuo'] }, ownHand: ['neutral_infantry'] });
+test('B-7 批量驱散：清掉目标身上**全部**负面，buff 不受影响', () => {
+  if (!TEST_CARDS.some((c) => c.id === PURGE.id)) TEST_CARDS.push(PURGE);
+  const { state, ctx } = scenario({ ownHand: [PURGE.id] });
   const patient = mk('patient', 2, 10, {}, 'shu');
   patient.hp = 4;
   setUnit(state, 'own', 'front', 1, patient);
@@ -304,16 +312,15 @@ test('B-7 批量驱散：清掉目标身上**全部**负面，buff 不受影响'
   applyStatus(state, unitRef('own', 'front', 1), 'zhen_fen', 1, []);
 
   const r = applyAction(state, ctx, {
-    type: 'USE_SKILL', row: 'front', col: 0, target: { side: 'own', row: 'front', col: 1 },
+    type: 'PLAY_CARD', cardIndex: 0, row: 'front', col: 0, target: { side: 'own', row: 'front', col: 1 },
   });
-  assert.ok(r.ok, `主动技应成功：${r.error}`);
+  assert.ok(r.ok, `按类别驱散应成功：${r.error}`);
 
   const after = getUnit(r.state, 'own', 'front', 1)!;
   for (const s of ['zhen_she', 'hun_luan', 'xu_ruo']) {
     assert.equal(after.statuses[s], undefined, `负面状态 ${s} 应被清掉`);
   }
   assert.ok(after.statuses.zhen_fen, '正面状态（振奋）不该被清');
-  assert.ok(after.hp > 4, '同时应按弃牌统率值治疗');
 });
 
 test('B-7 批量驱散：清掉的状态确实是 debuff 集合（与 STATUSES 表一致）', () => {

@@ -2722,7 +2722,7 @@
   attack: 3
   health: 6
   tags:
-  - shi_zu
+  - yuan_shi
   memo: 每回合送弓兵；战吼塞万箭齐发，亡语全塞给对手
   gender: male
   keywords: []
@@ -2870,40 +2870,38 @@
   cost: 4
   attack: 0
   health: 5
-  memo: 弃 1 张牌，按它的统率回血并清掉全部负面
+  memo: 每回合治疗一人 2 血；治主公额外抽一张
+  note: >
+    4 费 0/5 = 5 点，比基准（9）低 4 点，换每回合一次的稳定治疗（4 费的价格里含"可反复使用"）。
+    ⚠️ ADR-148：原设计是"弃一张手牌，按其统率回血"，需要**两步选择**（先点手牌再选目标），
+    设计者反馈太重、改为直接治疗 —— 更简单也更贴"神医"。
+    「治主公额外抽一张」用新增条件 `chosen_lord` 表达（与 `chosen_side` 同源，读 `ctx.chosen`）；
+    候选池用 `include_lord: true` 把主公并进人物池。
   gender: male
   keywords:
   - zhan_ji
   skills:
-  - id: qing_nang
-    name: 青囊
+  - id: yi_sheng
+    name: 医圣
     kind: active
     cost: 0
     frequency: once_per_turn
+    text: 战技（每回合一次）：治疗一位人物恢复 2 点生命；若治疗的是主公，额外抽一张牌。
     effects:
-    - action: discard
-      count: 1
-      target:
-        side: self
-        zone: hand
     - action: heal
-      value_from_discarded: cost
+      value: 2
       target:
         side: ally
         filter:
           type: character
+          include_lord: true
         count: 1
         mode: choose
-    - action: remove_status
-      remove_kind: debuff
-      target:
-        side: ally
-        filter:
-          type: character
-        count: 1
-        mode: choose
-    text: 可弃掉自己手中一张手牌.恢复指定场上一个人物 其对应弃掉牌统帅值的血量.并清除其负面效果状态.每回合限一次.
-  flavor: ''
+    - action: draw
+      value: 1
+      condition:
+        chosen_lord: true
+  flavor: '醫者仁心，刮骨療毒。'
 - id: qun_tianfeng
   name: 田丰
   faction: qun
@@ -3193,7 +3191,7 @@
   attack: 1
   health: 1
   tags:
-  - shi_zu
+  - yuan_shi
   memo: 袁绍召唤的 1/1 衍生物
   gender: male
   keywords: []
@@ -5439,3 +5437,336 @@
     condition:
       exists: { side: self, filter: { card_id: shu_liannushi } }
   flavor: '元戎十乘，以先启行。'
+
+# ============================================================================
+# 蜀国新增将领 · 11 张（2026-10-08 设计定稿；ADR-138 / 139 / 141 / 142 / 143 / 144）
+#   设计基线见 docs/shu_new_generals_design_2026_10_08_v0.md §1，入库待办见该文 §5
+#   数值口径：白板属性点 ≈ 2×费用+1，架盾按 §3 关键词表记 −1（13-balance-data-model.md）
+# ============================================================================
+
+- id: shu_wangping
+  name: 王平
+  faction: shu
+  type: general
+  cost: 4
+  attack: 3
+  health: 4
+  gender: male
+  keywords: []
+  memo: 战吼增益无当飞军；阵亡再送一个
+  note: >
+    4 费 3/4 = 7 点，比 4 费基准（9）低 2 点，换两条「无当飞军」联动。
+    手牌那半边靠 ADR-141 的手牌数值修正（**战吼**而非光环：光环的手牌修正会带 auraId，牌一打出就消失）。
+  skills:
+  - id: fei_jun_tong_ling
+    name: 飞军统率
+    kind: trigger
+    trigger: on_play
+    text: 战吼：己方场上与手牌里的无当飞军永久 +1/+1。
+    effects:
+    - action: modify
+      attack: 1
+      health: 1
+      target: { side: ally, filter: { type: character, card_id: shu_wudangfeijun }, count: all }
+    - action: modify
+      attack: 1
+      health: 1
+      target: { side: ally, zone: hand, filter: { type: character, card_id: shu_wudangfeijun }, count: all }
+  - id: fei_jun_yi_zhi
+    name: 飞军遗志
+    kind: trigger
+    trigger: on_death
+    text: 亡语：召唤一个无当飞军。
+    effects:
+    - action: summon
+      unit: shu_wudangfeijun
+      count: 1
+      position: random
+  flavor: '鳴鼓自守，賊不敢逼。'
+
+- id: shu_wutugu
+  name: 兀突骨
+  faction: shu
+  type: general
+  cost: 5
+  attack: 3
+  health: 6
+  gender: male
+  tags:
+  - man_zu
+  keywords: []
+  memo: 战吼强化藤甲兵：物理 −2 且不再怕火
+  note: >
+    5 费 3/6 = 9 点，比基准（11）低 2 点，换全队藤甲强化。
+    「藤甲强化」不是加层数（那会把"怕火"一起放大），而是 ADR-142 的**档位覆盖**：
+    reduce_physical 覆盖为 2、vulnerable_fire 覆盖为 0。仅在该单位确实带藤甲时生效。
+  skills:
+  - id: teng_jia_tong_ling
+    name: 藤甲统率
+    kind: trigger
+    trigger: on_play
+    text: 战吼：己方场上带「藤甲」的角色与手牌里的藤甲兵获得藤甲强化 —— 受到非火属性伤害 −2（原 −1），且不再额外受到火属性伤害。
+    effects:
+    - action: override_status
+      status: teng_jia
+      caps: { reduce_physical: 2, vulnerable_fire: 0 }
+      target: { side: ally, filter: { type: character, has_status: teng_jia }, count: all }
+    - action: override_status
+      status: teng_jia
+      caps: { reduce_physical: 2, vulnerable_fire: 0 }
+      target: { side: ally, zone: hand, filter: { type: character, card_id: shu_tengjiabing }, count: all }
+  flavor: '烏戈國主，藤甲三萬，刀箭不入。'
+
+- id: shu_menghuo
+  name: 孟获
+  faction: shu
+  type: general
+  cost: 8
+  attack: 4
+  health: 7
+  gender: male
+  tags:
+  - man_zu
+  keywords: []
+  memo: 战吼增益南蛮同胞；阵亡后收回手牌，最多 6 次
+  note: >
+    8 费 4/7 = 11 点，比基准（17）低 6 点 —— 价值全在「七擒」：每次阵亡都能再上场一次，
+    最多 7 次（第 7 次改由对手获得），累计价值远超一次性的高属性。
+    ⚠️ 收回惩罚（−1 费 / −1 血上限）是**永久**的，跟着这张手牌走（ADR-141 的 HandMod.health）。
+    ⚠️ 「蛮王」是**战吼**不是光环：手牌加成必须不带 auraId，否则牌一打出就没了。
+  skills:
+  - id: man_wang
+    name: 蛮王
+    kind: trigger
+    trigger: on_play
+    text: 战吼：己方场上与手牌里**除孟获以外**的南蛮人物永久 +2/+2。
+    effects:
+    - action: modify
+      attack: 2
+      health: 2
+      target: { side: ally, filter: { type: character, tag: man_zu, exclude_source: true }, count: all }
+    - action: modify
+      attack: 2
+      health: 2
+      target: { side: ally, zone: hand, filter: { type: character, tag: man_zu, exclude_source: true }, count: all }
+  - id: qi_qin
+    name: 七擒
+    kind: trigger
+    trigger: on_death
+    text: 亡语：将孟获收回手牌（最多 6 次）；每次收回使其 −1 费、−1 生命上限；第 7 次改由对手获得。
+    effects:
+    - action: self_to_hand
+      count: 6
+      value: -1
+      health: -1
+      overflow: enemy
+  flavor: '七縱七禽，南人不復反矣。'
+
+- id: shu_duosi
+  name: 朵思大王
+  faction: shu
+  type: general
+  cost: 4
+  attack: 2
+  health: 5
+  gender: male
+  tags:
+  - man_zu
+  keywords: []
+  memo: 战吼：敌方全体中毒
+  note: >
+    4 费 2/5 = 7 点，比基准（9）低 2 点，换一条全体毒攻。
+    「中毒」由 ADR-138 的全局规则自动挂上（毒攻伤害 → 中毒 1 层），卡面无需显式 apply_status，
+    写了反而会变成每次 2 层。
+  skills:
+  - id: du_quan
+    name: 毒泉
+    kind: trigger
+    trigger: on_play
+    text: 战吼：对所有敌方人物造成 1 点毒攻伤害，并使其中毒（该方回合结束时永久降低 1 点生命上限，可叠加）。
+    effects:
+    - action: damage
+      value: 1
+      damage_type: poison
+      target: { side: enemy, filter: { type: character }, count: all }
+  flavor: '禿龍洞四眼毒泉，飲之立斃。'
+
+- id: shu_luoxian
+  name: 罗宪
+  faction: shu
+  type: general
+  cost: 4
+  attack: 2
+  health: 6
+  gender: male
+  keywords: [jia_dun]
+  memo: 架盾；单独在场时 +2/+2
+  note: >
+    4 费 2/6 = 8 点，架盾记 −1 → 7 点，比基准（9）低 2 点，换「孤城」的 +2/+2。
+    架盾**只能**写成卡面基础关键词（引擎没有授予关键词的动作，全池 20 张都这么写）。
+    「孤城」用光环 + count 条件：己方场上人物数 == 1（只有他自己）。
+  skills:
+  - id: gu_cheng
+    name: 孤城
+    kind: aura
+    text: 己方场上只有罗宪自己时，他获得 +2/+2。
+    effects:
+    - action: modify
+      attack: 2
+      health: 2
+      target: { source: true }
+      condition:
+        count: { selector: { side: ally, filter: { type: character } }, op: '==', value: 1 }
+  flavor: '畢命於此矣。'
+
+- id: shu_fuqian
+  name: 傅佥
+  faction: shu
+  type: general
+  cost: 4
+  attack: 4
+  health: 4
+  gender: male
+  keywords: []
+  memo: 亡语：消灭击杀者
+  note: 4 费 4/4 = 8 点，比基准（9）低 1 点，换一条"同归于尽"的亡语（对高攻单位是硬解）。
+  skills:
+  - id: si_jie
+    name: 死节
+    kind: trigger
+    trigger: on_death
+    text: 亡语：消灭击杀者。
+    effects:
+    - action: destroy
+      target: { event: killer }
+  flavor: '奕世忠義。'
+
+- id: shu_jiangwan
+  name: 蒋琬
+  faction: shu
+  type: strategist
+  cost: 4
+  attack: 1
+  health: 4
+  gender: male
+  keywords: []
+  memo: 每己方回合开始，主公统率上限 +1
+  note: >
+    4 费 1/4 = 5 点，比基准（9）低 4 点 —— 谋臣属性低是常态，价值在长期的统率 ramp。
+    ⚠️ 必须用 `permanent: true`（ADR-139）：回合开始会把 cur 回满，只加 cur 的写法收益恒为 0。
+  skills:
+  - id: zu_shi
+    name: 足食
+    kind: trigger
+    trigger: turn_start
+    text: 己方回合开始时，主公统率上限 +1（本局永久，封顶 10）。
+    effects:
+    - action: gain_command
+      value: 1
+      permanent: true
+  flavor: '足食足兵，以相供給。'
+
+- id: shu_feiyi
+  name: 费祎
+  faction: shu
+  type: strategist
+  cost: 4
+  attack: 1
+  health: 4
+  gender: male
+  keywords: []
+  memo: 回合结束己方全体回 1 血
+  note: 4 费 1/4 = 5 点，比基准（9）低 4 点，换每回合一次的群体回复（拖延与续航）。只回**场上人物**，不含主公。
+  skills:
+  - id: xi_bing
+    name: 息兵
+    kind: trigger
+    trigger: turn_end
+    text: 己方回合结束时，己方全体人物恢复 1 点生命。
+    effects:
+    - action: heal
+      value: 1
+      target: { side: ally, filter: { type: character }, count: all }
+  flavor: '休養生息，與民更始。'
+
+- id: shu_dongyun
+  name: 董允
+  faction: shu
+  type: strategist
+  cost: 3
+  attack: 1
+  health: 4
+  gender: male
+  keywords: []
+  memo: 主公技每回合可多用一次
+  note: >
+    3 费 1/4 = 5 点，比基准（7）低 2 点，换主公技次数 +1（「参谋」状态）。
+    `can_mou` 是引擎既有能力（caps: extra_lord_skill，作用域主公、永久），全池此前无人使用；
+    必须指定 `target: { side: self, lord: true }` —— 引擎读的是**主公**身上的状态。
+  skills:
+  - id: zhi_jian
+    name: 直谏
+    kind: trigger
+    trigger: on_play
+    text: 战吼：己方主公获得「参谋」—— 本局每回合主公技可多使用 1 次。
+    effects:
+    - action: apply_status
+      status: can_mou
+      stacks: 1
+      target: { side: self, lord: true }
+  flavor: '終允之世，皓位不過黃門丞。'
+
+- id: shu_yanyan
+  name: 严颜
+  faction: shu
+  type: general
+  cost: 3
+  attack: 2
+  health: 6
+  gender: male
+  keywords: [jia_dun]
+  memo: 架盾；亡语反噬击杀者 3 点
+  note: >
+    3 费 2/6 = 8 点，架盾记 −1 → 7 点，**正好等于 3 费基准（7）**，再送一条亡语。
+    亡语只在被**单位**击杀时有目标（取不到 killer 时空转），有天然折扣；
+    若实机偏强，先降反噬 3 → 2，不要动费用。
+  skills:
+  - id: si_zhan
+    name: 死战
+    kind: trigger
+    trigger: on_death
+    text: 亡语「断头将军」：对击杀者造成 3 点伤害。
+    effects:
+    - action: damage
+      value: 3
+      target: { event: killer }
+  flavor: '但有斷頭將軍，無有降將軍也。'
+
+- id: shu_yangyi
+  name: 杨仪
+  faction: shu
+  type: strategist
+  cost: 4
+  attack: 1
+  health: 4
+  gender: male
+  keywords: []
+  memo: 战技：抽两张，选一张留手、另一张回牌库底
+  note: >
+    4 费 1/4 = 5 点，比基准（9）低 4 点，换取每回合一次的过牌筛选。
+    `from_drawn: 2` 把候选锁死在**刚抽到的那两张**（ADR-144）——
+    否则等于"任意弃一张"，比卡面写的强。选择通过 `pendingHandChoice` 挂起，由玩家点手牌决定。
+  skills:
+  - id: chou_du_liang_gu
+    name: 筹度粮谷
+    kind: active
+    frequency: once_per_turn
+    text: 战技（每回合一次）：抽两张牌，选一张留在手里，另一张放回牌库底部。
+    effects:
+    - action: draw
+      value: 2
+    - action: send_hand_to_deck
+      to: deck_bottom
+      mode: choose
+      from_drawn: 2
+  flavor: '籌度糧穀，不稽思慮，斯須便了。'

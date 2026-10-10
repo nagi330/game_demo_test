@@ -18,6 +18,7 @@ import assert from 'node:assert/strict';
 
 import { applyAction } from '../src/engine.ts';
 import { drawCard } from '../src/mutate.ts';
+import { decide } from '../src/ai/index.ts';
 import { getUnit, makeUnit, setUnit } from '../src/state.ts';
 import { TEST_CARDS, scenario } from './fixtures.ts';
 import type { Action, CardDef, GameEvent } from '../src/types.ts';
@@ -50,7 +51,7 @@ const DRAW2_KEEP1: CardDef = {
     id: 'test_draw2_keep1_sk', name: '筹度粮谷', kind: 'active', frequency: 'once_per_turn',
     effects: [
       { action: 'draw', value: 2 },
-      { action: 'send_hand_to_deck', to: 'deck_bottom', mode: 'choose' },
+      { action: 'send_hand_to_deck', to: 'deck_bottom', mode: 'choose', from_drawn: 2 },
     ],
   }],
 } as CardDef;
@@ -101,14 +102,87 @@ test('放回牌库顶：牌进数组**末尾**，下一次抽牌立刻抽到它'
   assert.equal(NAMES[drawn.card.id], '步兵', '刚放回顶部的那张应被下一抽拿到');
 });
 
-test('handIndex 越界 / 缺省 → 退回随机，绝不静默失败', () => {
+test('handIndex 越界 / 缺省 → **挂起等玩家选**（ADR-144，不再悄悄退回随机）', () => {
   const { state, ctx } = scene(TO_BOTTOM);
   const before = state.sides.own.hand.length;
   const r = playCard(state, ctx, { handIndex: 99 });
   assert.ok(r.ok, r.error ?? '');
-  assert.equal(r.state.sides.own.hand.length, before - 2,
-    '打出的卡 + 随机放回 1 张 = 手牌 -2（越界不是"什么都不做"）');
-  assert.equal(r.state.sides.own.deck.length, 4, '牌库应 +1');
+  assert.equal(r.state.sides.own.hand.length, before - 1, '只少了打出的那张：还没放回');
+  assert.equal(r.state.sides.own.deck.length, 3, '牌库不变');
+  assert.ok(r.state.pendingHandChoice, '挂起了手牌选择');
+  assert.equal(r.state.pendingHandChoice!.kind, 'deck_bottom', '去向：牌库底');
+  assert.deepEqual(r.state.pendingHandChoice!.indices, [0, 1],
+    '候选＝全部手牌（没有 from_drawn 限制）');
+  assert.ok((r.events as GameEvent[]).some((e) => e.type === 'HAND_CHOICE_OPTIONS'),
+    '发 HAND_CHOICE_OPTIONS 让 UI 弹选择器');
+});
+
+test('挂起期间其它动作一律被拒（与「发现」同一套暂停语义）', () => {
+  const { state, ctx } = scene(TO_BOTTOM);
+  const pending = playCard(state, ctx, {});
+  assert.ok(pending.ok, pending.error ?? '');
+  assert.ok(pending.state.pendingHandChoice, '先制造挂起');
+  const again = applyAction(pending.state, ctx, { type: 'END_TURN' } as Action);
+  assert.equal(again.ok, false, '挂起时结束回合应被拒');
+  assert.match(String(again.error), /请先选择一张手牌/);
+  assert.deepEqual(again.state, pending.state, '被拒时状态原样返回（动作原子性）');
+});
+
+test('CHOOSE_HAND 结算：选中的那张进牌库**底**，挂起清除', () => {
+  const { state, ctx } = scene(TO_BOTTOM);
+  const pending = playCard(state, ctx, {});
+  assert.ok(pending.ok, pending.error ?? '');
+  const r = applyAction(pending.state, ctx, { type: 'CHOOSE_HAND', handIndex: 0 } as Action);
+  assert.ok(r.ok, r.error ?? '');
+  assert.equal(r.state.pendingHandChoice, undefined, '挂起已清除');
+  assert.equal(r.state.sides.own.hand.length, 1, '手牌少一张');
+  assert.equal(r.state.sides.own.deck[0], 'neutral_infantry',
+    '数组开头 = 牌库底（选的是原来手牌 0 号：步兵）');
+  assert.ok((r.events as GameEvent[]).some((e) => e.type === 'HAND_CHOSEN' && e.card.id === 'neutral_infantry'));
+});
+
+test('CHOOSE_HAND 的越界与白名单外下标都会被拒', () => {
+  const { state, ctx } = scene(TO_BOTTOM);
+  const pending = playCard(state, ctx, {});
+  assert.ok(pending.ok, pending.error ?? '');
+  assert.equal(applyAction(pending.state, ctx, { type: 'CHOOSE_HAND', handIndex: 9 } as Action).ok, false,
+    '越界被拒');
+  assert.equal(applyAction(pending.state, ctx, { type: 'CHOOSE_HAND', handIndex: -1 } as Action).ok, false,
+    '负数被拒');
+  assert.ok(applyAction(pending.state, ctx, { type: 'CHOOSE_HAND', handIndex: 1 } as Action).ok,
+    '合法下标可以通过');
+});
+
+test('from_drawn: 2 → 候选锁死在**刚抽到的那两张**（杨仪「抽二选一」）', () => {
+  const { state, ctx } = scene(DRAW2_KEEP1, []);
+  setUnit(state, 'own', 'front', 4, makeUnit(DRAW2_KEEP1, 0, 921));
+  state.sides.own.hand = [{ card: DRAW2_KEEP1, mods: [] }];
+  state.sides.own.deck = ['neutral_infantry', 'neutral_shieldman', 'neutral_archer'];
+
+  const r = applyAction(state, ctx, { type: 'USE_SKILL', row: 'front', col: 4 } as Action);
+  assert.ok(r.ok, r.error ?? '');
+  // 抽 2 之后手牌 = [筹度, archer, shieldman]；候选应是**后两张**（刚抽到的）
+  assert.ok(r.state.pendingHandChoice, '抽完挂起选择');
+  assert.deepEqual(r.state.pendingHandChoice!.indices, [1, 2],
+    '候选＝刚抽到的 archer / shieldman，不含原来的「筹度」');
+
+  const done = applyAction(r.state, ctx, { type: 'CHOOSE_HAND', handIndex: 2 } as Action);
+  assert.ok(done.ok, done.error ?? '');
+  assert.deepEqual(done.state.sides.own.hand.map((h) => h.card.id),
+    [DRAW2_KEEP1.id, 'neutral_archer'], '保留了 archer，把 shieldman 放回');
+  assert.deepEqual(done.state.sides.own.deck, ['neutral_shieldman', 'neutral_infantry'],
+    'shieldman 落在牌库底');
+});
+
+test('AI 在挂起时会给出 CHOOSE_HAND（否则对局会卡死到超时）', () => {
+  const { state, ctx } = scene(DRAW2_KEEP1, []);
+  setUnit(state, 'own', 'front', 4, makeUnit(DRAW2_KEEP1, 0, 921));
+  state.sides.own.hand = [{ card: DRAW2_KEEP1, mods: [] }];
+  const r = applyAction(state, ctx, { type: 'USE_SKILL', row: 'front', col: 4 } as Action);
+  assert.ok(r.ok, r.error ?? '');
+  const decision = decide(r.state, ctx);
+  assert.ok(decision.action, 'AI 必须给出动作');
+  assert.equal(decision.action!.type, 'CHOOSE_HAND', '挂起时唯一合法的动作就是它');
 });
 
 test('手牌为空时空转（不抛异常、不动牌库）', () => {

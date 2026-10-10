@@ -263,18 +263,22 @@ test('田丰 刚而直谏：封锁己方主公技一回合', () => {
   assert.equal(r2.ok, false, '被封锁时主公技应不可用');
 });
 
-/* ================= 华佗：弃牌按其费用回血 + 清除负面 ================= */
+/* ================= 华佗：医圣（治疗 2；治主公额外抽一张）================= */
+// ADR-148 改设计：旧的「青囊」（弃一张手牌按其统率回血 + 清负面）已作废，
+// 详细用例见 huatuo-yisheng.test.ts；这里只留一条能放出来的烟测。
 
-test('华佗 青囊：弃一张手牌，按该牌统帅值回血并清除负面状态', () => {
+test('华佗 医圣：治疗一位己方人物 2 点（真实卡）', () => {
   realCard('qun_huatuo');
-  const { state, ctx } = scenario({ ownHand: ['qun_huatuo', 'test_champion'] });
+  const { state, ctx } = scenario({ own: { front: ['qun_huatuo'] } });   // 用真实卡上场
   const patient = u('sick', 2, 6, [], 'shu');
   patient.hp = 1;
-  patient.statuses.zhen_she = { stacks: 1, turns: 2 };
-  setUnit(state, 'own', 'front', 0, patient);
+  setUnit(state, 'own', 'front', 1, patient);
 
-  const r = applyAction(state, ctx, { type: 'USE_SKILL', row: 'front', col: 1 } as Action);
-  void r;
+  const r = applyAction(state, ctx, {
+    type: 'USE_SKILL', row: 'front', col: 0, target: { side: 'own', row: 'front', col: 1 },
+  } as Action);
+  assert.ok(r.ok, r.error ?? '');
+  assert.equal((r.state.sides.own.rows.front[1] as { hp: number }).hp, 3, '1 → 3（+2）');
 });
 
 /* ================= 丁奉：条件费用规则 ================= */

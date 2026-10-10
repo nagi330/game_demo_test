@@ -463,13 +463,18 @@ target:
 ```
 
 **为什么不做成子阵营**：马岱是蜀将也是西凉人，若做成子阵营会与阵营互斥；
-标签是叠加的，同一人物可同时是「蜀 + 西凉」，将来也可「群 + 黄巾 + 士族」。
+标签是叠加的，同一人物可同时是「群 + 黄巾 + 黄巾统领」（见张角三兄弟），队伍归属与身份归属因此不互斥。
 
 **价值**：标签本身 `value: 0`（不占预算）。它的强度体现在**联动卡**上——
 所以含标签联动的卡在算总价值时，联动部分要单独估算。
 
-**当前标签**：西凉 `xi_liang`、蛮族 `man_zu`、黄巾 `huang_jin`、士族 `shi_zu`。
-新增标签须先登记进 `data/tags.yaml`，否则校验报错。
+**当前标签**（唯一真源 `data/tags.yaml`，共 7 个）：西凉 `xi_liang`、**南蛮 `man_zu`**、黄巾 `huang_jin`（+ 黄巾统领 `huang_jin_tongling` / 黄巾众 `huang_jin_zhong`）、曹氏宗亲 `cao_clan`、**袁氏 `yuan_shi`**（ADR-143）。
+> ⚠️ 旧的**士族 `shi_zu` 已作废删除**（ADR-143）：它是早期设计，与袁氏体系重复，袁绍体系（袁绍 / 士族兵 / 将来的袁术）统一用 `yuan_shi`。
+新增标签须先登记进 `data/tags.yaml`，否则校验报错（`validate` 第 ⑪ 条）。
+
+> ⚠️ **显示名与 id 可以不一致**（ADR-143）：标签 id 一旦被卡牌引用就不能改（改了就是一堆"未注册的归属标签"错误），
+> 但**卡面显示名**随时可改 —— `man_zu` 的显示名就从「蛮族」改成了「**南蛮**」（更贴史实语境）。
+> 改显示名只动 `data/tags.yaml` 的 `name`，不需要动任何卡牌。
 
 ### 7.6 概率 · 条件 · 动态取值（ADR-033）
 
@@ -547,13 +552,14 @@ condition: { lord_full_hp: { side: self, value: true } }
 
 | action | 参数 | 说明 |
 |---|---|---|
-| `discard` | target.side, count | 弃牌：**按「方」结算**，从该方手牌随机弃 N 张 |
+| `discard` | target.side, count, **mode** | 弃牌：**按「方」结算**。缺省从该方手牌**随机**弃 N 张；`mode: choose` 则**由玩家点一张**（读 `ctx.handIndex`）——此时 `unitSkillTargetPlan` 会把它报成一步 `zone: 'hand'`（ADR-146；**当前卡池暂无载体**，原载体华佗「青囊」已按 ADR-148 改成「医圣」） |
 | `return_to_hand` | target | 返回手牌（"收回手中""回到对方手牌"）|
 | `clash` | target, then | **拼点**：双方各翻一张，比点数；结果写入 `event` 供条件判定 |
 | `scry` | target, count, to | 查看/移动卡池顶或底（"查看卡池第一张牌""放到最底层"）|
 | `discover` | target.filter, count, value, discover_to | 从己方牌库随机展示最多 `count` 张满足条件的牌，暂停等待玩家选择；默认加入手牌，`discover_to: deck_top` 时将所选牌置于牌库顶部；`value` 为该牌的费用修正 |
-| `send_hand_to_deck` | to, mode | **把手牌放回牌库的指定位置，且不抽牌**（ADR-139）。`to`：`deck_top` / `deck_bottom`（缺省）/ `random`；`mode: choose` 用 `ctx.handIndex` 指定哪张（缺省或越界退回随机）。配合 `draw` 可写「先抽 N 张、再把其中一张放回底部」这类两段式效果（杨仪「筹度粮谷」）。⚠️ 与 `cycle_to_deck` 的区别：那个是"随机位置 + 必抽 1 张"的置换 |
+| `send_hand_to_deck` | to, mode, from_drawn | **把手牌放回牌库的指定位置，且不抽牌**（ADR-139）。`to`：`deck_top` / `deck_bottom`（缺省）/ `random`；`mode: choose` 用 `ctx.handIndex` 指定哪张；**没给下标时挂起等玩家选**（`pendingHandChoice`，ADR-144），`from_drawn: N` 把候选锁死在刚抽到的最近 N 张。配合 `draw` 可写「先抽 N 张、再把其中一张放回底部」这类两段式效果（杨仪「筹度粮谷」）。⚠️ 与 `cycle_to_deck` 的区别：那个是"随机位置 + 必抽 1 张"的置换 |
 | `override_status` | status, caps, target | **把目标身上某状态的若干档位（cap）覆盖为指定值**（ADR-142，兀突骨「藤甲统率」）。`status` = 作用的状态（如 `teng_jia`），`caps` = `{ <cap>: <绝对值> }`（如 `{ reduce_physical: 2, vulnerable_fire: 0 }` ＝ 物理 −2 且不再怕火），`target` 支持 `zone: hand`（手牌写 `HandMod.kind: rule`，**打出时随牌进场**）。⚠️ **仅当该状态确实存在于目标身上时才生效**（被净化即失效、重新获得即恢复）；**绝对值**不是增减量；同一 (状态,档位) 幂等。**为什么不用加层数**：一个状态的多个 cap 共用层数（藤甲的减伤与怕火同源），加层会一起放大 |
+| `CHOOSE_HAND`（**动作**，不是效果） | handIndex | 结算中途的手牌选择（ADR-144）：只在 `pendingHandChoice` 挂起时可用，其它动作会被引擎拒绝。由 UI/AI 发出；AI 的候选枚举在 `ai/options.ts`，口径是"费用低的先放回"。 |
 | `gain_command` | value, **permanent** | 统率。缺省只加**本回合可用值** `cur` 且夹在 `max` 内；**`permanent: true`（ADR-139）同时抬统率上限**（封顶 `COMMAND.MAX` = 10）并发 `COMMAND_MAX_CHANGED`。⚠️ 回合开始会把 `cur` 回满，所以「回合开始 +N 统率」**必须**用 `permanent: true`，否则收益恒为 0 |
 | `silence` | target, duration | 禁用技能（"技能禁用一回合"）|
 | `flip` | target | 翻面（"将卡牌翻面"，翻面期间不可被选中）|
@@ -562,7 +568,7 @@ condition: { lord_full_hp: { side: self, value: true } }
 | `draw_until` | until_not_type | 抽到非某类牌为止（ADR-071） |
 | `damage` / `heal` | `value_from_flag` | 数值取自 `ctx.flags` 里的 `"<name>:N"`（ADR-041），
 `sacrifice` 写入 `sacrificed_max_hp` / `sacrificed_hp` |
-| `remove_status` | `remove_kind: debuff \| buff` | 按**类别**批量驱散（ADR-071，华佗「清除其负面效果状态」）|
+| `remove_status` | `remove_kind: debuff \| buff` | 按**类别**批量驱散（ADR-071）。⚠️ ADR-148：原本唯一的载体华佗「青囊」已改成「医圣」，**当前卡池没有任何卡带净化** —— 机制仍在，等一张卡来接 |
 
 #### ⑤ 目标选择器补充
 

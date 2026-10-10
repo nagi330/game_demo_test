@@ -13,6 +13,10 @@
 var Core = window.Core;
 var CR = window.CardRender;
 var GD = window.GameData;
+/* 版本标记：**改这个文件就把它 +1**。控制台会打印，页面出问题时可一眼判断"跑的是不是旧脚本"。
+   （页面本身已用 `?v=Date.now()` 防缓存；这行是给人看的第二道保险。） */
+var UI_BUILD = 'ui-3 · 技能交互：指向 / 非指向 / 多步（手牌→场上）；含 ADR-145~147';
+console.log('[酒话三国·原型] ' + UI_BUILD);
 
 var DESIGN_W = 736, DESIGN_H = 414;
 var ROWS = ['front'];        // ADR-051：单排
@@ -1084,9 +1088,24 @@ function trySkillTargeting(row, col) {
   var st = session.state;
   if (st.winner || st.active !== 'own') return false;
   var skill = unitSkillState(st, 'own', row, col);
-  if (!skill || !skill.usable) return false;
+  if (!skill) return false;                 // 这张卡本来就没有主动技 → 交给普攻/选中流程
+  if (!skill.usable) {
+    // ADR-147：**有技能但当前用不了，必须说清原因**。
+    // 原先这里直接 `return false`，点击会落回"选中该单位准备攻击" —— 玩家看到的就是"点了没反应"，
+    // 而卡面「技」按钮那条路本来就会解释（如"本回合已用过"），两条路表现不一致。
+    showDetail('主动技不可用', skill.name, skill.why || '本回合不可用');
+    return true;                            // 消费这次点击，别让它变成"选中/普攻"
+  }
   var plan = Core.unitSkillTargetPlan(st, 'own', row, col);
-  if (!plan.choices || !plan.choices.length) return false;
+  // ⚠️ ADR-145：**不需要目标的主动技**（`plan.choices` 为空，如杨仪「筹度粮谷」）要**直接释放**。
+  //    原先这里一律 `return false`，于是这类技能"点了没反应"：轻点会落回"选中该单位准备攻击"，
+  //    而刚入场的单位本回合又不能攻击 —— 玩家看到的就是"技能没生效、牌也没抽"。
+  //    （引擎侧本来就是对的：一次 USE_SKILL 就抽两张并挂起选择。两条点击路径都汇到这里。）
+  if (!plan.choices || !plan.choices.length) {
+    clearMarks();
+    doAction({ type: 'USE_SKILL', row: row, col: col, skillId: skill.id });
+    return true;
+  }
   clearMarks();
   onUnitSkillClick(row, col, skill);
   return true;
@@ -1717,6 +1736,78 @@ function onBoardClick(ev) {
 }
 
 /** 谋臣主动技：点卡上的「技」按钮。合法性由 Core.canUseUnitSkill 判定 */
+/* ---------- 战技的多步选择（ADR-146，华佗「青囊」：先弃一张手牌，再选回血目标）----------
+   与战吼共用同一套"按 plan.choices 逐步问"的思路（`pendingPlay` 那套），
+   区别是这里的主语是**场上单位 + 技能**，而且**手牌步骤**要进"点手牌"模式（不出箭头）。
+   两步的选择最终一次性提交：`USE_SKILL { target, handIndex }` —— 动作协议早就支持这两个字段。 */
+var skillWalk = null;   // { row, col, skillId, skillName, plan, idx, handIndex, pick }
+
+function beginSkillWalk(row, col, def, plan) {
+  skillWalk = {
+    row: row, col: col, skillId: def.id, skillName: def.name,
+    plan: plan, idx: 0, handIndex: undefined, pick: undefined,
+  };
+  advanceSkillWalk();
+}
+
+function advanceSkillWalk() {
+  var w = skillWalk;
+  if (!w) return;
+  var total = w.plan.choices.length;
+  while (w.idx < total) {
+    var step = w.plan.choices[w.idx];
+    var stepNo = '（第 ' + (w.idx + 1) + '/' + total + ' 步）';
+    if (step.zone === 'hand') {
+      if (!session.state.sides.own.hand.length) {
+        showDetail('无法继续', w.skillName, '手牌为空，没有可以弃掉的牌');
+        cancelSkillWalk();
+        return;
+      }
+      // 手牌步骤：高亮手牌、**不出箭头**，也不走 beginTargetPick（那条路只认场上目标）
+      pendingSkill = { handPick: true, skillWalk: true };
+      $all('.hcard-wrap').forEach(function (el) { el.classList.add('is-target'); });
+      var hint = step.action === 'discard' ? '弃掉它（回血量＝它的统率值）' : '选它';
+      showDetail('选择手牌' + stepNo, w.skillName + '：请选择' + step.label,
+        '点一张高亮的手牌' + hint + '　·　点空白处取消');
+      return;
+    }
+    if (step.targets.length) {
+      beginTargetPick(step.targets, function (t) {
+        w.pick = { side: t.side, row: t.row, col: t.col };
+        w.idx += 1;
+        advanceSkillWalk();
+      }, {
+        title: '选择目标' + stepNo,
+        sub: w.skillName,
+        why: '点击高亮的' + step.label,
+      });
+      return;
+    }
+    w.idx += 1;    // 这一步没有候选（如手牌为空）→ 跳过，交给引擎兜底
+  }
+  finishSkillWalk();
+}
+
+function finishSkillWalk() {
+  var w = skillWalk;
+  skillWalk = null;
+  pendingSkill = null;
+  clearMarks();
+  if (!w) return;
+  var action = { type: 'USE_SKILL', row: w.row, col: w.col, skillId: w.skillId };
+  if (w.pick) action.target = w.pick;
+  if (typeof w.handIndex === 'number') action.handIndex = w.handIndex;
+  doAction(action);
+}
+
+function cancelSkillWalk() {
+  if (!skillWalk) return false;
+  skillWalk = null;
+  pendingSkill = null;
+  clearMarks();
+  return true;
+}
+
 function onUnitSkillClick(row, col, skill) {
   if (session.state.winner) return;
   if (busy) skipAnimation();
@@ -1731,6 +1822,11 @@ function onUnitSkillClick(row, col, skill) {
   //    **完全忽略 filter** —— 貂蝉（只认男性）、陆抗（排除自己）这类技能会高亮一堆非法目标，
   //    点了之后引擎又退回兜底目标，表现为"指向性技能的选择逻辑有问题，有些又没问题"。
   var plan = Core.unitSkillTargetPlan(st, 'own', row, col, 0, def.id);
+  // 多步（或首步就是手牌）→ 交给 walker 逐步问（ADR-146）
+  if (plan.choices.length > 1 || (plan.choices[0] && plan.choices[0].zone === 'hand')) {
+    beginSkillWalk(row, col, def, plan);
+    return;
+  }
   var choice = plan.choices[0];
   if (choice) {
     if (!choice.targets.length) {
@@ -1810,7 +1906,23 @@ function finishPick(t) {
 
 /** 主公技「选一张手牌」模式（如孙权坐断东南）。返回 true 表示已消费这次点击 */
 function onHandPick(index) {
+  // ADR-146：战技的多步选择里，"点手牌"只是**其中一步** —— 记下它、继续问下一步
+  if (skillWalk) {
+    var step = skillWalk.plan.choices[skillWalk.idx];
+    if (!step || step.zone !== 'hand') return false;
+    skillWalk.handIndex = index;
+    skillWalk.idx += 1;
+    pendingSkill = null;
+    $all('.hcard-wrap').forEach(function (el) { el.classList.remove('is-target'); });
+    advanceSkillWalk();
+    return true;
+  }
   if (!pendingSkill || !pendingSkill.handPick) return false;
+  // ADR-144：结算中途的手牌选择可以限定候选（杨仪「抽二选一」只让点刚抽到的那两张）
+  if (pendingSkill.only && pendingSkill.only.length && pendingSkill.only.indexOf(index) < 0) {
+    showDetail('请点高亮的手牌', '这次只能从刚抽到的那几张里选', '「筹度粮谷」：抽两张，选一张留在手里，另一张回牌库底');
+    return true;                     // 消费这次点击，别让它变成"打出这张牌"
+  }
   var action = pendingSkill.action || { type: 'USE_LORD_SKILL' };
   pendingSkill = null;
   var a = {};
@@ -2041,6 +2153,7 @@ function onLordSkillClick(side) {
 }
 
 function onEscape() {
+  if (cancelSkillWalk()) { showDetail('已取消', '本次技能未释放', ''); return; }
   if (document.getElementById('upgrade-picker')?.classList.contains('show')) {
     closeUpgradePicker();
     return;
@@ -2162,7 +2275,8 @@ function doAction(action) {
     return;
   }
   // 已经请求结束回合后，只允许完成发现选择；其他操作不应插入当前回合。
-  if (queuedEndTurn && action.type !== 'END_TURN' && action.type !== 'CHOOSE_DISCOVER') return;
+  if (queuedEndTurn && action.type !== 'END_TURN' && action.type !== 'CHOOSE_DISCOVER'
+      && action.type !== 'CHOOSE_HAND') return;
   // 动画播放中又来操作 → 先跳过动画再执行（ADR-077，替代原来的"点不动"）
   if (busy) skipAnimation();
   var res = Core.applyAction(session.state, session.ctx, action);
@@ -2193,6 +2307,7 @@ function doAction(action) {
   playEvents(res.events, function () {
     busy = false;
     renderAll();
+    setupPendingHandChoice();                 // ADR-144：先看有没有"选一张手牌"要处理
     var discover = session.state.pendingDiscover;
     if (discover && discover.side === 'own') {
       var options = discover.candidates.map(function (id) { return GD.cards.find(function (c) { return c.id === id; }); }).filter(Boolean);
@@ -2435,6 +2550,27 @@ function hideSkillToast() {
  * 所有操作全部挡住，节奏调慢之后尤其难受。现在任意操作都能**打断动画**：
  * 立刻跳到结算完成的状态，然后照常执行新操作。
  */
+/**
+ * ADR-144：结算完成后若挂起"选一张手牌"，进入**点手牌**模式。
+ *
+ * 复用主公技那套 `pendingSkill.handPick`（孙权「坐断东南」），所以只需置好状态 + 高亮候选；
+ * 点击由 `onHandPick` 转成 `CHOOSE_HAND`。
+ * ⚠️ 必须**两条路径都调**：正常播完动画的 `doAction` 回调、以及玩家点击跳过的 `skipAnimation`。
+ *    只接一条的话，不跳动画的玩家就看不到高亮（实测：技能发出去了、选择却没法完成）。
+ */
+function setupPendingHandChoice() {
+  var phc = session && session.state.pendingHandChoice;
+  if (!phc || phc.side !== 'own') return;
+  var allowed = phc.indices || [];
+  pendingSkill = { handPick: true, action: { type: 'CHOOSE_HAND' }, only: allowed };
+  $all('.hcard-wrap').forEach(function (el) {
+    var idx = Number(el.getAttribute('data-card-index'));
+    if (!allowed.length || allowed.indexOf(idx) >= 0) el.classList.add('is-target');
+  });
+  var whereText = phc.kind === 'deck_top' ? '顶部' : phc.kind === 'discard' ? '弃牌堆' : '底部';
+  showDetail('选择手牌', '挑一张放回牌库' + whereText, '点高亮的手牌 · 「筹度粮谷」：抽两张，选一张留在手里');
+}
+
 function skipAnimation() {
   if (!busy) return;
   var skipped = animQueue ? animQueue.slice() : [];
@@ -2448,6 +2584,7 @@ function skipAnimation() {
   // 如果里面有阵亡，玩家看到的就是"人凭空消失、日志里也查不到"。
   skipped.forEach(function (e) { logOne(e); });
   renderAll();
+  setupPendingHandChoice();
   if (session && session.state.pendingDiscover && session.state.pendingDiscover.side === 'own') {
     var skippedOptions = session.state.pendingDiscover.candidates.map(function (id) {
       return GD.cards.find(function (c) { return c.id === id; });

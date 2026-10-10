@@ -95,9 +95,14 @@ export function applyAction(state: MatchState, ctx: EngineContext, action: Actio
     if (next.pendingDiscover && action.type !== 'CHOOSE_DISCOVER') {
       throw new Error('请先选择发现的牌');
     }
+    // ADR-144：结算中途的手牌选择同样是"必须先把这一步做完"的暂停点
+    if (next.pendingHandChoice && action.type !== 'CHOOSE_HAND') {
+      throw new Error('请先选择一张手牌');
+    }
     switch (action.type) {
       case 'PLAY_CARD': ok = playCard(next, ctx, action, events, rng); break;
       case 'CHOOSE_DISCOVER': ok = chooseDiscover(next, ctx, action, events, rng); break;
+      case 'CHOOSE_HAND': ok = chooseHand(next, ctx, action, events, rng); break;
       case 'UPGRADE_UNIT': ok = upgradeUnit(next, ctx, action, events, rng); break;
       case 'ATTACK': ok = attack(next, ctx, action, events, rng); break;
       case 'LORD_ATTACK': {
@@ -141,6 +146,38 @@ export function applyAction(state: MatchState, ctx: EngineContext, action: Actio
 
   next.rngState = rng.getState();
   return { ok: true, state: next, events };
+}
+
+/**
+ * 结算中途的**手牌**选择（ADR-144，杨仪「筹度粮谷」）
+ *
+ * 与 `chooseDiscover` 同构：挂起 → 引擎只接受这一个动作 → 结算并清除挂起。
+ * 差别只在候选来自**手牌**而不是牌库，且 `indices` 可以限定"只能在这几张里选"
+ *（杨仪的"抽二选一"就靠它把候选锁死在刚抽到的那两张）。
+ */
+function chooseHand(
+  state: MatchState, ctx: EngineContext,
+  action: Extract<Action, { type: 'CHOOSE_HAND' }>,
+  events: GameEvent[], rng: ReturnType<typeof createRng>,
+): boolean {
+  const pending = state.pendingHandChoice;
+  if (!pending || state.active !== pending.side) return false;
+  const hand = state.sides[pending.side].hand;
+  const i = action.handIndex;
+  if (!(Number.isInteger(i) && i >= 0 && i < hand.length)) return false;
+  if (pending.indices && !pending.indices.includes(i)) return false;
+  const [chosen] = hand.splice(i, 1);
+  if (!chosen) return false;
+  delete state.pendingHandChoice;
+
+  const s = state.sides[pending.side];
+  if (pending.kind === 'deck_top') s.deck.push(chosen.card.id);          // 数组末尾 = 牌库顶
+  else if (pending.kind === 'deck_bottom') s.deck.unshift(chosen.card.id); // 数组开头 = 牌库底
+  else if (pending.kind === 'random') s.deck.splice(rng.int(s.deck.length + 1), 0, chosen.card.id);
+  else s.discard.push(chosen.card);                                       // 'discard'：真弃掉
+
+  events.push({ type: 'HAND_CHOSEN', side: pending.side, card: chosen.card, kind: pending.kind });
+  return true;
 }
 
 function chooseDiscover(
@@ -394,6 +431,14 @@ export interface PlayTargetChoice {
   targets: Array<{ kind: 'unit' | 'lord'; side: Side; row?: Row; col?: number }>;
   /** 候选池里还含手牌（`zone: 'both'`）→ UI 选不到，引擎会用兜底目标 */
   includesHand: boolean;
+  /**
+   * 这一步选的是**手牌**（ADR-146，华佗「青囊」＝先弃一张手牌再选回血目标）。
+   *
+   * `zone: 'hand'` 时 `targets` 必为空 —— 结果要写进 `PLAY_CARD.handIndex` /
+   * `USE_SKILL.handIndex`，**不是** `target`。UI 见它应进入"点手牌"模式（不出箭头）。
+   * 缺省 = 场上目标。注意 `pick` 只对场上步骤有意义。
+   */
+  zone?: 'hand';
 }
 
 export interface PlayTargetPlan {
@@ -465,7 +510,12 @@ function choiceOf(
   preview: { cost: number; atk: number },
 ): PlayTargetChoice | null {
   const t = eff.target;
-  if (!t || t.mode !== 'choose') return null;
+  if (!t) return null;
+  // "要不要玩家选"有两种写法，引擎自己就是两种都认（ADR-146）：
+  //   · 选择器级 `target.mode: 'choose'` —— 绝大多数效果（damage/heal/modify…）
+  //   · **效果级 `eff.mode: 'choose'`** —— `discard` / `cycle_to_deck` 这类"作用于一整方手牌"的动作
+  //     （它们从 `ctx.handIndex` 取牌，模式写在动作上；华佗「青囊」的弃牌就是这种）
+  if (t.mode !== 'choose' && eff.mode !== 'choose') return null;
   if (t.count === 'all' || (t.count ?? 1) !== 1) return null;
   const pick: 1 | 2 = t.pick === 2 ? 2 : 1;
   // 用 `count:'all'` 拿**整个候选池**（而不是 resolveTargets 的"取前 N 个"）
@@ -478,10 +528,14 @@ function choiceOf(
     else if (r.kind === 'unit') targets.push({ kind: 'unit', side: r.side, row: r.row, col: r.col });
   }
   const sides = [...new Set(pool.map((r) => r.side))];
+  // 手牌步骤（ADR-146）：选择器直接指向手牌（`zone: 'hand'`）时，这一步就是"点一张手牌"。
+  // 判据取**选择器**而不是池内容 —— 手牌为空时池是空的，若按池判定就会漏掉这一步。
+  const byHand = t.zone === 'hand';
   return {
     pick, action: eff.action, sides, targets,
     label: choiceLabel(t),
-    includesHand: pool.some((r) => r.kind === 'hand'),
+    includesHand: byHand || pool.some((r) => r.kind === 'hand'),
+    ...(byHand ? { zone: 'hand' as const } : {}),
   };
 }
 
@@ -504,7 +558,9 @@ export function unitSkillTargetPlan(
   if (sk.modes?.length) plan.modes = sk.modes.map((m, i) => m.name || `选项 ${i + 1}`);
   for (const eff of effectsOf(sk, modeIndex)) {
     const c = choiceOf(state, side, eff, { cost: u.cost, atk: u.atk });
-    if (c && !plan.choices.some((x) => x.pick === c.pick)) plan.choices.push(c);
+    // ⚠️ 去重要**连 zone 一起比**：华佗「青囊」的"弃手牌"与"回血目标"都是 pick 1，
+    //    只看 pick 会把前者吞掉（ADR-146）。
+    if (c && !plan.choices.some((x) => x.pick === c.pick && x.zone === c.zone)) plan.choices.push(c);
   }
   return plan;
 }
@@ -831,11 +887,16 @@ function useUnitSkill(
   if (!check.ok) return false;
   const skill = check.skill!;
 
-  const choice = unitSkillTargetPlan(state, side, action.row, action.col, action.modeIndex, action.skillId).choices[0];
-  if (action.target && choice && !choice.targets.some(t =>
-    t.side === action.target!.side && (t.kind === 'lord'
-      ? action.target!.row === undefined
-      : t.row === action.target!.row && t.col === action.target!.col))) return false;
+  // 目标校验（ADR-146 修订）：对手牌步骤之外**所有声明了目标的步骤**取并集校验。
+  // 原先只看 `choices[0]`，而华佗「青囊」的第一步是"弃一张手牌"（targets 为空）——
+  // 继续按老写法会把玩家选的回血目标一律判为非法。
+  const steps = unitSkillTargetPlan(state, side, action.row, action.col, action.modeIndex, action.skillId).choices;
+  const boardSteps = steps.filter((c) => c.targets.length);
+  const hit = boardSteps.some((c) => c.targets.some((t) =>
+    t.side === action.target?.side && (t.kind === 'lord'
+      ? action.target?.row === undefined
+      : t.row === action.target?.row && t.col === action.target?.col)));
+  if (action.target && boardSteps.length && !hit) return false;
 
   const key = skill.id || skill.name || '0';
   u.skillUsesThisTurn[key] = (u.skillUsesThisTurn[key] ?? 0) + 1;

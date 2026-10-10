@@ -278,7 +278,7 @@ var Core = (() => {
   };
   var TAGS = {
     xi_liang: { name: "\u897F\u51C9", note: "\u897F\u51C9\u51FA\u8EAB\uFF1A\u9A6C\u817E\u3001\u9A6C\u8D85\u3001\u9A6C\u5CB1" },
-    man_zu: { name: "\u86EE\u65CF", note: "\u5357\u65B9\u5F02\u65CF\uFF1A\u6C99\u6469\u67EF" },
+    man_zu: { name: "\u5357\u86EE", note: "\u5357\u65B9\u5F02\u65CF\uFF1A\u6C99\u6469\u67EF" },
     huang_jin: { name: "\u9EC4\u5DFE", note: "\u9EC4\u5DFE\u519B\u51FA\u8EAB\u6216\u5176\u65E7\u90E8" },
     // 黄巾统领：黄巾兵「黄巾众」按已方统领数量成长（ADR-120）。只算张角/张宝/张梁三位首领，
     // 不含周仓、张燕等「黄巾旧部」—— 故不能复用 huang_jin 标签（黄巾兵自己就带它，会自我循环）。
@@ -286,7 +286,9 @@ var Core = (() => {
     // 黄巾众：黄巾的兵众（黄巾兵衍生物 + 黄巾力士）—— 统领上场时给它们永久 +1/+1（ADR-121）。
     // 与 huang_jin 分开：统领自己也带 huang_jin，不能拿它当「被统领带领的兵」的判据。
     huang_jin_zhong: { name: "\u9EC4\u5DFE\u4F17", note: "\u9EC4\u5DFE\u5175\u884D\u751F\u7269\u4E0E\u9EC4\u5DFE\u529B\u58EB" },
-    shi_zu: { name: "\u58EB\u65CF", note: "\u58EB\u65CF\u95E8\u9600\uFF1A\u8881\u7ECD\u53CA\u5176\u58EB\u65CF\u5175" },
+    // 袁氏（ADR-143）：**袁绍体系统一用这一个标签** —— 袁绍本人 + 他召唤的士族兵 + 将来的袁术。
+    // ⚠️ 旧的 `shi_zu`（士族）**已作废删除**：它是早期设计，与袁氏体系重复且没有别的门阀在用。
+    yuan_shi: { name: "\u8881\u6C0F", note: "\u8881\u7ECD\u4F53\u7CFB\uFF1A\u8881\u7ECD\u3001\u58EB\u65CF\u5175\uFF08\u8881\u672F\u5F85\u5165\u5E93\uFF09" },
     cao_clan: { name: "\u66F9\u6C0F\u5B97\u4EB2", note: "\u66F9\u64CD\u5B97\u65CF\u4EBA\u7269\uFF1A\u66F9\u6602\u3001\u66F9\u4F11\u3001\u66F9\u5F70\u3001\u66F9\u4EC1\u3001\u66F9\u4E15\u7B49" }
   };
   var FORBIDDEN_KEYWORD_COMBOS = [
@@ -805,6 +807,11 @@ var Core = (() => {
 
   // src/rules.ts
   var isMelee = (u) => u.type !== "strategist" && !hasTrait(u, "shen_she");
+  function needsHandPick(skill) {
+    const scan = (effs) => (effs ?? []).some((e) => e.action === "discard" && e.mode === "choose" || e.action === "cycle_to_deck");
+    if (scan(skill.effects)) return true;
+    return (skill.modes ?? []).some((m) => scan(m.effects));
+  }
   function canUseUnitSkill(state, side, row, col, skillId) {
     const u = getUnit(state, side, row, col);
     if (!u) return { ok: false, reason: "\u8BE5\u683C\u6CA1\u6709\u5355\u4F4D" };
@@ -818,6 +825,9 @@ var Core = (() => {
       return { ok: false, reason: "\u672C\u56DE\u5408\u5DF2\u7528\u8FC7" };
     }
     if (state.sides[side].command.cur < (skill.cost ?? 0)) return { ok: false, reason: "\u7EDF\u7387\u503C\u4E0D\u8DB3" };
+    if (needsHandPick(skill) && state.sides[side].hand.length === 0) {
+      return { ok: false, reason: "\u624B\u724C\u4E3A\u7A7A\uFF0C\u6CA1\u6709\u53EF\u4EE5\u5F03\u6389\u7684\u724C" };
+    }
     return { ok: true, skill };
   }
   function canUseLordSkill(state, side) {
@@ -1707,6 +1717,11 @@ var Core = (() => {
       const targetSide = t.side;
       return cond.chosen_side === "ally" ? targetSide === ctx.side : targetSide !== ctx.side;
     }
+    if (cond.chosen_lord !== void 0) {
+      const t = ctx.chosen;
+      if (!t) return false;
+      if (t.kind === "lord" !== cond.chosen_lord) return false;
+    }
     return true;
   }
   function emitSkillTriggered(state, side, source, sk, from, events) {
@@ -2293,6 +2308,7 @@ var Core = (() => {
         }
         case "discard": {
           const n = eff.count ?? 1;
+          let discardedAny = false;
           const sel = eff.target?.side ?? "enemy";
           const sides = sel === "both" ? ["own", "enemy"] : sel === "self" || sel === "ally" ? [ctx.side] : [other(ctx.side)];
           for (const side of sides) {
@@ -2303,9 +2319,11 @@ var Core = (() => {
               if (!hc) continue;
               state.sides[side].discard.push(hc.card);
               state.lastDiscarded = { card: hc.card, side };
+              discardedAny = true;
               events.push({ type: "CARD_DISCARDED", side, card: hc.card });
             }
           }
+          if (!discardedAny) state.lastDiscarded = void 0;
           break;
         }
         case "add_to_deck": {
@@ -2362,15 +2380,31 @@ var Core = (() => {
         case "send_hand_to_deck": {
           const hand = state.sides[ctx.side].hand;
           if (!hand.length) break;
-          const pick = eff.mode === "choose" && typeof ctx.handIndex === "number" && ctx.handIndex >= 0 && ctx.handIndex < hand.length ? ctx.handIndex : rng.int(hand.length);
-          const [chosen] = hand.splice(pick, 1);
-          if (!chosen) break;
-          const toDeck = state.sides[ctx.side].deck;
           const where = eff.to === "deck_top" ? "deck_top" : eff.to === "deck_bottom" || eff.to === void 0 ? "deck_bottom" : "random";
-          if (where === "deck_top") toDeck.push(chosen.card.id);
-          else if (where === "deck_bottom") toDeck.unshift(chosen.card.id);
-          else toDeck.splice(rng.int(toDeck.length + 1), 0, chosen.card.id);
-          events.push({ type: "CARD_RETURNED_TO_DECK", side: ctx.side, card: chosen.card, to: where });
+          const move = (pick) => {
+            const [chosen] = state.sides[ctx.side].hand.splice(pick, 1);
+            if (!chosen) return;
+            const toDeck = state.sides[ctx.side].deck;
+            if (where === "deck_top") toDeck.push(chosen.card.id);
+            else if (where === "deck_bottom") toDeck.unshift(chosen.card.id);
+            else toDeck.splice(rng.int(toDeck.length + 1), 0, chosen.card.id);
+            events.push({ type: "CARD_RETURNED_TO_DECK", side: ctx.side, card: chosen.card, to: where });
+          };
+          if (eff.mode === "choose") {
+            const given = ctx.handIndex;
+            if (typeof given === "number" && given >= 0 && given < hand.length) {
+              move(given);
+              break;
+            }
+            const take = eff.from_drawn ?? 0;
+            const candidates = take > 0 ? hand.length - Math.min(take, hand.length) : 0;
+            const indices = [];
+            for (let i = candidates; i < hand.length; i++) indices.push(i);
+            state.pendingHandChoice = { side: ctx.side, kind: where, indices };
+            events.push({ type: "HAND_CHOICE_OPTIONS", side: ctx.side, kind: where, indices });
+            break;
+          }
+          move(typeof ctx.handIndex === "number" && ctx.handIndex >= 0 && ctx.handIndex < hand.length ? ctx.handIndex : rng.int(hand.length));
           break;
         }
         case "return_to_hand": {
@@ -2919,12 +2953,18 @@ var Core = (() => {
       if (next.pendingDiscover && action.type !== "CHOOSE_DISCOVER") {
         throw new Error("\u8BF7\u5148\u9009\u62E9\u53D1\u73B0\u7684\u724C");
       }
+      if (next.pendingHandChoice && action.type !== "CHOOSE_HAND") {
+        throw new Error("\u8BF7\u5148\u9009\u62E9\u4E00\u5F20\u624B\u724C");
+      }
       switch (action.type) {
         case "PLAY_CARD":
           ok = playCard(next, ctx, action, events, rng);
           break;
         case "CHOOSE_DISCOVER":
           ok = chooseDiscover(next, ctx, action, events, rng);
+          break;
+        case "CHOOSE_HAND":
+          ok = chooseHand(next, ctx, action, events, rng);
           break;
         case "UPGRADE_UNIT":
           ok = upgradeUnit(next, ctx, action, events, rng);
@@ -3003,6 +3043,24 @@ var Core = (() => {
     }
     next.rngState = rng.getState();
     return { ok: true, state: next, events };
+  }
+  function chooseHand(state, ctx, action, events, rng) {
+    const pending = state.pendingHandChoice;
+    if (!pending || state.active !== pending.side) return false;
+    const hand = state.sides[pending.side].hand;
+    const i = action.handIndex;
+    if (!(Number.isInteger(i) && i >= 0 && i < hand.length)) return false;
+    if (pending.indices && !pending.indices.includes(i)) return false;
+    const [chosen] = hand.splice(i, 1);
+    if (!chosen) return false;
+    delete state.pendingHandChoice;
+    const s = state.sides[pending.side];
+    if (pending.kind === "deck_top") s.deck.push(chosen.card.id);
+    else if (pending.kind === "deck_bottom") s.deck.unshift(chosen.card.id);
+    else if (pending.kind === "random") s.deck.splice(rng.int(s.deck.length + 1), 0, chosen.card.id);
+    else s.discard.push(chosen.card);
+    events.push({ type: "HAND_CHOSEN", side: pending.side, card: chosen.card, kind: pending.kind });
+    return true;
   }
   function chooseDiscover(state, ctx, action, events, rng) {
     const pending = state.pendingDiscover;
@@ -3167,7 +3225,8 @@ var Core = (() => {
   }
   function choiceOf(state, side, eff, preview) {
     const t = eff.target;
-    if (!t || t.mode !== "choose") return null;
+    if (!t) return null;
+    if (t.mode !== "choose" && eff.mode !== "choose") return null;
     if (t.count === "all" || (t.count ?? 1) !== 1) return null;
     const pick = t.pick === 2 ? 2 : 1;
     const src = { uid: "#preview", cost: preview.cost, atk: preview.atk };
@@ -3183,13 +3242,15 @@ var Core = (() => {
       else if (r.kind === "unit") targets.push({ kind: "unit", side: r.side, row: r.row, col: r.col });
     }
     const sides = [...new Set(pool.map((r) => r.side))];
+    const byHand = t.zone === "hand";
     return {
       pick,
       action: eff.action,
       sides,
       targets,
       label: choiceLabel(t),
-      includesHand: pool.some((r) => r.kind === "hand")
+      includesHand: byHand || pool.some((r) => r.kind === "hand"),
+      ...byHand ? { zone: "hand" } : {}
     };
   }
   var LORD_PREVIEW = { cost: 0, atk: 0 };
@@ -3202,7 +3263,7 @@ var Core = (() => {
     if (sk.modes?.length) plan.modes = sk.modes.map((m, i) => m.name || `\u9009\u9879 ${i + 1}`);
     for (const eff of effectsOf(sk, modeIndex)) {
       const c = choiceOf(state, side, eff, { cost: u.cost, atk: u.atk });
-      if (c && !plan.choices.some((x) => x.pick === c.pick)) plan.choices.push(c);
+      if (c && !plan.choices.some((x) => x.pick === c.pick && x.zone === c.zone)) plan.choices.push(c);
     }
     return plan;
   }
@@ -3412,8 +3473,10 @@ var Core = (() => {
     const check = canUseUnitSkill(state, side, action.row, action.col, action.skillId);
     if (!check.ok) return false;
     const skill = check.skill;
-    const choice = unitSkillTargetPlan(state, side, action.row, action.col, action.modeIndex, action.skillId).choices[0];
-    if (action.target && choice && !choice.targets.some((t) => t.side === action.target.side && (t.kind === "lord" ? action.target.row === void 0 : t.row === action.target.row && t.col === action.target.col))) return false;
+    const steps = unitSkillTargetPlan(state, side, action.row, action.col, action.modeIndex, action.skillId).choices;
+    const boardSteps = steps.filter((c) => c.targets.length);
+    const hit = boardSteps.some((c) => c.targets.some((t) => t.side === action.target?.side && (t.kind === "lord" ? action.target?.row === void 0 : t.row === action.target?.row && t.col === action.target?.col)));
+    if (action.target && boardSteps.length && !hit) return false;
     const key = skill.id || skill.name || "0";
     u.skillUsesThisTurn[key] = (u.skillUsesThisTurn[key] ?? 0) + 1;
     u.actedThisTurn = true;
@@ -4057,6 +4120,17 @@ var Core = (() => {
         // 预排序不表态，交给模拟层按"这张牌值多少"取舍
       }));
     }
+    if (state.pendingHandChoice) {
+      const pending = state.pendingHandChoice;
+      const hand = state.sides[pending.side].hand;
+      const idx = pending.indices ?? hand.map((_, i) => i);
+      return idx.filter((i) => i >= 0 && i < hand.length).sort((a, b) => hand[a].card.cost - hand[b].card.cost || a - b).map((i) => ({
+        action: { type: "CHOOSE_HAND", handIndex: i },
+        kind: "play",
+        label: `\u9009\u624B\u724C\uFF1A${hand[i].card.name}`,
+        quick: 0
+      }));
+    }
     const attacks = attackOptions(state, w);
     const plays = playOptions(state, w);
     const skills = skillOptions(state, w);
@@ -4127,6 +4201,12 @@ var Core = (() => {
     if (state.pendingDiscover) {
       const cardId = state.pendingDiscover.candidates[0];
       return cardId ? { ...empty, action: { type: "CHOOSE_DISCOVER", cardId }, candidates: state.pendingDiscover.candidates.length } : empty;
+    }
+    if (state.pendingHandChoice) {
+      const pending = state.pendingHandChoice;
+      const hand = state.sides[pending.side].hand;
+      const idx = (pending.indices ?? hand.map((_, i) => i)).filter((i) => i >= 0 && i < hand.length).sort((a, b) => hand[a].card.cost - hand[b].card.cost || a - b);
+      return idx.length ? { ...empty, action: { type: "CHOOSE_HAND", handIndex: idx[0] }, candidates: idx.length } : empty;
     }
     let options;
     try {

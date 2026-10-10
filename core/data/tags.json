@@ -13,9 +13,9 @@
     },
     {
       "id": "man_zu",
-      "name": "蛮族",
+      "name": "南蛮",
       "value": 0,
-      "memo": "南方异族（南蛮/五溪番等）：沙摩柯",
+      "memo": "南方异族：沙摩柯；兀突骨、孟获、朵思大王（待入库）",
       "used_by": [
         "shu_shamoke"
       ]
@@ -26,9 +26,11 @@
       "value": 0,
       "memo": "黄巾军出身或其旧部：张宝、张梁、周仓、张燕、黄巾力士",
       "used_by": [
+        "qun_zhangjiao",
         "qun_zhangbao",
         "qun_zhangliang",
         "qun_huangjinlishi",
+        "token_huangjin_bing",
         "shu_zhoucang",
         "wei_zhangyan"
       ]
@@ -55,13 +57,13 @@
       ]
     },
     {
-      "id": "shi_zu",
-      "name": "士族",
+      "id": "yuan_shi",
+      "name": "袁氏",
       "value": 0,
-      "memo": "士族门阀：袁绍及其召唤的士族兵",
+      "memo": "袁氏门阀（袁绍体系统一用这个标签）：袁绍、士族兵；袁术待入库",
       "used_by": [
         "qun_yuanshao",
-        "qun_yuanshao_lord"
+        "token_shizu_bing"
       ]
     },
     {

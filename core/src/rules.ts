@@ -13,7 +13,7 @@ import {
   allUnits, capStacks, getUnit, hasCap, hasCapOn, hasKeyword, hasTrait, other, shieldUnits,
   statusStacks, unitCount,
 } from './state.ts';
-import type { CardDef, MatchState, Row, Side, SkillDef, Unit } from './types.ts';
+import type { CardDef, CardEffect, MatchState, Row, Side, SkillDef, Unit } from './types.ts';
 
 export interface Target {
   kind: 'unit' | 'lord';
@@ -42,6 +42,19 @@ export const isMelee = (u: Unit): boolean =>
  * 规则放在这里而不是 engine 里，是为了让 **AI 与引擎共用同一判定**——
  * 否则 AI 会提出引擎必拒的动作（曾导致对局在回合中途直接停摆）。
  */
+/**
+ * 这个主动技是否需要"从手牌里挑一张"（ADR-147，华佗「青囊」的弃牌、孙权式的置换）
+ *
+ * 刻意在这里就地扫一遍效果表，而不是 import `effects.ts` 的 `effectsOf` ——
+ * `effects.ts` 已经 import 了本文件（`effectiveAttack`），反向再引会形成循环依赖。
+ */
+function needsHandPick(skill: SkillDef): boolean {
+  const scan = (effs: CardEffect[] | undefined): boolean => (effs ?? []).some((e) =>
+    (e.action === 'discard' && e.mode === 'choose') || e.action === 'cycle_to_deck');
+  if (scan(skill.effects)) return true;
+  return (skill.modes ?? []).some((m) => scan(m.effects));
+}
+
 export function canUseUnitSkill(
   state: MatchState, side: Side, row: Row, col: number, skillId?: string,
 ): Check & { skill?: SkillDef } {
@@ -57,6 +70,12 @@ export function canUseUnitSkill(
     return { ok: false, reason: '本回合已用过' };
   }
   if (state.sides[side].command.cur < (skill.cost ?? 0)) return { ok: false, reason: '统率值不足' };
+  // 「要从手里挑一张牌」的技能（`discard mode: choose` / `cycle_to_deck`）**手牌为空时不能放**（ADR-147）。
+  // 不拦的话：弃牌这一步空转，而后面按"弃掉那张牌"结算的效果（华佗「青囊」的
+  // `value_from_discarded: cost`）会读到**上一次弃牌的残值** —— 等于凭空生效，且完全看不出来。
+  if (needsHandPick(skill) && state.sides[side].hand.length === 0) {
+    return { ok: false, reason: '手牌为空，没有可以弃掉的牌' };
+  }
   return { ok: true, skill };
 }
 

@@ -455,7 +455,7 @@ test('ADR-074：触发技 / 光环 / 主动技 / 主公技都发 SKILL_TRIGGERED
   assert.ok(rh.events.some((e) => e.type === 'SKILL_TRIGGERED' && e.kind === 'aura'),
     '光环重算应发事件');
 
-  // 主动技：华佗「青囊」
+  // 主动技：华佗「医圣」（ADR-148：不再弃牌，改直接治疗）
   realCard('qun_huatuo');
   const ht = scenario({ own: { front: ['qun_huatuo'] }, ownHand: ['neutral_infantry'] });
   setUnit(ht.state, 'own', 'front', 1, mk('patient', 1, 5, 'shu'));
