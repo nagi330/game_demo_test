@@ -235,8 +235,9 @@ export const STATUSES: Record<string, StatusDef> = {
                 guard_scope: 'lord',
                 note: '只把**该方主帅**受到的伤害转给守护者（祖茂「替主」，ADR-071）' },
   kong_cheng: { name: '空城', kind: 'buff',   numeric: false, duration: 'turns', scope: 'lord',
-                caps: ['untargetable'],
-                note: '该方主帅**不能被普通攻击指定为目标**（空城计，ADR-074）。只挡攻击，不挡效果' },
+                caps: ['untargetable', 'immune_all_damage'],
+                note: '该方主帅**不能被普通攻击指定为目标**，且**免疫一切伤害**（空城计，ADR-074 / ADR-156）。'
+                    + '⚠️ 跨回合的主公免疫只能靠它 —— `mian_shang` 是 `this_turn`，撑不过当前半回合' },
   xiu_zheng:  { name: '休整', kind: 'debuff', numeric: false, duration: 'until_consumed', scope: 'lord',
                 caps: ['skip_turn'],
                 note: '该方下一个回合整个被跳过（休养生息「下一回合不进行任何活动」，ADR-074）' },

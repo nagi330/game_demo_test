@@ -301,7 +301,7 @@ export interface CardDef {
    * **精英卡（橙卡）允许强于预算** —— 设计者明确"有些卡稍强是预期的，类似炉石的橙卡"。
    * 校验器据此把"偏离预算"从 error 降为提示。
    */
-  rarity?: 'common' | 'elite';
+  rarity?: 'common' | 'elite' | 'legendary';
   id: string;
   name: string;
   faction: Faction;

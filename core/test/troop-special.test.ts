@@ -1024,52 +1024,72 @@ test('突阵：已摘除旧的「放箭」随机伤害（关键词 zhan_ji 也�
 });
 
 /* ========================================================================
- * 「木牛流马」不是兵种，是诸葛亮的运输器械（ADR-116）
+ * 「木牛流马」——**机械牌**（ADR-152，取代 ADR-116 ⑴ 的归类部分）
  *
- * 史料：《三国志·蜀书五·诸葛亮传》
+ * 史料（不变）：《三国志·蜀书五·诸葛亮传》
  *   · 「九年，亮复出祁山，**以木牛运**…粮尽退军」
  *   · 「十二年春，亮悉大众由斜谷出，**以流马运**」
- *   · 「亮性长于巧思，**损益连弩，木牛流马，皆出其意**」（陈寿把它定性为发明）
+ *   · 「亮性长于巧思，**损益连弩，木牛流马，皆出其意**」
  *   · 裴松之注引《亮集》载《作木牛流马法》有完整机械尺寸
  * 与「元戎弩」同属陈寿所谓「工械技巧」，**不是兵**。
  *
- * 原先它被做成「特种兵·骑兵 0/6」，三处错：type=troop / troopKind=cavalry /
- * 「治疗友军」无依据（它运的是粮草）。已改为战法卡：**抽 2 张牌**（运粮=补给资源）。
+ * 归类演进（三版）：
+ *   ① 初版「特种兵·骑兵 0/6」—— type 与 troopKind 都错、且「治疗友军」无依据
+ *   ② ADR-116 改为**战法卡**（3 费抽 2）
+ *   ③ **ADR-152 改为机械牌**：2 费 0/2、己方回合结束抽 1 —— 它是**占战场位置的军械**，
+ *      既不是兵种也不是一次性战法；同一个 id 还被黄月英「机巧出阵」召唤。
  * ===================================================================== */
 
 const ALL_CARDS: CardDef[] = JSON.parse(
   readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'data', 'cards.json'), 'utf8'));
 
-test('木牛流马：已是**战法卡**，不再是任何形式的兵', () => {
-  const c = ALL_CARDS.find((x) => x.id === 'tactic_muniuliuma');
-  assert.ok(c, '应有 tactic_muniuliuma');
-  assert.equal(c!.type, 'tactic', '必须是战法卡');
-  assert.equal((c as { troopKind?: string }).troopKind, undefined, '战法卡不该有兵种');
-  assert.equal(ALL_CARDS.some((x) => x.id === 'shu_muniuliuma'), false,
-    '旧的「特种兵·木牛流马」必须已删除（它是器械，不是兵）');
+test('木牛流马：是**机械牌**（既不是兵种、也不是战法卡）', () => {
+  const c = ALL_CARDS.find((x) => x.id === 'shu_muniuliuma');
+  assert.ok(c, '应有 shu_muniuliuma');
+  assert.equal(c!.type, 'machine', '必须是机械牌（ADR-152）');
+  assert.equal((c as { troopKind?: string }).troopKind, undefined, '军械不该有兵种');
+  assert.equal((c as { upgradeFrom?: string }).upgradeFrom, undefined, '军械不参与升变');
+  assert.equal(ALL_CARDS.some((x) => x.id === 'tactic_muniuliuma'), false,
+    '旧 id「tactic_muniuliuma」（战法卡）必须已随归类变更删除');
 });
 
-test('木牛流马：效果是抽 2 张牌（运粮=补给资源）', () => {
-  const c = ALL_CARDS.find((x) => x.id === 'tactic_muniuliuma')!;
-  const draw = (c.effects ?? []).find((e) => e.action === 'draw');
-  assert.ok(draw, '应有 draw 效果');
-  assert.equal(draw!.value, 2, '抽 2 张');
+test('木牛流马：2 费 0/2；己方回合结束时抽 1 张（运粮＝补给资源）', () => {
+  const c = ALL_CARDS.find((x) => x.id === 'shu_muniuliuma')!;
+  assert.equal(c.cost, 2, 'ADR-152 定 2 费');
+  assert.equal(c.attack, 0, '0 攻');
+  assert.equal(c.health, 2, '0/2 —— 2 费基准 5 = 身体 2 ＋ 持续抽 1(≈3)');
+
+  const sk = (c.skills ?? []).find((s) => s.id === 'mu_niu_yun_liang');
+  assert.ok(sk, '应有「运粮」技能');
+  assert.equal(sk!.trigger, 'turn_end', '必须是回合结束触发（不是战吼、不是战技）');
+  const draw = (sk!.effects ?? []).find((e) => e.action === 'draw');
+  assert.ok(draw, '「运粮」应有 draw 效果');
+  assert.equal(draw!.value, 1, '抽 1 张（旧版的「抽 2」已随归类作废）');
+  // 反向锁：效果必须写在 skills 内 —— 旧战法版把 draw 挂在**卡级** `effects` 上（全池孤例）
+  assert.equal(c.effects, undefined, '不挂卡级 effects');
 });
 
-test('木牛流马：3 费 —— 对齐全库「抽 2 张」的标准档', () => {
-  const c = ALL_CARDS.find((x) => x.id === 'tactic_muniuliuma')!;
-  assert.equal(c.cost, 3, '抽 2 张的标准档是 3 费（屯田 / 瞒天过海 / 马谡）');
-  // 反向锁：不该再出现「低于 3 费还抽 2 张」的战法卡
-  const cheap = ALL_CARDS.filter((x) => x.type === 'tactic' && (x.cost ?? 9) < 3
-    && (x.effects ?? []).some((e) => e.action === 'draw' && (e.value ?? 0) >= 2));
-  assert.deepEqual(cheap.map((x) => x.id), [],
-    '不该有低于 3 费却抽 2 张以上的战法卡（会低于费效曲线）');
+test('木牛流马：军械按 ADR-119「无法普通攻击」，带 jin_gong 光环', () => {
+  const c = ALL_CARDS.find((x) => x.id === 'shu_muniuliuma')!;
+  const aura = (c.skills ?? []).find((s) => s.kind === 'aura');
+  assert.ok(aura, '应有「车阵」光环');
+  const st = (aura!.effects ?? []).find((e) => e.action === 'apply_status');
+  assert.ok(st, '光环应施加状态');
+  assert.equal(st!.status, 'jin_gong', '施加的必须是「无法攻击」（jin_gong）');
 });
 
 test('木牛流马：不能再挂在骑兵的升变池里', () => {
   const cav = ALL_CARDS.filter((x) => x.upgradeFrom === 'cavalry').map((x) => x.id);
   assert.ok(!cav.includes('shu_muniuliuma'), '骑兵升变池不该再有木牛流马');
-  assert.ok(!cav.includes('tactic_muniuliuma'), '战法卡更不该进升变池');
+  assert.ok(!cav.includes('tactic_muniuliuma'), '旧战法 id 更不该进升变池');
+});
+
+test('反向锁：不该有低于 3 费却「抽 2 张以上」的战法卡（会低于费效曲线）', () => {
+  // 原挂在「木牛流马 3 费」那条里，随归类变更移出 —— 但这条池子健康检查本身仍然有效。
+  const cheap = ALL_CARDS.filter((x) => x.type === 'tactic' && (x.cost ?? 9) < 3
+    && (x.effects ?? []).some((e) => e.action === 'draw' && (e.value ?? 0) >= 2));
+  assert.deepEqual(cheap.map((x) => x.id), [],
+    '不该有低于 3 费却抽 2 张以上的战法卡');
 });
 
 /* ========================================================================

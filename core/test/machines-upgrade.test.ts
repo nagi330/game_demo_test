@@ -3,13 +3,13 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { applyAction, upgradeCost, upgradeStatus } from '../src/engine.ts';
 import { dealDamage, unitRef, lordRef } from '../src/mutate.ts';
-import { runEffects, recomputeAuras } from '../src/effects.ts';
+import { runEffects, recomputeAuras, resolveAttack } from '../src/effects.ts';
 import { createRng } from '../src/rng.ts';
 import { allUnits, makeUnit, nextUidSeq, setUnit, getUnit } from '../src/state.ts';
-import { lordAttackTargets } from '../src/rules.ts';
+import { canAttack, lordAttackTargets } from '../src/rules.ts';
 import { isDeckable } from '../src/deck.ts';
 import { scenario } from './fixtures.ts';
-import type { CardDef, Side } from '../src/types.ts';
+import type { CardDef, GameEvent, Side } from '../src/types.ts';
 
 const real: CardDef[] = JSON.parse(readFileSync(new URL('../data/cards.json', import.meta.url), 'utf8'));
 function setup(seed = 1) {
@@ -243,3 +243,77 @@ test('主公通用普攻：任意效果使主公获得本回合攻击力后均�
   assert.equal(r.state.sides.enemy.lord.hp, 28);
   assert.equal(r.state.sides.own.lord.attackedThisTurn, true);
 });
+
+/* ========================================================================
+ * 军械「无法普通攻击」是**类型级规则**（ADR-119 / ADR-153）
+ *
+ * 设计者口径（ADR-153，原话）：「机械卡我们现在设计的是没办法普通攻击的，
+ * **带的攻击值是为了别人打的时候有一定的伤害**」
+ * —— `attack` 对军械**不是输出手段**，而是"打它要付的代价"（反击，ADR-062 同时结算）。
+ *
+ * ## 这条为什么值得单独钉死
+ *
+ * ADR-119 宣布「霹雳车、楼船军、蒙冲斗舰改为军械且**无法普通攻击**」，
+ * 但数据里**只有霹雳车**写了 `jin_gong` 光环 —— 楼船军 2/4、蒙冲斗舰 1/3
+ * **静默地**保留着普攻能力，横跨多轮无人发现（`validate` 不校验行为，测试也没覆盖）。
+ * 现改为两层：
+ *   · **引擎层（兜底 + 唯一真源）**：`canAttack` 里 `type === 'machine'` 直接拒绝；
+ *   · **数据层（可见反馈）**：四张军械各自保留 `jin_gong` 光环，给玩家看「无法攻击」徽章。
+ * 第三、四条测试专门验证**反击不受影响** —— 这正是设计者要那个攻击值的原因。
+ * ===================================================================== */
+
+const MACHINES = ['wei_piliche', 'wu_louchuanjun', 'wu_mengchongdoujian', 'shu_muniuliuma'];
+
+test('军械：四张全部带 jin_gong 光环（防再次漏写 —— 楼船军/蒙冲斗舰就漏过一次）', () => {
+  for (const id of MACHINES) {
+    const c = real.find((x) => x.id === id);
+    assert.ok(c, `cards.json 里应有 ${id}`);
+    assert.equal(c!.type, 'machine', `${id} 应是军械`);
+    const aura = (c!.skills ?? []).find((s) => s.kind === 'aura');
+    assert.ok(aura, `${c!.name} 应有光环（jin_gong）`);
+    const st = (aura!.effects ?? []).find((e) => e.action === 'apply_status');
+    assert.equal(st?.status, 'jin_gong', `${c!.name} 光环应施加 jin_gong`);
+  }
+});
+
+test('军械：一律不能普攻 —— 即使把 jin_gong 光环扒掉，类型规则仍然拦住', () => {
+  const s = setup();
+  for (const id of MACHINES) {
+    const u = place(s, id, 'own', 0);
+    const withAura = canAttack(s.state, 'own', 'front', 0);
+    assert.equal(withAura.ok, false, `${u.name}（带光环）不该能普攻`);
+
+    // 直接删掉光环留下的状态 → **依然**拒绝，证明拦截来自 `type` 而非状态
+    delete u.statuses.jin_gong;
+    const bare = canAttack(s.state, 'own', 'front', 0);
+    assert.equal(bare.ok, false, `${u.name}（无光环）仍不该能普攻 —— 类型级兜底`);
+    assert.match(bare.reason ?? '', /军械/, '理由应说明是军械规则');
+
+    setUnit(s.state, 'own', 'front', 0, null);
+  }
+});
+
+test('军械的攻击力**只用于反击**：打楼船军（2/4）要吃 2 点（ADR-062 同时结算）', () => {
+  const s = setup();
+  place(s, 'wu_louchuanjun', 'enemy', 0);
+  const atk = place(s, 'test_champion', 'own', 0);            // 5/5，5 攻打 4 血
+  const evs: GameEvent[] = [];
+  resolveAttack(s.state, s.ctx.cards, 'own', { row: 'front', col: 0 },
+    { kind: 'unit', row: 'front', col: 0 }, evs, createRng(1), { consumeAttack: false });
+
+  assert.equal(getUnit(s.state, 'enemy', 'front', 0), null, '楼船军 4 血挨 5 点应已阵亡');
+  assert.equal(atk.hp, 3, '攻击方应吃到 2 点反击（5 → 3）—— 这就是"带的攻击值"的用途');
+  assert.ok(evs.some((e) => e.type === 'DAMAGE'), '应有伤害事件');
+});
+
+test('军械的攻击力**只用于反击**：打霹雳车（0/3）不吃反击，但它照样不能普攻', () => {
+  const s = setup();
+  place(s, 'wei_piliche', 'enemy', 0);
+  const atk = place(s, 'test_champion', 'own', 0);
+  resolveAttack(s.state, s.ctx.cards, 'own', { row: 'front', col: 0 },
+    { kind: 'unit', row: 'front', col: 0 }, [], createRng(1), { consumeAttack: false });
+  assert.equal(getUnit(s.state, 'enemy', 'front', 0), null, '0/3 挨 5 点应已阵亡');
+  assert.equal(atk.hp, 5, '0 攻军械不反击（0 攻则无伤害，ADR-062）');
+  assert.equal(canAttack(s.state, 'enemy', 'front', 0).ok, false, '霹雳车本来也不能普攻');
+});
+

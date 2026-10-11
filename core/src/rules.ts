@@ -117,6 +117,30 @@ export function canAttack(state: MatchState, side: Side, row: Row, col: number):
   const u = getUnit(state, side, row, col);
   if (!u) return { ok: false, reason: '该格没有人物卡' };
   if (u.cardId === 'neutral_archer') return { ok: false, reason: '弓兵只能放箭，不能普通攻击' };
+  // 军械「无法普通攻击」（ADR-119 / ADR-153）——**类型级硬规则**，与基础弓兵「只能放箭」同类。
+  //
+  // 设计者口径（ADR-153）：「机械卡没办法普通攻击，**带的攻击值是为了别人打的时候有一定的伤害**」
+  // —— `attack` 对军械而言不是输出手段，而是"打它要付的代价"（反击伤害，ADR-062 同时结算；
+  // 反击取 `effectiveAttack`，**不看 `block_attack`**，故此规则不影响军械反击）。
+  //
+  // 为什么写在这里而不是只靠每张卡挂 `jin_gong` 光环：那条路已经漏过一次 ——
+  // ADR-119 宣布三张军械都不能普攻，实际只有霹雳车写了光环，楼船军/蒙冲斗舰**静默地**仍能普攻。
+  // 卡面光环仍然保留（提供「无法攻击」徽章给玩家看），此处是**兜底与唯一真源**：
+  // 新增军械卡即使忘了写光环，也不会意外获得攻击能力。
+  if (u.type === 'machine') return { ok: false, reason: '军械无法普通攻击（攻击力只用于反击）' };
+  // 0 攻不能普攻（ADR-154，设计者口径）：「0 攻击力的……都无法进行普通攻击」。
+  //
+  // 为什么值得写成规则、而不是留给玩家自觉：0 攻单位打出去**恒为 0 伤害**（目标掉 0 血），
+  // 却仍要**白吃对方一次反击**（ADR-062 同时结算）、还可能替自己触发「水困」行动税 ——
+  // 这是一步纯亏且毫无信息量的操作。AI 与 UI 都走本函数，写在这里两边自动一致。
+  //
+  // ⚠️ 判据用**有效攻击力**（`effectiveAttack` = 面板 ＋ 振奋 − 虚弱），与**反击取的是同一个量**：
+  //   · 0 攻单位被「振奋」加成到 ≥1 → 可以攻击（它确实有攻击力了）
+  //   · 2 攻单位被「虚弱」削到 0 → 不能攻击
+  // 即「能打出去多少，才允许打」，与反击完全对称。
+  if (effectiveAttack(state, side, row, col) <= 0) {
+    return { ok: false, reason: '攻击力为 0，无法普通攻击' };
+  }
   // ADR-051：谋臣也可以普通攻击（默认 1 攻）——原「谋臣不能普攻」已取消
   if (hasCap(u, 'block_action') || hasCap(u, 'block_attack')) {
     return { ok: false, reason: '当前状态无法普通攻击' };

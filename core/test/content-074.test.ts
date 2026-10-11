@@ -9,7 +9,7 @@
  * | 空城计 | 主帅可被 `untargetable` 保护（`kong_cheng`）+ `legalTargets` 判定 |
  * | 司马懿 | `acted_this_turn` / `dealt_damage_this_turn` 追踪、`mill` 动作、`any_of` 条件组合 |
  * | 休养生息 | `skip_turn` 能力 + 引擎的跳回合结算 + 主将治疗 |
- * | 黄皓 | `gain_command` 负数（自削统率）、`ban_play`（封锁而非弃掉） |
+ * | 黄皓 | ~~`gain_command` 负数、`ban_play`~~ → **2026-10-11 重做（ADR-155）**：旧的两条能力已随重做撤下（`ban_play` 的行为覆盖移入 `dsl.test.ts`，新设计见 `huanghao.test.ts`） |
  * | 张宝/张梁 | `all_of` 条件组合 + 按 `card_id` 精确判「谁在场」 |
  */
 
@@ -65,50 +65,64 @@ const tokens = (evs: GameEvent[]) =>
     .filter((e) => e.unit.cardId === 'token_huangjin_bing').length;
 
 /* ============================================================
-   空城计：主帅不能被普通攻击指定
+   空城计（ADR-156 重做）：主动撤空全场 + 主公一回合免疫伤害
    ============================================================ */
 
-test('ADR-074 空城计：己方场上无人时，主帅一整个对手回合内不能被攻击', () => {
+test('ADR-156 空城计：己方全场人物收回手牌，主公在下个回合免疫**所有**伤害', () => {
   realCard('tactic_kongchengji');
-  // 敌方单位必须用 scenario 摆位（enteredTurn = 0）—— mk() 造的 enteredTurn = 当前回合，
-  // 会因召唤失调而"没有合法目标"，把空城的断言掩盖成假通过
-  const { state, ctx } = scenario({ ownHand: ['tactic_kongchengji'], enemy: { front: ['neutral_infantry'] } });
+  const { state, ctx } = scenario({
+    ownHand: ['tactic_kongchengji'],
+    own: { front: ['neutral_infantry', null, 'neutral_archer'] },
+    enemy: { front: ['neutral_infantry'] },
+  });
+  const handBefore = state.sides.own.hand.length;      // 1
 
   const r = applyAction(state, ctx, { type: 'PLAY_CARD', cardIndex: 0 });
   assert.ok(r.ok, `打出应成功：${r.error}`);
-  assert.ok(r.state.sides.own.lord.statuses?.kong_cheng, '己方主帅应获得「空城」');
 
-  // 打出之后己方才放人（条件只判"打出那一刻"）——留一个可打的目标，
-  // 才能证明"打得到人物、但打不到主帅"，而不是"根本没得打"
-  setUnit(r.state, 'own', 'front', 4, mk('ally', 1, 6, 'shu'));
+  // ① 全场人物收回手牌（打出 1 张、收回 2 张 → 净 +1）
+  assert.equal(getUnit(r.state, 'own', 'front', 0), null, '场上人物应已撤回');
+  assert.equal(getUnit(r.state, 'own', 'front', 2), null);
+  assert.equal(r.state.sides.own.hand.length, handBefore - 1 + 2,
+    '打出的那张离手、两张收回手里');
+  assert.ok(r.state.sides.own.lord.statuses?.kong_cheng, '主公应获得「空城」');
 
-  // 敌方回合：仍然打不到主帅
+  // ② 跨过对手整个回合
   const r2 = applyAction(r.state, ctx, { type: 'END_TURN' });
   assert.ok(r2.ok);
-  const legal = legalTargets(r2.state, 'enemy', 'front', 0);
-  assert.ok(legal.targets.some((t) => t.kind === 'unit'), '己方人物本身仍可被攻击');
-  assert.ok(!legal.targets.some((t) => t.kind === 'lord'),
-    '「空城」期间主帅不该出现在合法攻击目标里');
+  assert.ok(r2.state.sides.own.lord.statuses?.kong_cheng,
+    '对手回合内「空城」必须还在（duration 写 2 的原因：状态在**自己**回合结束才递减）');
 
-  // 效果伤害不受影响（卡面说的是"无法**攻击**"）
-  const lordHp = r2.state.sides.own.lord.hp;
-  dealDamage(r2.state, ctx.cards, lordRef('own'), 2, [], 'test');
-  assert.equal(r2.state.sides.own.lord.hp, lordHp - 2, '战法/技能伤害仍可打主将');
+  // ③ 免伤期间**连效果伤害一起免** —— 这是它比旧版「不能被普攻指定」强的地方
+  const hp = r2.state.sides.own.lord.hp;
+  const dealt = dealDamage(r2.state, ctx.cards, lordRef('own'), 5, [], 'test');
+  assert.equal(dealt, 0, '空城期间伤害应被完全吸收');
+  assert.equal(r2.state.sides.own.lord.hp, hp, '主公一点血都不掉');
+
+  // ④ 到期时机：主公状态在**持有者自己的回合结束**才递减（`expireStatuses` 只 tick 当前方），
+  //    所以回到我方时它还剩 1 回合，真正过期是在**那一次我方回合结束**。
+  //    这正是 `duration` 必须写 2 的原因 —— 写 1 会在对手动手之前就消失。
+  const r3 = applyAction(r2.state, ctx, { type: 'END_TURN' });   // 对手回合结束 → 回到我方
+  assert.ok(r3.ok);
+  assert.ok(r3.state.sides.own.lord.statuses?.kong_cheng,
+    '回到我方回合时仍应在（还剩 1 回合）—— 它就是这样盖住对手那一整个回合的');
+
+  const r4 = applyAction(r3.state, ctx, { type: 'END_TURN' });   // 我方回合结束 → 递减到 0
+  assert.ok(r4.ok);
+  assert.equal(r4.state.sides.own.lord.statuses?.kong_cheng, undefined,
+    '我方回合结束后才过期');
 });
 
-test('ADR-074 空城计：己方场上有人时不生效（条件不满足）', () => {
-  realCard('tactic_kongchengji');
-  const { state, ctx } = scenario({ ownHand: ['tactic_kongchengji'], own: { front: ['neutral_infantry'] } });
-  const r = applyAction(state, ctx, { type: 'PLAY_CARD', cardIndex: 0 });
-  assert.ok(r.ok, `打出应成功：${r.error}`);
-  assert.equal(r.state.sides.own.lord.statuses?.kong_cheng, undefined, '场上有自己人 → 不该获得空城');
-  const legal = legalTargets(r.state, 'enemy', 'front', 0);
-  assert.ok(legal.targets.length >= 0);   // 只断言不抛错；主将可打与否由上一测试覆盖
-});
 
-test('ADR-074：`kong_cheng` 状态已注册且带 untargetable 能力', () => {
+test('ADR-156：`kong_cheng` / `mian_shang` 状态都已注册（前者现已无卡在用，保留备用）', () => {
   assert.ok(STATUSES.kong_cheng, 'kong_cheng 必须登记在 STATUSES');
   assert.ok(STATUSES.kong_cheng!.caps!.includes('untargetable'));
+  assert.ok(STATUSES.mian_shang, 'mian_shang 必须登记在 STATUSES');
+  assert.ok(STATUSES.kong_cheng!.caps!.includes('immune_all_damage'),
+    '主公免疫伤害靠的就是它 —— 主公伤害分支会读这个能力');
+  assert.ok(STATUSES.mian_shang!.caps!.includes('immune_all_damage'));
+  assert.equal(STATUSES.mian_shang!.duration, 'this_turn',
+    '⚠️ mian_shang 是 this_turn，撑不过当前半回合 —— 跨回合的主公免疫不能用它');
 });
 
 /* ============================================================
@@ -170,19 +184,25 @@ test('ADR-141 司马懿谋定后动：行动造成伤害 → 按蓄谋层数伤�
 
 test('ADR-074 司马懿：只是行动、没造成伤害 → 两个分支都不触发', () => {
   const { state, ctx } = simayiBoard();
-  // 构造"行动过但没造成伤害"：把司马懿攻击力改成 0，去打一个 0 攻高血的墙
-  const wall = mk('wall', 0, 30);
-  setUnit(state, 'enemy', 'front', 2, wall);
-  // 让司马懿的攻击力为 0 → 造成 0 伤害（dealDamage 对 amount<=0 直接返回）
-  const sim = getUnit(state, 'own', 'front', 0)!;
-  sim.atk = 0; sim.baseAtk = 0;
+  // 构造"行动过但没造成伤害"。
+  //
+  // ⚠️ 原写法是"把司马懿攻击力改成 0，再去打一个 0 攻的墙"——**ADR-154 起这条路走不通了**：
+  // 0 攻单位一律不能普通攻击（`canAttack` 直接拒绝），攻击动作本身会被拒。
+  // 改为**让伤害被挡掉**：给靶子挂「披坚」（`immune_damage`，一次性免疫整段伤害）——
+  // 攻击照常成立（`actedThisTurn = true`、披坚被消耗），但实际伤害为 0 → `dealtDamageThisTurn` 保持 false。
+  // 这也比原写法更贴近真实对局：「打了但被打披坚的人挡住了」是实际会发生的情形。
+  const wall = mk('wall', 1, 30);
+  setUnit(state, 'enemy', 'front', 2, { ...wall, statuses: { ...wall.statuses, sheng_dun_status: { stacks: 1 } } });
 
   const atk = applyAction(state, ctx, {
     type: 'ATTACK', from: { row: 'front', col: 0 }, to: { kind: 'unit', row: 'front', col: 2 },
   });
   assert.ok(atk.ok, `攻击应成功：${atk.error}`);
-  assert.equal(getUnit(atk.state, 'own', 'front', 0)!.actedThisTurn, true);
-  assert.equal(getUnit(atk.state, 'own', 'front', 0)!.dealtDamageThisTurn, false, '0 伤害 = 没造成伤害');
+  assert.equal(getUnit(atk.state, 'own', 'front', 0)!.actedThisTurn, true, '行动过');
+  assert.equal(getUnit(atk.state, 'own', 'front', 0)!.dealtDamageThisTurn, false, '伤害被披坚挡掉 = 没造成伤害');
+  assert.equal(getUnit(atk.state, 'enemy', 'front', 2)!.hp, 30, '披坚吃掉了这次伤害');
+  assert.equal(getUnit(atk.state, 'enemy', 'front', 2)!.statuses.sheng_dun_status, undefined,
+    '披坚是一次性的，应已被消耗');
 
   const r = applyAction(atk.state, ctx, { type: 'END_TURN' });
   assert.ok(r.ok);
@@ -283,13 +303,24 @@ test('ADR-075：人物卡不再有「有技能名、效果待设计」的 pendin
     .map((c) => `${c.id}（${c.name}）`);
   assert.deepEqual(chars, [], `这些人物卡还挂着 pending 技能：${chars.join('、')}`);
 
-  // 剩下的只允许是「限制型文案」那一张（等 ADR-045 的 restrict 字段），换名单就报错。
-  // 步兵（neutral_infantry）原在这张名单里，2026-09-27 设计者裁定撤下桩技能、改白板 1/1，
-  // 故此处的期望名单同步收窄 —— 数据的改动在 data/cards.yaml 有注释留痕。
-  const ALLOW = ['token_jixie_shaobing'];
+  // 剩下的只允许是「限制型文案」那几张（等 ADR-045 的 restrict 字段），换名单就报错。
+  // 步兵（neutral_infantry）原在这张名单里，2026-09-27 设计者裁定撤下桩技能、改白板 1/1；
+  // 机械哨兵（token_jixie_shaobing）也在 2026-10-11 随黄月英重做撤下（ADR-152）——
+  // 它的「不能攻击敌方主帅」整条移除、改用**真正生效**的「先攻」关键词，
+  // 于是这张名单**已经清空**。数据的改动在 data/cards.yaml 有注释留痕。
+  const ALLOW: string[] = [];
   assert.deepEqual([...pendingIds].sort(), [...ALLOW].sort(),
     `pending 技能名单变了：${names.join('、')} —— 若是新加的限制型文案，`
     + '请连同 ADR-045 的 restrict 字段一起处理，不要让它静默挂在卡上');
+});
+
+test('ADR-152：机械哨兵已从 pending 名单撤下（改用「先攻」，不再是空文案）', () => {
+  const runtime: CardDef[] = JSON.parse(readFileSync(join(ROOT, 'data', 'cards.json'), 'utf8'));
+  const sb = runtime.find((c) => c.id === 'token_jixie_shaobing');
+  assert.ok(sb, 'cards.json 里应有机械哨兵');
+  assert.equal((sb!.skills ?? []).some((sk) => (sk as { pending?: boolean }).pending), false,
+    '不该再有 pending 空壳技能');
+  assert.ok((sb!.keywords ?? []).includes('xian_gong'), '应改为真正生效的「先攻」关键词');
 });
 
 test('ADR-075：陈到确实从 pending 名单里出来了（防"测试读错文件"回归）', () => {
@@ -301,40 +332,23 @@ test('ADR-075：陈到确实从 pending 名单里出来了（防"测试读错文
 });
 
 /* ============================================================
-   黄皓「谮言」：自削统率 + 封锁（不是弃掉）
+   黄皓「谮言」→ 已于 2026-10-11 整体重做（ADR-155）
    ============================================================ */
 
-test('ADR-074 黄皓：己方主公统率 −1，且**封锁**敌方一张手牌（牌还在手里）', () => {
-  realCard('shu_huanghao');
-  const { state, ctx } = scenario({ ownHand: ['shu_huanghao'], enemyHand: ['neutral_infantry', 'neutral_archer'] });
-  const cmdBefore = state.sides.own.command.cur;
-  const cost = base('shu_huanghao').cost;
-
-  const r = applyAction(state, ctx, { type: 'PLAY_CARD', cardIndex: 0, row: 'front', col: 0 });
-  assert.ok(r.ok, `打出应成功：${r.error}`);
-
-  assert.equal(r.state.sides.own.command.cur, cmdBefore - cost - 1,
-    `统率应是「卡费 ${cost} + 自削 1」`);
-  assert.equal(r.state.sides.enemy.hand.length, 2, '被封锁的牌仍在对手手里');
-  assert.equal(r.state.sides.enemy.discard.length, 0, '封锁 ≠ 弃牌');
-  assert.ok(r.state.sides.enemy.hand.some((hc) => hc.mods.some((m) => m.kind === 'ban')),
-    '应有一张手牌被禁止上场');
-  assert.ok(r.events.some((e) => e.type === 'HAND_MODIFIED' && e.kind === 'ban'));
-});
-
-test('ADR-074 黄皓：被封锁的手牌打不出来', () => {
-  realCard('shu_huanghao');
-  const { state, ctx } = scenario({ ownHand: ['shu_huanghao'], enemyHand: ['neutral_infantry'] });
-  const r = applyAction(state, ctx, { type: 'PLAY_CARD', cardIndex: 0, row: 'front', col: 0 });
-  assert.ok(r.ok);
-  // 换到敌方行动，尝试打出那张被封锁的牌
-  const r2 = applyAction(r.state, ctx, { type: 'END_TURN' });
-  assert.ok(r2.ok);
-  const idx = r2.state.sides.enemy.hand.findIndex((hc) => hc.mods.some((m) => m.kind === 'ban'));
-  assert.ok(idx >= 0, '敌方手里应有一张被封锁的牌');
-  const r3 = applyAction(r2.state, ctx, { type: 'PLAY_CARD', cardIndex: idx, row: 'front', col: 5 } as Action);
-  assert.equal(r3.ok, false, '被封锁的牌不应打得出来');
-});
+// 旧设计（`gain_command` 负数自削统率 + `ban_play` 永久封锁随机一张手牌）**已整条删除**：
+// 除了设计上的问题（对手无感、只有自伤），`ban_play` 当时**没写 `duration`** → `turns: undefined`
+// → `expireHandMods` 直接保留 → **永久封锁**，违反 `12-randomness.md:82`「不允许永久封锁」。
+//
+// 新设计 = 3 费 1/3 精英「谗言」（拼点弃牌，`clash` + `discard` 条件分支）
+//        + 「覆国」（亡语：敌方主公 −4、己方主公 −2 的不对称直伤）。
+// **本文件原本覆盖的两条引擎能力，去向如下**：
+//   · `ban_play` 的**行为**断言（被封锁的牌打不出来）→ 已补进 `dsl.test.ts`
+//     「禁止上场」那条（它原先只断言 `isBanned` 标记，测试名却承诺了行为 —— 名不副实）。
+//     ⚠️ 该机制现在**全池 0 张卡在用**（旧黄皓是唯一使用者），保留以备后用。
+//   · `gain_command` 负数 → 同样**全池 0 张卡在用**，已无真实卡覆盖。
+//
+// 黄皓新设计的完整测试见 **`core/test/huanghao.test.ts`**（8 条，含拼点两条分支、
+// 平局算赢、亡语不对称、以及"玩家可主动撞死触发亡语"）。
 
 /* ============================================================
    张宝 / 张梁「黄天当立」：按 card_id 精确判「谁在场」

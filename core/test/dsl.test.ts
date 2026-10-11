@@ -466,6 +466,20 @@ test('禁止上场：被 ban 的手牌打不出去，到期后恢复', () => {
   const { state, ctx } = scenario({ ownHand: ['test_ban'], enemyHand: ['neutral_infantry'] });
   const r = applyAction(state, ctx, { type: 'PLAY_CARD', cardIndex: 0, row: 'front', col: 1 });
   assert.ok(isBanned(r.state.sides.enemy.hand[0]!), '敌方手牌应被禁止上场');
+
+  // ⚠️ 下面这段是 2026-10-11 补的：原测试**只断言 `isBanned` 标记**，
+  // 而测试名承诺的是"打不出去 + 到期恢复" —— 名不副实（典型的空转断言）。
+  // 它之所以长期没被发现，是因为 `content-074.test.ts` 里黄皓那条测试**顺带**覆盖了真行为；
+  // 而黄皓重做（ADR-155）后不再使用 `ban_play`，这个机制**全池 0 张卡在用**，
+  // 覆盖就只剩本测试了 —— 所以行为断言必须补回来。
+  const handoff = applyAction(r.state, ctx, { type: 'END_TURN' });
+  assert.ok(handoff.ok);
+  const banIdx = handoff.state.sides.enemy.hand.findIndex((hc) => isBanned(hc));
+  assert.ok(banIdx >= 0, '敌方手里应仍有一张被封锁的牌');
+  const tryPlay = applyAction(handoff.state, ctx, {
+    type: 'PLAY_CARD', cardIndex: banIdx, row: 'front', col: 5,
+  });
+  assert.equal(tryPlay.ok, false, '被封锁的牌不应打得出来（`ban_play` 的真行为，不只是标记）');
 });
 
 test('夺取手牌：从敌方手牌取走并强制上场', () => {
