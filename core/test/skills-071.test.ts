@@ -485,9 +485,9 @@ test('B-11 换帻：守护跨回合持续，且祖茂阵亡后自动失效', () 
   assert.equal(getUnit(r1.state, 'own', 'front', 1)!.hp, afterLeave - 1);
 });
 
-test('B-11 换帻：shou_hu 是任意友军范围，祖茂为 3 费 2/4 武将', () => {
+test('B-11 换帻：shou_hu 是任意友军范围，祖茂为 4 费 3/5 武将', () => {
   const card = realCard('wu_zumao');
-  assert.deepEqual([card.cost, card.attack, card.health], [3, 2, 4]);
+  assert.deepEqual([card.cost, card.attack, card.health], [4, 3, 5]);
   assert.equal(card.type, 'general');
   assert.equal(card.type_explicit, true);
   assert.equal(STATUSES.shou_hu!.guard_scope, 'any');
@@ -739,10 +739,10 @@ test('ADR-072：数据里「1 攻武将」都有显式标注，其余人物类�
 
 test('ADR-072：显式标注的低攻武将与默认谋臣各自正确（祖茂/曹昂/张宝/向宠）', () => {
   const byId = new Map(ALL.map((c) => [c.id, c]));
-  // 吴国新设计：祖茂为 3 费 2/4 武将，仍保留显式类型标注。
-  assert.equal(byId.get('wu_zumao')!.attack, 2);
-  assert.equal(byId.get('wu_zumao')!.health, 4);
-  assert.equal(byId.get('wu_zumao')!.type, 'general', '1 攻仍显式定为武将');
+  // 吴国新设计：祖茂为 4 费 3/5 武将，仍保留显式类型标注。
+  assert.equal(byId.get('wu_zumao')!.attack, 3);
+  assert.equal(byId.get('wu_zumao')!.health, 5);
+  assert.equal(byId.get('wu_zumao')!.type, 'general', '显式类型仍应为武将');
   assert.equal(byId.get('wu_zumao')!.type_explicit, true, '需要显式标注，否则校验器报错');
   for (const id of ['wei_caogang', 'qun_zhangbao']) {
     assert.equal(byId.get(id)!.type, 'general', `${id} 是显式判定的武将`);

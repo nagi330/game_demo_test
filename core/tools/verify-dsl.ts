@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 import { TEST_CARDS, scenario } from '../test/fixtures.ts';
-import { applyAction } from '../src/engine.ts';
+import { applyAction, unitSkillTargetPlan } from '../src/engine.ts';
 import { makeUnit, setUnit } from '../src/state.ts';
 import { costRuleDelta } from '../src/effects.ts';
 import { effectiveCost } from '../src/mutate.ts';
@@ -48,7 +48,7 @@ const fails: string[] = [];
 for (const c of cards) {
   const isTactic = c.type === 'tactic' || c.type === 'event';
   const { state, ctx } = scenario({
-    ownHand: [c.id, 'neutral_infantry', 'test_draw_tactic'],   // 留人物牌+策略牌，供手牌类效果有目标
+    ownHand: [c.id, 'neutral_infantry', 'test_draw_tactic', 'wei_xiahouen'], // 留兵种、战法和人物，供手牌筛选类效果有目标
     enemyHand: ['neutral_infantry', 'neutral_archer'],
   });
   setUnit(state, 'enemy', 'front', 0, makeUnit(base('neutral_infantry'), 1, 1));
@@ -79,8 +79,38 @@ for (const c of cards) {
     const r = applyAction(state, ctx, play);
     if (!r.ok) { fails.push(`${c.id}(${r.error})`); continue; }
     const evs = [...(r.events as GameEvent[])];
+    // 战吼发现会暂停后续结算；先选择第一张候选牌，再继续验证同一张卡的主动技。
+    // 鲁肃「榻上策」从全局卡池发现后始终会产生候选，若不处理这里，
+    // 验证器会把合法的主动技误报为“请先选择发现的牌”。
+    let verifiedState = r.state;
+    if (verifiedState.pendingDiscover?.candidates.length) {
+      const chosen = applyAction(verifiedState, ctx, {
+        type: 'CHOOSE_DISCOVER', cardId: verifiedState.pendingDiscover.candidates[0]!,
+      });
+      if (!chosen.ok) { fails.push(`${c.id}(发现选择被拒:${chosen.error})`); continue; }
+      verifiedState = chosen.state;
+      evs.push(...(chosen.events as GameEvent[]));
+    }
     if ((c.skills ?? []).some((s) => s.kind === 'active')) {
-      const r2 = applyAction(r.state, ctx, { type: 'USE_SKILL', row: 'front', col: 2 } as Action);
+      // 主动技可能需要一个或多个目标（例如张郃「巧变」同时选择兵种和空位）。
+      // 验证器只负责验证 DSL 能执行，因此按 core 的目标规划选取第一个合法目标，
+      // 避免用旧的无目标调用把合法技能误报为“动作不合法”。
+      const plan = unitSkillTargetPlan(verifiedState, 'own', 'front', 2);
+      const boardTarget = (pick: 1 | 2): { side: 'own' | 'enemy'; row?: 'front' | 'back'; col?: number } | undefined => {
+        const choice = plan.choices.find((x) => x.pick === pick && x.zone !== 'hand');
+        const target = choice?.targets[0];
+        if (!target || target.kind === 'lord') return target ? { side: target.side } : undefined;
+        return { side: target.side, row: target.row, col: target.col };
+      };
+      const target = boardTarget(1);
+      const target2 = boardTarget(2);
+      const handIndex = plan.choices.find((x) => x.zone === 'hand')?.handIndices?.[0];
+      const r2 = applyAction(verifiedState, ctx, {
+        type: 'USE_SKILL', row: 'front', col: 2,
+        ...(target ? { target } : {}),
+        ...(target2 ? { target2 } : {}),
+        ...(handIndex !== undefined ? { handIndex } : {}),
+      } as Action);
       if (!r2.ok) { fails.push(`${c.id}(主动技被拒:${r2.error})`); continue; }
       evs.push(...(r2.events as GameEvent[]));
     }

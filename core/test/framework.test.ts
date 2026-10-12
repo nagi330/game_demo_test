@@ -850,9 +850,9 @@ test('动作守卫：ACTIONS 里注册但未实现的，必须显式登记（防
   const { ACTIONS } = await import('../src/constants.ts');
   const { IMPLEMENTED_ACTIONS } = await import('../src/effects.ts');
   const missing = [...ACTIONS].filter((a) => !IMPLEMENTED_ACTIONS.has(a)).sort();
-  // 已知尚未实现：move（换位）、random_pick（随机取牌）；当前无卡使用。
+  // 已知尚未实现：random_pick（随机取牌）；当前无卡使用。
   // 若实现了就把它们加进 IMPLEMENTED_ACTIONS 并更新这里。
-  assert.deepEqual(missing, ['move', 'random_pick'],
+  assert.deepEqual(missing, ['random_pick'],
     `ACTIONS 与已实现集合不一致：${missing.join('、')} —— 用了它们的卡会静默空转`);
 });
 

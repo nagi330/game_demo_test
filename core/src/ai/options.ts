@@ -48,7 +48,7 @@ const PICK2_CAP = 3;
 interface Ref { side: Side; row?: Row; col?: number }
 
 /** 把 plan 里的目标转成 action 上的写法（主将没有 row/col） */
-const toActionTarget = (t: { kind: 'unit' | 'lord'; side: Side; row?: Row; col?: number }): Ref =>
+const toActionTarget = (t: { kind: 'unit' | 'lord' | 'slot'; side: Side; row?: Row; col?: number }): Ref =>
   t.kind === 'lord' ? { side: t.side } : { side: t.side, row: t.row, col: t.col };
 
 /* ============================================================
@@ -125,8 +125,9 @@ const effectsOfSkill = (sk: SkillDef): NonNullable<SkillDef['effects']> =>
 /** 一个候选目标对某个效果有多值得被选 */
 function rankTarget(
   state: MatchState, side: Side, choice: PlayTargetChoice, w: EvalWeights,
-  t: { kind: 'unit' | 'lord'; side: Side; row?: Row; col?: number },
+  t: { kind: 'unit' | 'lord' | 'slot'; side: Side; row?: Row; col?: number },
 ): number {
+  if (t.kind === 'slot') return 0;
   const dir = picksEnemySide(choice.action, choice.sides);
   if (choice.action === 'heal' || choice.action === 'survive') {
     if (t.kind === 'lord') return 1;                              // 主将满血时治疗没意义
@@ -229,7 +230,10 @@ function playOptions(state: MatchState, w: EvalWeights): AiOption[] {
       // 战吼里的「手牌步骤」（ADR-146 出牌版，刘巴「直百」＝弃一张手牌）也要枚举，
       // 否则 AI 打这张牌时手牌部分会悄悄退回随机。`handPickCandidates` 给的是**打出前**的下标，
       // 而 `PLAY_CARD.handIndex` 的约定是**打出后**的下标（这张牌已离手）→ 这里换算。
-      const stepHandPicks = needsHandIndexInPlay(card) ? handPickCandidates(state, side) : [undefined];
+      const handStep = p0.choices.find((c) => c.zone === 'hand');
+      const stepHandPicks = handStep?.handIndices?.length
+        ? handStep.handIndices.filter((index) => index !== i)
+        : needsHandIndexInPlay(card) ? handPickCandidates(state, side) : [undefined];
       for (const hp of stepHandPicks) {
         const handIndex = hp === undefined ? undefined
           : hp === i ? undefined : hp - (hp > i ? 1 : 0);
@@ -284,7 +288,9 @@ function skillOptions(state: MatchState, w: EvalWeights, cards?: Map<string, Car
     const modeCount = p0.modes.length || 1;
     const combos = combosOf(state, side,
       (mi) => unitSkillTargetPlan(state, side, ref.row, ref.col, mi ?? 0), w, modeCount);
-    const handPicks = needsHandIndex(sk) ? handPickCandidates(state, side) : [undefined];
+    const handStep = p0.choices.find((c) => c.zone === 'hand');
+    if (handStep && !handStep.handIndices?.length) continue;
+    const handPicks = handStep?.handIndices ?? (needsHandIndex(sk) ? handPickCandidates(state, side) : [undefined]);
     for (const cb of combos) {
       for (const hi of handPicks) {
         out.push({

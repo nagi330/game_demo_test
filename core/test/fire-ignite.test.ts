@@ -168,7 +168,7 @@ test('火烧洛阳（事件）：敌方每个单位各 1 层；主公吃当次�
     '主公不吃灼烧层：dot_fire 在回合开始只遍历场上单位，挂了也不会跳伤（ADR-134）');
 });
 
-test('潘璋「擒将」：3 点火攻 → 目标挂 1 层', () => {
+test('潘璋「擒将夺刃」：对受伤武将造成物理伤害，击杀后获得攻击力', () => {
   const s = setup({ ownHand: ['wu_panzhang'] });
   const v = put(s, 'enemy', 1, 8);
   v.hp = 4;                                   // 「擒将」要求目标已受伤
@@ -181,8 +181,8 @@ test('潘璋「擒将」：3 点火攻 → 目标挂 1 层', () => {
   s.state = r.state;
 
   const after = unitAt(s, 'enemy', 1);
-  assert.equal(4 - after.hp, 3, '3 点火攻');
-  assert.equal(stacksOf(after), 1, '1 层灼烧');
+  assert.equal(4 - after.hp, 3, '3 点物理伤害');
+  assert.equal(stacksOf(after), 0, '擒将夺刃不再附加灼烧');
 });
 
 test('蒙冲斗舰「蒙冲」：只对指定单位造成 1 点水攻，不扩散也不挂灼烧', () => {
@@ -227,29 +227,26 @@ test('荀攸「乌巢袭粮」：2 名受伤单位各 1 层 —— **恰好 2 �
   assert.equal(stacksOf(A) + stacksOf(B), 2, '伤害自带的 1 层是唯一来源（显式施加已删）');
 });
 
-test('陆逊「策火流云」：每回合 1 层、**会累积**（第 2 个敌方回合开始烧 2 点）', () => {
+test('陆逊「火烧连营」：指定起火点并沿连续相邻站位造成火攻', () => {
   const s = setup({ seed: 1, ownHand: ['wu_luxun'] });
+  put(s, 'enemy', 2, 30);
   put(s, 'enemy', 3, 30);
+  put(s, 'enemy', 4, 30);
 
   const played = applyAction(s.state, s.ctx, { type: 'PLAY_CARD', cardIndex: 0, row: 'front', col: 0 });
   assert.ok(played.ok, played.error ?? '陆逊应能打出');
   s.state = played.state;
-
-  endTurn(s);                                 // 我方回合末：策火流云 → 1 点火伤 + 1 层
-  assert.equal(stacksOf(unitAt(s, 'enemy', 3)), 1, '第 1 次结算：1 层');
-  assert.equal(s.state.sides.enemy.lord.hp, 29, '陆逊打的是"敌方全体"，主公吃当次 1 点火伤');
-  endTurn(s);                                 // 敌方回合开始：烧 1
-
-  assert.equal(30 - unitAt(s, 'enemy', 3).hp, 2, '1 点直伤 + 回合开始烧 1 点');
-  assert.equal(stacksOf(unitAt(s, 'enemy', 3)), 1, '跳伤本身不叠层');
-
-  endTurn(s);                                 // 我方回合末：再 1 点火伤 + 1 层（累积到 2）
-  assert.equal(stacksOf(unitAt(s, 'enemy', 3)), 2, '第 2 次结算：累积到 2 层');
-  endTurn(s);                                 // 敌方回合开始：烧 2
-
-  assert.equal(30 - unitAt(s, 'enemy', 3).hp, 5, '1 + 1 + 1 + 2 = 5 点（跳伤按当时层数）');
-  assert.equal(stacksOf(unitAt(s, 'enemy', 3)), 2, '层数不因跳伤变化');
-  assert.equal(s.state.sides.enemy.lord.statuses?.zhuo_shao, undefined, '主公始终不挂层');
+  const burned = applyAction(s.state, s.ctx, {
+    type: 'USE_SKILL', row: 'front', col: 0,
+    target: { side: 'enemy', row: 'front', col: 3 },
+  });
+  assert.ok(burned.ok, burned.error ?? '火烧连营应能发动');
+  s.state = burned.state;
+  assert.equal(30 - unitAt(s, 'enemy', 2).hp, 2);
+  assert.equal(30 - unitAt(s, 'enemy', 3).hp, 0, '起火点不应承受伤害');
+  assert.equal(30 - unitAt(s, 'enemy', 4).hp, 2);
+  assert.equal(stacksOf(unitAt(s, 'enemy', 2)), 1);
+  assert.equal(stacksOf(unitAt(s, 'enemy', 4)), 1);
 });
 
 test('董卓「暴虐」（方案乙）：只对敌方男性 1 点火攻（自动挂永久灼烧），女性与主公不受影响', () => {
@@ -503,7 +500,7 @@ test('层数不封顶：连续施加 5 次 = 5 层，回合开始烧 5 点', () 
    ============================================================ */
 
 test('卡牌收口：荀攸/陆逊**不再**显式施加灼烧（否则伤害自带 1 层 + 显式 1 层 = 双倍）', () => {
-  for (const [id, skillName] of [['wei_xunyou', '乌巢袭粮'], ['wu_luxun', '策火流云']] as const) {
+  for (const [id, skillName] of [['wei_xunyou', '乌巢袭粮'], ['wu_luxun', '火烧连营']] as const) {
     const card = realCard(id);
     const skill = (card.skills ?? []).find((x) => x.name === skillName);
     assert.ok(skill, `${card.name} 应有「${skillName}」`);
@@ -511,7 +508,11 @@ test('卡牌收口：荀攸/陆逊**不再**显式施加灼烧（否则伤害自
     assert.equal(explicit.length, 0,
       `${card.name}「${skillName}」的火伤已由全局规则自动挂层，不该再写 apply_status: zhuo_shao`);
     // 火伤本身还在（数值未动）
-    assert.ok((skill!.effects ?? []).some((e) => e.action === 'damage' && e.damage_type === 'fire'),
+    const effects = [
+      ...(skill!.effects ?? []),
+      ...((skill!.modes ?? []).flatMap((m) => m.effects ?? [])),
+    ];
+    assert.ok(effects.some((e) => (e.action === 'damage' || e.action === 'chain_damage') && e.damage_type === 'fire'),
       `${card.name}「${skillName}」的直伤应仍是 damage_type: fire`);
   }
 });

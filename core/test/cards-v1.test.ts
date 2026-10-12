@@ -271,8 +271,8 @@ test('华佗 医圣：治疗一位己方人物 2 点（真实卡）', () => {
 
 test('丁奉 雪中奋短兵：光环强化后续召唤单位', () => {
   const card = realCard('wu_dingfeng');
-  assert.equal(card.cost, 4);
-  assert.deepEqual([card.attack, card.health], [2, 2]);
+  assert.equal(card.cost, 5);
+  assert.deepEqual([card.attack, card.health], [3, 4]);
   assert.equal(card.skills?.[0]?.id, 'xue_zhong_fen_duan_bing');
 });
 

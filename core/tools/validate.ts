@@ -77,6 +77,35 @@ export function validateCards(cards: CardDef[]): Issue[] {
         if (e.target?.filter?.tag && !TAGS[e.target.filter.tag]) {
           add('error', c.id, `${where} 选择器引用了未注册的归属标签：${e.target.filter.tag}`);
         }
+        const scanCondition = (condition: EffectCondition | undefined): void => {
+          if (!condition) return;
+          if (condition.deck_tag && !TAGS[condition.deck_tag.tag]) {
+            add('error', c.id, `${where} deck_tag 引用了未注册的归属标签：${condition.deck_tag.tag}`);
+          }
+          for (const nested of [...(condition.all_of ?? []), ...(condition.any_of ?? [])]) scanCondition(nested);
+        };
+        scanCondition(e.condition);
+        if (e.pool_faction && !['wei', 'shu', 'wu', 'qun', 'neutral'].includes(e.pool_faction)) {
+          add('error', c.id, `${where} pool_faction 使用了非法阵营：${e.pool_faction}`);
+        }
+        for (const type of e.target?.filter?.types ?? []) {
+          if (!(CARD_TYPES as readonly string[]).includes(type)) add('error', c.id, `${where} types 使用了非法类型：${type}`);
+        }
+        for (const [type, modifier] of Object.entries(e.discover_modifiers ?? {})) {
+          if (!['general', 'strategist'].includes(type)) add('error', c.id, `${where} discover_modifiers 使用了非法人物类型：${type}`);
+          scanDiscoverModifier(modifier);
+        }
+        for (const [tag, modifier] of Object.entries(e.discover_tag_modifiers ?? {})) {
+          if (!TAGS[tag]) add('error', c.id, `${where} discover_tag_modifiers 引用了未注册的归属标签：${tag}`);
+          scanDiscoverModifier(modifier);
+        }
+        function scanDiscoverModifier(modifier: NonNullable<CardEffect['discover_modifiers']>['general']): void {
+          for (const [key, value] of Object.entries(modifier ?? {})) {
+            if (!['cost', 'attack', 'health'].includes(key) || typeof value !== 'number' || !Number.isFinite(value)) {
+              add('error', c.id, `${where} 发现修正非法：${key}=${String(value)}`);
+            }
+          }
+        }
         // 性别筛选（ADR-071）：只认这三个值，写错会静默选不中任何人
         const g = e.target?.filter?.gender;
         if (g && !['male', 'female', 'unknown'].includes(g)) {
@@ -94,10 +123,11 @@ export function validateCards(cards: CardDef[]): Issue[] {
          * 无法攻击主帅"，实际是一张纯白卡，`verify:dsl` 也照样"通过"。
          *
          * 判定：`damage` / `heal` / `modify` 既没有动态取值（`*_from` / `value_from_flag`
-         * / `value_from_discarded`），也没有非零 `value`（modify 另看 `attack`/`health`）。
+         * / `value_from_discarded` / `value_from_source`），也没有非零 `value`
+         *（modify 另看 `attack`/`health`）。
          * 报 warn 而不是 error：占位可能是"机制还没设计"，不该阻断构建，但必须看得见。
          */
-        const dynValue = (['value_from', 'value_from_flag', 'value_from_discarded', 'value_from_status'] as const)
+        const dynValue = (['value_from', 'value_from_flag', 'value_from_discarded', 'value_from_status', 'value_from_source', 'value_from_clash_target', 'value_from_played'] as const)
           .some((k) => e[k] !== undefined && e[k] !== null);
         if ((e.action === 'damage' || e.action === 'heal') && !dynValue && !e.value) {
           add('warn', c.id, `${where} 的「${e.action}」没有任何数值来源（值 ${String(e.value)}）—— 实际不会发生任何事，是不是占位没翻译完？`);
