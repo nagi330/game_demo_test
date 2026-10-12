@@ -43,7 +43,7 @@ function useLordSkill(
  * 客户端只消费 events 播放动画；服务器用同一个引擎做权威裁决。
  */
 
-import { COMMAND, LORD_SKILL_COST, MATCH, STATUSES, TIMING } from './constants.ts';
+import { BOARD, COMMAND, LORD_SKILL_COST, MATCH, STATUSES, TIMING } from './constants.ts';
 import { createRng } from './rng.ts';
 import {
   capStacks,
@@ -63,7 +63,7 @@ import {
 import {
   costRuleDelta, effectsOf, emitSkillTriggered, recomputeAuras, resolveAttack, resolveTargets,
   resolveDrawTrigger,
-  runCardPlayedTriggers, runEffects, runTriggerSkills, runUnitTrigger,
+  runCardPlayedTriggers, runEffects, runTriggerSkills, runUnitTrigger, runAllyUpgradeTriggers,
 } from './effects.ts';
 import type {
   Action, ApplyResult, CardDef, CardEffect, EngineContext, GameEvent, MatchState, Row, Side,
@@ -166,17 +166,28 @@ function chooseHand(
   const i = action.handIndex;
   if (!(Number.isInteger(i) && i >= 0 && i < hand.length)) return false;
   if (pending.indices && !pending.indices.includes(i)) return false;
-  const [chosen] = hand.splice(i, 1);
-  if (!chosen) return false;
-  delete state.pendingHandChoice;
+  const source = pending.continuation?.sourceUid
+    ? allUnits(state, pending.side).find((ref) => ref.unit.uid === pending.continuation!.sourceUid)?.unit
+    : undefined;
+  if (pending.kind === 'tactic_pair') {
+    delete state.pendingHandChoice;
+    runEffects(state, ctx.cards, pending.choiceEffect ? [pending.choiceEffect] : [],
+      { side: pending.side, source, handIndex: i }, rng, events);
+  } else {
+    const [chosen] = hand.splice(i, 1);
+    if (!chosen) return false;
+    delete state.pendingHandChoice;
 
-  const s = state.sides[pending.side];
-  if (pending.kind === 'deck_top') s.deck.push(chosen.card.id);          // 数组末尾 = 牌库顶
-  else if (pending.kind === 'deck_bottom') s.deck.unshift(chosen.card.id); // 数组开头 = 牌库底
-  else if (pending.kind === 'random') s.deck.splice(rng.int(s.deck.length + 1), 0, chosen.card.id);
-  else s.discard.push(chosen.card);                                       // 'discard'：真弃掉
+    const s = state.sides[pending.side];
+    if (pending.kind === 'deck_top') s.deck.push(chosen.card.id);          // 数组末尾 = 牌库顶
+    else if (pending.kind === 'deck_bottom') s.deck.unshift(chosen.card.id); // 数组开头 = 牌库底
+    else if (pending.kind === 'random') s.deck.splice(rng.int(s.deck.length + 1), 0, chosen.card.id);
+    else s.discard.push(chosen.card);                                       // 'discard'：真弃掉
 
-  events.push({ type: 'HAND_CHOSEN', side: pending.side, card: chosen.card, kind: pending.kind });
+    events.push({ type: 'HAND_CHOSEN', side: pending.side, card: chosen.card, kind: pending.kind });
+  }
+  runEffects(state, ctx.cards, pending.continuation?.effects,
+    { side: pending.side, source }, rng, events);
   return true;
 }
 
@@ -186,44 +197,59 @@ function chooseDiscover(
   events: GameEvent[], rng: ReturnType<typeof createRng>,
 ): boolean {
   const pending = state.pendingDiscover;
-    // 发现可能由亡语、受击等非当前行动方的触发技产生（例如郭嘉亡语）。
-    // 发现的拥有方仍然是 pending.side，但不能要求它恰好是当前回合方，
-    // 否则对方回合触发的发现会永远无法选择，且会卡住后续结算。
-    if (!pending || !pending.candidates.includes(action.cardId)) return false;
-  // ADR-178：池来源的候选**不在牌库**里，只有牌库来源才切除
+  // 发现可能由亡语、受击等非当前行动方的触发技产生（例如郭嘉亡语）。
+  // 发现的拥有方仍然是 pending.side，但不能要求它恰好是当前回合方，
+  // 否则对方回合触发的发现会永远无法选择，且会卡住后续结算。
+  if (!pending || !pending.candidates.includes(action.cardId)) return false;
   let id = action.cardId;
-  if (!pending.fromPool) {
+  const fromPool = pending.fromPool || pending.source === 'pool';
+  if (!fromPool) {
     const index = state.sides[pending.side].deck.indexOf(action.cardId);
     if (index < 0) return false;
     [id] = state.sides[pending.side].deck.splice(index, 1);
   }
   const card = ctx.cards.get(id);
   if (!card) return false;
-  events.push({ type: 'CARD_DISCOVERED', side: pending.side, card, costModifier: pending.costModifier, destination: pending.destination ?? 'hand' });
-
-  // ADR-178：多选 —— 还有额度时保持挂起，本张先入手牌，不跑抽牌触发/续结算
+  const choiceMods = pending.choiceModifiers?.[card.type as 'general' | 'strategist'];
+  const tagMods = Object.entries(pending.choiceTagModifiers ?? {})
+    .filter(([tag]) => (card.tags ?? []).includes(tag))
+    .map(([, mods]) => mods);
+  const tagCost = tagMods.reduce((sum, mods) => sum + (mods.cost ?? 0), 0);
+  const tagAttack = tagMods.reduce((sum, mods) => sum + (mods.attack ?? 0), 0);
+  const tagHealth = tagMods.reduce((sum, mods) => sum + (mods.health ?? 0), 0);
+  const totalCost = (pending.costModifier ?? 0) + (choiceMods?.cost ?? 0) + tagCost;
+  events.push({
+    type: 'CARD_DISCOVERED', side: pending.side, card,
+    costModifier: totalCost || undefined,
+    destination: pending.destination ?? 'hand',
+  });
   const picks = pending.picks ?? 1;
-  if (picks > 1) {
-    state.sides[pending.side].hand.push({
-      card,
-      mods: pending.costModifier ? [{ id: 'discover', kind: 'cost', value: pending.costModifier }] : [],
-    });
+  const morePicks = picks > 1 && pending.candidates.length > 1;
+  if (morePicks) {
     pending.picks = picks - 1;
     pending.candidates = pending.candidates.filter((x) => x !== id);
-    recomputeAuras(state, ctx.cards, rng, events);
-    return true;
-  }
-
-  delete state.pendingDiscover;
-  // ADR-178：选完后剩余候选的去向 —— `rest: 'deck'` 且候选来自池（牌库来源的本就在牌库里）
-  if (pending.rest === 'deck' && pending.fromPool) {
-    for (const rest of pending.candidates) if (rest !== id) state.sides[pending.side].deck.push(rest);
+  } else {
+    delete state.pendingDiscover;
+    if (pending.rest === 'deck' && fromPool) {
+      for (const rest of pending.candidates) if (rest !== id) state.sides[pending.side].deck.push(rest);
+    }
   }
   // 发现到带“抽到时”技能的牌时，沿用抽牌触发规则；例如曹休会立即召唤。
+  const beforeUnits = new Set(allUnits(state, pending.side).map((ref) => ref.unit.uid));
   const auto = resolveDrawTrigger(state, ctx.cards, pending.side, card, events, rng);
   if (auto) {
+    const summoned = allUnits(state, pending.side).find((ref) =>
+      !beforeUnits.has(ref.unit.uid) && ref.unit.cardId === card.id);
+    if (summoned && (choiceMods?.attack || choiceMods?.health || tagAttack || tagHealth)) {
+      runEffects(state, ctx.cards, [{ action: 'modify', target: { source: true },
+        attack: (choiceMods?.attack ?? 0) + tagAttack,
+        health: (choiceMods?.health ?? 0) + tagHealth }],
+        { side: pending.side, source: summoned.unit }, rng, events);
+      recomputeAuras(state, ctx.cards, rng, events);
+    }
     if (auto.discard) state.sides[pending.side].discard.push(card);
     events.push({ type: 'CARD_AUTO_CAST', side: pending.side, card });
+    if (morePicks) return true;
     const continuation = state.pendingTriggerSkills;
     if (continuation) {
       runTriggerSkills(state, ctx.cards, continuation.side, continuation.trigger, rng, events);
@@ -234,11 +260,36 @@ function chooseDiscover(
     // 抽牌使用 pop()，数组末尾才是实际牌库顶部。
     state.sides[pending.side].deck.push(card.id);
   } else {
-    state.sides[pending.side].hand.push({
-      card,
-      mods: pending.costModifier ? [{ id: 'discover', kind: 'cost', value: pending.costModifier }] : [],
-    });
+    const typeMods = choiceMods;
+    const mods = [];
+    if (pending.costModifier) mods.push({ id: 'discover', kind: 'cost' as const, value: pending.costModifier });
+    if (typeMods?.cost) mods.push({ id: 'discover-type-cost', kind: 'cost' as const, value: typeMods.cost });
+    if (typeMods?.attack) mods.push({ id: 'discover-type-attack', kind: 'attack' as const, value: typeMods.attack });
+    if (typeMods?.health) mods.push({ id: 'discover-type-health', kind: 'health' as const, value: typeMods.health });
+    if (tagCost) mods.push({ id: 'discover-tag-cost', kind: 'cost' as const, value: tagCost });
+    if (tagAttack) mods.push({ id: 'discover-tag-attack', kind: 'attack' as const, value: tagAttack });
+    if (tagHealth) mods.push({ id: 'discover-tag-health', kind: 'health' as const, value: tagHealth });
+    state.sides[pending.side].hand.push({ card, mods });
+    if (pending.banChoice) {
+      const handIndex = state.sides[pending.side].hand.length - 1;
+      state.sides[pending.side].hand[handIndex]!.mods.push({
+        id: `ban#discover-${card.id}-${state.uidSeq}`,
+        kind: 'ban', turns: 1,
+      });
+    }
     recomputeAuras(state, ctx.cards, rng, events);
+  }
+  if (!morePicks && pending.unselectedCandidates?.length && pending.unselectedTo === 'deck_top') {
+    const ids = [...pending.unselectedCandidates].sort((a, b) =>
+      (ctx.cards.get(a)?.cost ?? 0) - (ctx.cards.get(b)?.cost ?? 0));
+    for (const candidate of ids) {
+      const at = state.sides[pending.side].deck.indexOf(candidate);
+      if (at >= 0) state.sides[pending.side].deck.splice(at, 1);
+      state.sides[pending.side].deck.push(candidate);
+    }
+  }
+  if (morePicks) {
+    return true;
   }
   const continuation = state.pendingTriggerSkills;
   if (continuation) {
@@ -341,6 +392,8 @@ function upgradeUnit(
   if (hasTrait(u, 'xian_gong') && u.attackedThisTurn > 0) {
     u.attackedThisTurn -= 1;
   }
+
+  runAllyUpgradeTriggers(state, ctx.cards, side, { row: action.row, col: action.col }, rng, events);
 
   events.push({ type: 'UNIT_UPGRADED', side, row: action.row, col: action.col, from, to: toCard.id, unit: u });
   return true;
@@ -454,7 +507,9 @@ export interface PlayTargetChoice {
   /** 候选池实际覆盖的阵营（按池内目标去重），AI 用于兜底排序 */
   sides: Side[];
   /** 合法目标（场上 / 主将）。手牌类目标不在此列 —— UI 表达不了，交给引擎兜底 */
-  targets: Array<{ kind: 'unit' | 'lord'; side: Side; row?: Row; col?: number }>;
+  targets: Array<{ kind: 'unit' | 'lord' | 'slot'; side: Side; row?: Row; col?: number }>;
+  /** 该选择器要求显式满足特殊资格（当前用于陈泰“受伤或受控”目标）。 */
+  strict?: boolean;
   /** 候选池里还含手牌（`zone: 'both'`）→ UI 选不到，引擎会用兜底目标 */
   includesHand: boolean;
   /**
@@ -465,6 +520,8 @@ export interface PlayTargetChoice {
    * 缺省 = 场上目标。注意 `pick` 只对场上步骤有意义。
    */
   zone?: 'hand';
+  /** 合法手牌下标；UI 和 AI 按这一列表选择。 */
+  handIndices?: number[];
 }
 
 export interface PlayTargetPlan {
@@ -505,17 +562,23 @@ export function playTargetPlan(
   const onPlay = (card.skills ?? []).filter((sk) => sk.trigger === 'on_play');
   for (const sk of onPlay) {
     if (sk.modes?.length) plan.modes = sk.modes.map((m, i) => m.name || `选项 ${i + 1}`);
-    for (const eff of effectsOf(sk, modeIndex)) collect(eff);
+  for (const eff of effectsOf(sk, modeIndex)) {
+    collect(eff);
+    if (eff.target2) collect(eff, eff.target2, 2);
+  }
   }
   // 非人物卡的卡级效果同样可能带 mode:'choose'（如指定一方）
   if (!['troop', 'general', 'strategist', 'machine'].includes(card.type)) {
-    for (const eff of card.effects ?? []) collect(eff);
+    for (const eff of card.effects ?? []) {
+      collect(eff);
+      if (eff.target2) collect(eff, eff.target2, 2);
+    }
   }
   return plan;
 
   // 预览来源用**卡面数值**：`attack_below_source` / `cost_below_source` 这类过滤要靠它
-  function collect(eff: CardEffect): void {
-    const c = choiceOf(state, side, eff, { cost: card.cost, atk: card.attack ?? 0 });
+  function collect(eff: CardEffect, selector = eff.target, forcedPick?: 1 | 2): void {
+    const c = choiceOf(state, side, eff, { cost: card.cost, atk: card.attack ?? 0 }, selector, forcedPick);
     if (c && !plan.choices.some((x) => x.pick === c.pick)) plan.choices.push(c);
   }
 }
@@ -534,8 +597,10 @@ export function playTargetPlan(
 function choiceOf(
   state: MatchState, side: Side, eff: CardEffect,
   preview: { cost: number; atk: number },
+  selector: TargetSelector | undefined = eff.target,
+  forcedPick?: 1 | 2,
 ): PlayTargetChoice | null {
-  const t = eff.target;
+  const t = selector;
   if (!t) return null;
   // "要不要玩家选"有两种写法，引擎自己就是两种都认（ADR-146）：
   //   · 选择器级 `target.mode: 'choose'` —— 绝大多数效果（damage/heal/modify…）
@@ -543,7 +608,24 @@ function choiceOf(
   //     （它们从 `ctx.handIndex` 取牌，模式写在动作上；华佗「青囊」的弃牌就是这种）
   if (t.mode !== 'choose' && eff.mode !== 'choose') return null;
   if (t.count === 'all' || (t.count ?? 1) !== 1) return null;
-  const pick: 1 | 2 = t.pick === 2 ? 2 : 1;
+  const pick: 1 | 2 = forcedPick ?? (t.pick === 2 ? 2 : 1);
+  if (t.require_empty) {
+    const sideSel = t.side ?? 'enemy';
+    const sides: Side[] = sideSel === 'both' ? ['own', 'enemy']
+      : sideSel === 'self' || sideSel === 'ally' ? [side] : [other(side)];
+    const targets: PlayTargetChoice['targets'] = [];
+    for (const targetSide of sides) {
+      for (const r of BOARD.ROWS) {
+        for (let c = 0; c < BOARD.COLS; c++) {
+          if (!state.sides[targetSide].rows[r][c]) targets.push({ kind: 'slot', side: targetSide, row: r, col: c });
+        }
+      }
+    }
+    return {
+      pick, action: eff.action, label: '己方空位', sides: [...new Set(targets.map((x) => x.side))], targets,
+      includesHand: false,
+    };
+  }
   // 用 `count:'all'` 拿**整个候选池**（而不是 resolveTargets 的"取前 N 个"）
   const src = { uid: '#preview', cost: preview.cost, atk: preview.atk } as Unit;
   const pool = resolveTargets(state, { ...t, count: 'all', mode: 'first' },
@@ -559,9 +641,11 @@ function choiceOf(
   const byHand = t.zone === 'hand';
   return {
     pick, action: eff.action, sides, targets,
+    ...(t.filter?.damaged_or_controlled ? { strict: true } : {}),
     label: choiceLabel(t),
     includesHand: byHand || pool.some((r) => r.kind === 'hand'),
     ...(byHand ? { zone: 'hand' as const } : {}),
+    ...(byHand ? { handIndices: pool.flatMap((r) => r.kind === 'hand' ? [r.index] : []) } : {}),
   };
 }
 
@@ -587,6 +671,10 @@ export function unitSkillTargetPlan(
     // ⚠️ 去重要**连 zone 一起比**：华佗「青囊」的"弃手牌"与"回血目标"都是 pick 1，
     //    只看 pick 会把前者吞掉（ADR-146）。
     if (c && !plan.choices.some((x) => x.pick === c.pick && x.zone === c.zone)) plan.choices.push(c);
+    if (eff.target2) {
+      const c2 = choiceOf(state, side, eff, { cost: u.cost, atk: u.atk }, eff.target2, 2);
+      if (c2 && !plan.choices.some((x) => x.pick === c2.pick && x.zone === c2.zone)) plan.choices.push(c2);
+    }
   }
   return plan;
 }
@@ -641,6 +729,8 @@ function startTurn(state: MatchState, ctx: EngineContext, events: GameEvent[], r
     ref.unit.dealtDamageThisTurn = false;
     ref.unit.skillUsesThisTurn = {};              // 主动技频率每回合重置（GDD 10 §1.1）
   }
+  // 防御触发技（如徐盛「疑城」）按敌方回合限制一次；敌方半回合开始时清除防御技计数。
+  for (const ref of allUnits(state, other(side))) ref.unit.skillUsesThisTurn = {};
 
   events.push({ type: 'TURN_START', side, turn: state.turn, halfTurn: state.halfTurn, command: { ...s.command } });
 
@@ -752,6 +842,19 @@ function playCard(
   const slot = isCharacter ? { row: action.row as 'front' | 'back', col: action.col as number } : undefined;
   const check = canPlayCard(state, side, card, slot, cost);
   if (!check.ok) return false;
+
+  // 指向性战吼的目标由 core 统一校验。未提供目标时保留 AI/旧测试的
+  // 兜底路径；一旦调用方明确传入目标，则不能静默回退到候选池中的另一张牌。
+  const plan = playTargetPlan(state, side, card, action.modeIndex);
+  const matches = (choice: PlayTargetChoice, target: NonNullable<Extract<Action, { type: 'PLAY_CARD' }>['target']>): boolean =>
+    choice.targets.some((candidate) => candidate.kind === (target.row === undefined ? 'lord' : 'unit')
+      && candidate.side === target.side
+      && (target.row === undefined || (candidate.row === target.row && candidate.col === target.col)));
+  for (const choice of plan.choices) {
+    const selected = choice.pick === 2 ? action.target2 : action.target;
+    if (!selected || choice.zone === 'hand' || !choice.strict) continue;
+    if (!matches(choice, selected)) return false;
+  }
 
   s.command.cur -= cost;
   // ✅ 约定（ADR-139/144）：`PLAY_CARD.handIndex` 用的是**出牌后**的手牌下标 ——
@@ -929,12 +1032,23 @@ function useUnitSkill(
   // 原先只看 `choices[0]`，而华佗「青囊」的第一步是"弃一张手牌"（targets 为空）——
   // 继续按老写法会把玩家选的回血目标一律判为非法。
   const steps = unitSkillTargetPlan(state, side, action.row, action.col, action.modeIndex, action.skillId).choices;
+  const handSteps = steps.filter((c) => c.zone === 'hand');
+  if (handSteps.some((c) => !c.handIndices?.length)) return false;
+  if (action.handIndex !== undefined && handSteps.some((c) => !c.handIndices?.includes(action.handIndex!))) return false;
   const boardSteps = steps.filter((c) => c.targets.length);
-  const hit = boardSteps.some((c) => c.targets.some((t) =>
+  const hit = boardSteps.filter((c) => c.pick === 1).some((c) => c.targets.some((t) =>
     t.side === action.target?.side && (t.kind === 'lord'
       ? action.target?.row === undefined
       : t.row === action.target?.row && t.col === action.target?.col)));
   if (action.target && boardSteps.length && !hit) return false;
+  const hasPick2 = boardSteps.some((c) => c.pick === 2);
+  const hit2 = boardSteps.filter((c) => c.pick === 2).some((c) => c.targets.some((t) =>
+    t.side === action.target2?.side && (t.kind === 'lord'
+      ? action.target2?.row === undefined
+      : t.row === action.target2?.row && t.col === action.target2?.col)));
+  // 第二目标是声明在技能上的必选步骤（如张郃「巧变」的空位）；缺失时不能退回
+  // effects 的随机兜底，否则玩家没有真正选择空位，技能会悄悄移动到第一个空格。
+  if (hasPick2 && (!action.target2 || !hit2)) return false;
 
   const key = skill.id || skill.name || '0';
   u.skillUsesThisTurn[key] = (u.skillUsesThisTurn[key] ?? 0) + 1;
@@ -947,9 +1061,14 @@ function useUnitSkill(
       ? unitRef(action.target.side, action.target.row, action.target.col as number)
       : lordRef(action.target.side)
     : undefined;
+  const target2: TargetRef | undefined = action.target2
+    ? action.target2.row !== undefined
+      ? unitRef(action.target2.side, action.target2.row, action.target2.col as number)
+      : lordRef(action.target2.side)
+    : undefined;
   // 抉择（ADR-071）：主动技同样支持 modes
   runEffects(state, ctx.cards, effectsOf(skill, action.modeIndex),
-             { side, source: u, chosen: target, handIndex: action.handIndex, modeIndex: action.modeIndex }, rng, events);
+             { side, source: u, chosen: target, chosen2: target2, handIndex: action.handIndex, modeIndex: action.modeIndex }, rng, events);
   chargeWaterTax(state, ctx, side, action.row, action.col, events);   // 水困：行动税
   return true;
 }

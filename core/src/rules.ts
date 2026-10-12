@@ -84,6 +84,10 @@ export function canUseUnitSkill(
       : req.op === '<' ? count < req.value : count !== req.value;
     if (!ok) return { ok: false, reason: `牌库中${req.tag}数量不满足发动条件` };
   }
+  const statusReq = skill.requires?.status;
+  if (statusReq && (u.statuses[statusReq.id]?.stacks ?? 0) < (statusReq.min ?? 1)) {
+    return { ok: false, reason: `需要${statusReq.id}状态` };
+  }
   return { ok: true, skill };
 }
 
@@ -256,6 +260,10 @@ export function canPlayCard(
 ): Check {
   const s = state.sides[side];
   const cost = costOverride ?? card.cost ?? 0;
+  if ((card.type === 'general' || card.type === 'troop')
+      && hasCapOn(s.lord.statuses, 'block_summon')) {
+    return { ok: false, reason: '围城封锁：本回合不能召唤武将和兵种' };
+  }
   if (cost > s.command.cur) {
     return { ok: false, reason: `统率值不足（需要 ${cost}，当前 ${s.command.cur}）` };
   }

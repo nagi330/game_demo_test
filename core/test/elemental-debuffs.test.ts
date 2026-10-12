@@ -588,7 +588,7 @@ test('灼烧：真实卡数据：三张火卡与全局「火攻挂灼烧」规�
   // 灼烧一律**永久**（没有任何 duration）。行为层面的逐张验证在 `test/fire-ignite.test.ts`。
   const cases: Array<[string, string]> = [
     ['wei_xunyou', '乌巢袭粮'],
-    ['wu_luxun', '策火流云'],
+    ['wu_luxun', '火烧连营'],
     ['qun_dongzhuo', '暴虐'],
   ];
   for (const [cardId, skillName] of cases) {
@@ -626,11 +626,13 @@ test('真实卡数据：没有卡面文案再把灼烧写成「回合结束」�
     `这些卡面文案仍把灼烧写成回合结束结算（实际是回合开始）：\n${offenders.join('\n')}`);
 });
 
-test('真实卡数据：火卡的直伤仍是 fire 属性（董卓只挂灼烧、没有直伤，故不在此列）', () => {
+test('真实卡数据：火卡的直伤仍是 fire 属性（陆逊的焚烧分支）', () => {
   for (const cardId of ['wei_xunyou', 'wu_luxun']) {
     const card = realCard(cardId);
-    const fireHits = (card.skills ?? []).flatMap((s) => s.effects ?? [])
-      .filter((e) => e.action === 'damage' && e.damage_type === 'fire');
+    const fireHits = (card.skills ?? []).flatMap((s) => [
+      ...(s.effects ?? []),
+      ...((s.modes ?? []).flatMap((m) => m.effects ?? [])),
+    ]).filter((e) => (e.action === 'damage' || e.action === 'chain_damage') && e.damage_type === 'fire');
     assert.ok(fireHits.length > 0, `${card.name} 的直伤应标 damage_type: fire`);
   }
 });
