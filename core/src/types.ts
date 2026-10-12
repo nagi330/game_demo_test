@@ -100,6 +100,8 @@ export interface CardEffect {
   chance?: number;               // 概率 0–1（ADR-033）
   condition?: EffectCondition;   // 条件（ADR-033）
   clashMode?: 'roll' | 'cost';   // clash 的比法
+  /** clash 专用：平局不视为失败，不执行胜负分支（周瑜「反间计」） */
+  tie_is_neutral?: boolean;
   from?: 'top' | 'bottom';       // scry 的取牌端
   status_source?: 'self';        // apply_status 时把来源单位记为状态的 srcUid（ADR-039）
   /**
@@ -116,6 +118,8 @@ export interface CardEffect {
   from_drawn?: number;
   value_from_discarded?: 'cost' | 'health';   // 取「最近被弃牌」的属性作为数值（ADR-040）
   value_from_source?: 'attack' | 'health';    // 取来源单位当前攻/血作为数值
+  /** 取最近一次 clash 指定目标在拼点前的攻击力（周瑜「反间计」） */
+  value_from_clash_target?: 'attack';
   value_from_status?: string;                  // 取来源单位身上某状态的层数
   damage_type?: DamageType;       // damage 专用：水攻/火攻/毒攻伤害（缺省 physical，见 DamageType）
   /**
@@ -142,6 +146,8 @@ export interface CardEffect {
   attack_from?: TargetSelector;  // 动态取值：攻击 = 该集合数量
   health_from?: TargetSelector;  // 动态取值：生命 = 该集合数量
   value_from?: TargetSelector;   // 动态取值：value = 该集合数量（damage/heal/draw 等通用）
+  /** 按来源单位身上的状态层数决定动作次数（诸葛恪「骄狂」） */
+  count_from_status?: string;
   attack?: number;               // modify 专用：单独修正攻击（ADR-030）
   health?: number;               // modify 专用：单独修正生命上限
   status?: string;
@@ -232,6 +238,7 @@ export interface TargetSelector {
     keyword?: string;
     tag?: string;                  // 归属标签，见 data/tags.yaml（ADR-029）
     faction?: Faction;
+    factions?: Faction[];
     gender?: Gender;               // 性别筛选（ADR-071，貂蝉「祸国倾城」只认男性）
     lane?: number;
     row?: Row;
@@ -254,6 +261,7 @@ export interface TargetSelector {
     exclude_source?: boolean;
     include_lord?: boolean;        // 候选池额外纳入该方主将（ADR-051，弓兵射箭「含主将」）
     basic_troop?: boolean;         // 四种可升变的基础兵
+    has_any_status?: string[];     // 至少拥有其中一种状态
   };
   count?: number | 'all';
   mode?: 'choose' | 'random' | 'first' | 'lowest_health' | 'highest_cost';
@@ -275,7 +283,11 @@ export interface SkillDef {
   target?: TargetSelector;
   same_side?: boolean;
   played_rightmost?: boolean;
-  requires?: { deck_tag?: { tag: string; op: CompareOp; value: number } };
+  requires?: {
+    deck_tag?: { tag: string; op: CompareOp; value: number };
+    /** 来源单位发动技能前必须拥有至少指定层数的状态 */
+    status?: { id: string; min?: number };
+  };
   effects?: CardEffect[];
   /**
    * 抉择：同一技能的二选一分支（ADR-071，曹彰「猛袭」）。
@@ -556,6 +568,8 @@ export interface MatchState {
    * 只有用过 `self_to_hand` 的对局才会创建这个字段，老回放不受影响。
    */
   recalls?: Record<string, number>;
+  /** 对局级一次性触发标记（如董袭「当锋护驾」）。 */
+  onceTriggers?: Record<string, boolean>;
 }
 
 /* ============================================================

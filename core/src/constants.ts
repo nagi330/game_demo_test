@@ -139,6 +139,7 @@ export type StatusCap =
   | 'duel_lock'          // 单挑锁定：不可被第三方选中（许褚，ADR-041）
   | 'mark_damage'        // 被标记：受到伤害时触发标记者的联动（法正，ADR-041）
   | 'water_damage'       // 水攻伤害加成
+  | 'fire_damage'        // 直接火攻伤害加成
   | 'water_convert'      // 将来源的物理/无属性伤害转为水攻
   | 'attack_zero'        // 攻击力固定为 0
   | 'future_summon'      // 后续召唤的单位获得预设强化
@@ -265,6 +266,14 @@ export const STATUSES: Record<string, StatusDef> = {
                 caps: ['die_at_turn_end'], note: '本回合结束时阵亡' },
   shui_gong_bonus: { name: '水攻强化', kind: 'buff', numeric: true, duration: 'permanent',
                 caps: ['water_damage'], note: '水攻伤害 +N' },
+  fire_gong_bonus: { name: '火攻强化', kind: 'buff', numeric: true, duration: 'permanent',
+                caps: ['fire_damage'], note: '直接火攻伤害 +N' },
+  yin_huo:      { name: '引火', kind: 'debuff', numeric: false, duration: 'permanent',
+                note: '陆逊火烧连营的引火标记' },
+  jiao_kuang:   { name: '骄狂', kind: 'buff', numeric: true, duration: 'permanent',
+                note: '诸葛恪回合结束时按层数弃牌并发动乱击' },
+  zi_liang:     { name: '资粮', kind: 'buff', numeric: true, duration: 'permanent', max_stacks: 3,
+                note: '鲁肃仗义疏财的可用次数' },
   teng_jia:   { name: '藤甲', kind: 'buff', numeric: true, duration: 'permanent',
                 caps: ['reduce_physical', 'vulnerable_fire'],
                 note: '受到普通/无属性伤害 −N（最低 0），受到火属性伤害 +N（ADR-108；ADR-110 删反伤层）' },
@@ -333,6 +342,7 @@ export const ACTIONS = [
   'send_hand_to_deck', // 把一张手牌放回牌库顶/底/随机位置，**不抽牌**（ADR-139，杨仪「筹度粮谷」）
   'self_to_hand',      // 阵亡后把手牌重建出来（ADR-141，孟获「蛮王」——亡语作用于**阵亡单位自身**）
   'deploy_from_hand',  // 手牌 → 场上（免费，按 card_id 精准搬牌；ADR-149，诸葛瞻/诸葛尚「同赴」）
+  'discard_status_count', // 按状态层数弃牌，不足时铣牌库
   'override_rule',     // 覆盖**无状态**的规则档位（ADR-150，木鹿大王「象兵统领」抬概率）
   'override_status',   // 覆盖目标身上某状态的若干档位（ADR-142，兀突骨「藤甲统率」）
   'grant_hand',    // 强化一张手牌

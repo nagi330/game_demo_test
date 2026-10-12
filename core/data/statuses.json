@@ -446,6 +446,47 @@
     "memo": "水攻伤害 +N"
   },
   {
+    "id": "fire_gong_bonus",
+    "name": "火攻强化",
+    "kind": "buff",
+    "numeric": true,
+    "scope": "character",
+    "timing": 13,
+    "duration": "permanent",
+    "memo": "直接火攻伤害 +N"
+  },
+  {
+    "id": "yin_huo",
+    "name": "引火",
+    "kind": "debuff",
+    "numeric": false,
+    "scope": "character",
+    "timing": 20,
+    "duration": "permanent",
+    "memo": "陆逊火烧连营的引火标记"
+  },
+  {
+    "id": "jiao_kuang",
+    "name": "骄狂",
+    "kind": "buff",
+    "numeric": true,
+    "scope": "character",
+    "timing": 20,
+    "duration": "permanent",
+    "memo": "诸葛恪回合结束时按层数弃牌并发动乱击"
+  },
+  {
+    "id": "zi_liang",
+    "name": "资粮",
+    "kind": "buff",
+    "numeric": true,
+    "scope": "character",
+    "timing": 8,
+    "duration": "permanent",
+    "max_stacks": 3,
+    "memo": "鲁肃仗义疏财的可用次数"
+  },
+  {
     "id": "teng_jia",
     "name": "藤甲",
     "kind": "buff",

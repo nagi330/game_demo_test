@@ -619,6 +619,8 @@ function startTurn(state: MatchState, ctx: EngineContext, events: GameEvent[], r
     ref.unit.dealtDamageThisTurn = false;
     ref.unit.skillUsesThisTurn = {};              // 主动技频率每回合重置（GDD 10 §1.1）
   }
+  // 防御触发技（如徐盛「疑城」）按敌方回合限制一次；敌方半回合开始时清除防御技计数。
+  for (const ref of allUnits(state, other(side))) ref.unit.skillUsesThisTurn = {};
 
   events.push({ type: 'TURN_START', side, turn: state.turn, halfTurn: state.halfTurn, command: { ...s.command } });
 

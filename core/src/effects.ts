@@ -17,7 +17,7 @@ import { type OnDrawResult } from './mutate.ts';
 import type { CardDef, CardEffect, CardType, EffectCondition, GameEvent, HandCard, HandMod, MatchState, Row, Side, SkillDef, TargetSelector, Unit } from './types.ts';
 import {
   applyStatus, dealDamage, drawCard, gainArmor, healTarget, killUnit, lordRef, registerOnDeathResolver,
-  registerOnDrawResolver,
+  registerOnDrawResolver, registerOnAllyDeathResolver,
   registerAfterDeathResolver, registerAfterDrawResolver, registerAfterLordDamagedResolver, registerMarkDeathResolver, registerOnKillResolver, summonUnit, unitRef,
   type TargetRef,
 } from './mutate.ts';
@@ -77,6 +77,16 @@ registerOnDeathResolver((state, cards, side, unit, skills, events, rng, killer) 
     emitSkillTriggered(state, side, unit, sk, 'trigger', events);
     runEffects(state, cards, sk.effects ?? [],
       { side, source: unit, killer: killer ?? undefined }, rng, events);
+  }
+});
+
+registerOnAllyDeathResolver((state, cards, side, _dead, events, rng) => {
+  for (const ref of allUnits(state, side)) {
+    if (ref.unit.hp <= 0) continue;
+    for (const sk of (ref.unit.skills ?? []).filter((s) => s.trigger === 'on_ally_death')) {
+      emitSkillTriggered(state, side, ref.unit, sk, 'trigger', events);
+      runEffects(state, cards, effectsOf(sk), { side, source: ref.unit }, rng, events);
+    }
   }
 });
 
@@ -153,6 +163,8 @@ export interface EffectContext {
   lastDiscarded?: CardDef;
   /** 协同水攻的额外伤害不再次触发协同。 */
   skipWaterSynergy?: boolean;
+  /** 最近一次拼点指定目标在结算前的有效攻击力（周瑜「反间计」）。 */
+  clashTargetAttack?: number;
 }
 
 /**
@@ -249,6 +261,7 @@ const matchesFilter = (
   if (f.attacked_this_turn !== undefined && (u.attackedThisTurn > 0) !== f.attacked_this_turn) return false;
   if (f.acted_this_turn !== undefined && u.actedThisTurn !== f.acted_this_turn) return false;
   if (f.has_status && !((u.statuses[f.has_status]?.stacks ?? 0) > 0)) return false;
+  if (f.has_any_status && !f.has_any_status.some((id) => (u.statuses[id]?.stacks ?? 0) > 0)) return false;
   // 攻击力上限（与 cost_max 对称）——越骑「厉志」靠它做 +3 的硬上限
   if (typeof f.attack_max === 'number' && u.atk > f.attack_max) return false;
   if (typeof f.cost_max === 'number' && u.cost > f.cost_max) return false;
@@ -563,6 +576,14 @@ export function runUnitTrigger(
   const side = findSide(state, unit.uid);
   if (!side) return;
   for (const sk of (unit.skills ?? []).filter((x) => x.trigger === trigger)) {
+    const key = sk.id || sk.name || trigger;
+    // 防御触发技以敌方回合为一个频率周期；计数在每个半回合开始时重置。
+    // 其它 on_damaged 技能没有声明 frequency 时保持原有的每次触发语义。
+    if (trigger === 'on_defend' && sk.frequency === 'once_per_turn'
+        && (unit.skillUsesThisTurn[key] ?? 0) >= 1) continue;
+    if (trigger === 'on_defend' && sk.frequency === 'once_per_turn') {
+      unit.skillUsesThisTurn[key] = (unit.skillUsesThisTurn[key] ?? 0) + 1;
+    }
     emitSkillTriggered(state, side, unit, sk, 'trigger', events);
     runEffects(state, cards, effectsOf(sk), { side, source: unit }, rng, events);
   }
@@ -693,6 +714,21 @@ export function resolveTargets(
     return k.row !== undefined && k.col !== undefined ? [unitRef(k.side, k.row, k.col)] : [lordRef(k.side)];
   }
   if (!selector) return ctx.chosen ? [ctx.chosen] : [];
+
+  // `pick` 表示复用本次技能/战吼的第 N 个玩家选择，而不是重新从
+  // selector 的候选池里取第一个目标。太史慈「神射」的第二段减攻、
+  // 程昱「审时度势」的第二个治疗目标都依赖这个语义。
+  // 先用一个临时的 `choose` 选择器验证该目标仍满足原筛选条件；目标
+  // 已离场或不再合法时返回空集合，避免效果误落到其他单位身上。
+  if (selector.pick !== undefined) {
+    const picked = pickOf(ctx, selector);
+    if (picked) {
+      const validationSelector: TargetSelector = { ...selector, pick: undefined, mode: 'choose' };
+      const validationCtx: EffectContext = { ...ctx, chosen: picked, chosen2: undefined };
+      const valid = resolveTargets(state, validationSelector, validationCtx, rng);
+      return valid.some((target) => sameTarget(target, picked)) ? [picked] : [];
+    }
+  }
 
   // zone: 'hand' —— 作用于手牌而非场上（ADR-038）
   if (selector.zone === 'hand') {
@@ -965,6 +1001,10 @@ export function resolveAttack(
     // 必须在造成伤害**之前**取值：伤害不改变攻击力，但目标可能被打死而离场。
     const retaliate = effectiveAttack(state, foe, tRow, tCol);
 
+    // 防守触发技在伤害结算前发动（徐盛「疑城」）：同一敌方回合内由
+    // runUnitTrigger 按 frequency: once_per_turn 限制一次。
+    if (targetUnit && targetUnit.hp > 0) runUnitTrigger(state, cards, targetUnit, 'on_defend', rng, events);
+
     const dealt = dealDamage(state, cards, unitRef(foe, tRow, tCol), dmg, events, me.name, 0,
       { side, row: from.row, col: from.col }, me);
     dealtTotal += dealt;
@@ -1059,6 +1099,7 @@ export const IMPLEMENTED_ACTIONS: ReadonlySet<string> = new Set([
   'override_status',     // 覆盖某状态的档位（ADR-142，兀突骨「藤甲统率」）
   'deploy_from_hand',    // 手牌 → 场上（ADR-149，诸葛瞻/诸葛尚「同赴」）
   'override_rule',       // 无状态规则覆盖（ADR-150，木鹿大王「象兵统领」）
+  'discard_status_count', // 按来源状态层数弃牌，不足部分铣牌库（诸葛恪「骄狂」）
 ]);
 
 /** 该方第一个空格（前军优先，与 `summon` 的填充顺序一致）；场上满了返回 null */
@@ -1169,7 +1210,8 @@ export function runEffects(
     const sourceVal = eff.value_from_source === 'attack' ? ctx.source?.atk
       : eff.value_from_source === 'health' ? ctx.source?.hp : undefined;
     const statusVal = eff.value_from_status ? (ctx.source?.statuses[eff.value_from_status]?.stacks ?? 0) : undefined;
-    const val = flagVal ?? discardVal ?? dynVal ?? statusVal ?? sourceVal ?? eff.value ?? 0;
+    const clashTargetVal = eff.value_from_clash_target === 'attack' ? ctx.clashTargetAttack : undefined;
+    const val = flagVal ?? discardVal ?? dynVal ?? statusVal ?? clashTargetVal ?? sourceVal ?? eff.value ?? 0;
 
     const targets = eff.target ? resolveTargets(state, eff.target, ctx, rng) : [];
     switch (eff.action) {
@@ -1193,11 +1235,14 @@ export function runEffects(
             const waterBonus = resolvedDamageType === 'water'
               ? allUnits(state, ctx.side).reduce((sum, ref) => sum + capStacks(ref.unit.statuses, 'water_damage'), 0)
               : 0;
+            const fireBonus = resolvedDamageType === 'fire'
+              ? allUnits(state, ctx.side).reduce((sum, ref) => sum + capStacks(ref.unit.statuses, 'fire_damage'), 0)
+              : 0;
             const keywordBonus = victim && eff.bonus_vs_keyword && hasTrait(victim, eff.bonus_vs_keyword.keyword)
               ? eff.bonus_vs_keyword.value : 0;
             const troopBonus = victim && eff.bonus_vs_troop_kind && victim.troopKind === eff.bonus_vs_troop_kind.troopKind
               ? eff.bonus_vs_troop_kind.value : 0;
-            const requested = val + waterBonus + keywordBonus + troopBonus;
+            const requested = val + waterBonus + fireBonus + keywordBonus + troopBonus;
             const protectedHp = typeof eff.minimum_hp === 'number' && t.kind === 'unit'
               ? Math.max(0, (getUnit(state, t.side, t.row, t.col)?.hp ?? 0) - eff.minimum_hp) : requested;
             const actual = dealDamage(state, cards, t, Math.min(requested, protectedHp), events, ctx.source?.name ?? '效果', 0, undefined, ctx.source,
@@ -1296,6 +1341,7 @@ export function runEffects(
           const card = cards.get(id);
           if (!card) return false;
           if (filter?.faction && card.faction !== filter.faction) return false;
+          if (filter?.factions && !filter.factions.includes(card.faction)) return false;
           if (filter?.type && filter.type !== 'character' && card.type !== filter.type) return false;
           if (filter?.type === 'character' && !isCharacterType(card.type)) return false;
           if (filter?.tag && !(card.tags ?? []).includes(filter.tag)) return false;
@@ -1407,6 +1453,39 @@ export function runEffects(
               }
             }
           }
+        }
+        break;
+      }
+      case 'discard_status_count': {
+        // 诸葛恪「骄狂」：按来源单位状态层数尽量弃置手牌；手牌不足时，
+        // 从己方牌库顶补足“少弃的张数”。至少成功弃置一张时写入 discarded 标记，
+        // 供后续的三次随机伤害条件读取。
+        const need = ctx.source?.statuses[eff.status ?? '']?.stacks ?? 0;
+        let discarded = 0;
+        for (let i = 0; i < need; i++) {
+          const hand = state.sides[ctx.side].hand;
+          if (!hand.length) break;
+          const idx = rng.int(hand.length);
+          const [hc] = hand.splice(idx, 1);
+          if (!hc) continue;
+          state.sides[ctx.side].discard.push(hc.card);
+          ctx.lastDiscarded = hc.card;
+          (state as MatchState & { lastDiscarded?: unknown }).lastDiscarded = { card: hc.card, side: ctx.side };
+          discarded += 1;
+          events.push({ type: 'CARD_DISCARDED', side: ctx.side, card: hc.card });
+        }
+        for (let i = discarded; i < need && state.sides[ctx.side].deck.length; i++) {
+          const id = state.sides[ctx.side].deck.pop()!;
+          const card = cards.get(id);
+          if (card) state.sides[ctx.side].discard.push(card);
+          events.push({ type: 'CARD_MILLED', side: ctx.side, cardId: id, from: 'top' });
+        }
+        if (discarded > 0) {
+          ctx.flags = ctx.flags ?? [];
+          if (!ctx.flags.includes('discarded')) ctx.flags.push('discarded');
+        } else {
+          ctx.lastDiscarded = undefined;
+          (state as MatchState & { lastDiscarded?: unknown }).lastDiscarded = undefined;
         }
         break;
       }
@@ -1655,13 +1734,22 @@ export function runEffects(
         const foe = eff.target?.side === 'self' || eff.target?.side === 'ally'
           ? ctx.side : other(ctx.side);
         const mine = ctx.source?.cost ?? 0;
-        const his = topCost(state, foe);
+        const chosen = eff.target ? chosenFor(eff.target)[0] : undefined;
+        const chosenUnit = chosen?.kind === 'unit' ? getUnit(state, chosen.side, chosen.row, chosen.col) : null;
+        const his = chosenUnit ? chosenUnit.cost : topCost(state, foe);
         const mode = eff.clashMode ?? 'roll';
         const a = mode === 'cost' ? mine : rng.int(6) + 1;
         const b = mode === 'cost' ? his : rng.int(6) + 1;
-        const win = mode === 'cost' && a !== b ? a > b : a >= b;
+        const tie = a === b;
+        const win = tie && !eff.tie_is_neutral ? true : a > b;
         ctx.flags = ctx.flags ?? [];
-        ctx.flags.push(win ? 'clash_won' : 'clash_lost');
+        if (tie && eff.tie_is_neutral) ctx.flags.push('clash_tie');
+        else ctx.flags.push(win ? 'clash_won' : 'clash_lost');
+        if (chosen?.kind === 'unit' && chosenUnit) {
+          ctx.clashTargetAttack = effectiveAttack(state, chosen.side, chosen.row, chosen.col);
+        } else {
+          ctx.clashTargetAttack = undefined;
+        }
         events.push({ type: 'CLASH', side: ctx.side, mine: a, theirs: b, won: win });
         break;
       }

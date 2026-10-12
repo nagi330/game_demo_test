@@ -84,6 +84,10 @@ export function canUseUnitSkill(
       : req.op === '<' ? count < req.value : count !== req.value;
     if (!ok) return { ok: false, reason: `牌库中${req.tag}数量不满足发动条件` };
   }
+  const statusReq = skill.requires?.status;
+  if (statusReq && (u.statuses[statusReq.id]?.stacks ?? 0) < (statusReq.min ?? 1)) {
+    return { ok: false, reason: `需要${statusReq.id}状态` };
+  }
   return { ok: true, skill };
 }
 

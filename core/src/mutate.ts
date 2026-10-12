@@ -167,6 +167,18 @@ export function registerOnKillResolver(fn: OnKillResolver): void {
   onKillResolver = fn;
 }
 
+/** 友军阵亡触发器（陈武「芦荡死战」等），由 effects.ts 注册避免循环依赖。 */
+export type OnAllyDeathResolver = (
+  state: MatchState, cards: Map<string, CardDef>, side: Side, dead: Unit,
+  events: GameEvent[], rng: ReturnType<typeof createRng>,
+) => void;
+
+let onAllyDeathResolver: OnAllyDeathResolver | null = null;
+
+export function registerOnAllyDeathResolver(fn: OnAllyDeathResolver): void {
+  onAllyDeathResolver = fn;
+}
+
 export function registerOnDeathResolver(fn: OnDeathResolver): void {
   onDeathResolver = fn;
 }
@@ -323,6 +335,33 @@ export function dealDamage(
       delete lord.statuses![shield];
       events.push({ type: 'LORD_STATUS_EXPIRED', side: ref.side, status: shield });
       return 0;
+    }
+    // 董袭「当锋护驾」：先攻单位即将伤害主公时，若董袭仍在手牌中，
+    // 免费召唤并只承受这一次伤害。场上没有空位时保留手牌，避免吞牌。
+    const dongxiTriggerKey = `wu_dongxi:dang_feng_hu_jia:${ref.side}`;
+    if (sourceUnit && hasTrait(sourceUnit, 'xian_gong')
+        && !state.onceTriggers?.[dongxiTriggerKey]) {
+      const handIndex = state.sides[ref.side].hand.findIndex((hc) => hc.card.id === 'wu_dongxi');
+      if (handIndex >= 0) {
+        let slot: { row: Row; col: number } | null = null;
+        for (const row of BOARD.ROWS) {
+          const col = state.sides[ref.side].rows[row].findIndex((u) => !u);
+          if (col >= 0) { slot = { row, col }; break; }
+        }
+        if (slot) {
+          const [hc] = state.sides[ref.side].hand.splice(handIndex, 1);
+          const guard = hc ? summonUnit(state, cards, ref.side, slot.row, slot.col, hc.card.id, events) : null;
+          if (guard) {
+            state.onceTriggers = state.onceTriggers ?? {};
+            state.onceTriggers[dongxiTriggerKey] = true;
+            events.push({ type: 'DAMAGE_REDIRECTED', side: ref.side, lord: true,
+              to: ref.side, guardName: guard.name });
+            return dealDamage(state, cards, unitRef(ref.side, slot.row, slot.col), amount, events,
+              source, depth + 1, killerRef, sourceUnit, damageType, reflected, deathSource);
+          }
+          if (hc) state.sides[ref.side].hand.splice(handIndex, 0, hc);
+        }
+      }
     }
     // 「护主」守护（ADR-071，祖茂「替主」）：主帅的伤害转由守护者承受。
     // 必须在扣护甲/扣血之前判定 —— 否则主帅已经掉了血，转移就成了补刀。
@@ -790,6 +829,9 @@ export function killUnit(
 
   setUnit(state, side, row, col, null);
   events.push({ type: 'UNIT_DIED', side, row, col, unit });
+
+  // 阵亡单位已从战场移除后，再通知同方仍存活的单位。
+  onAllyDeathResolver?.(state, cards, side, unit, events, createRng(state.rngState));
 
   // 标记阵亡（ADR-041 / ADR-087）：仇敌标记、阵亡标记的结算。
   // 放在亡语之前 —— 标记是"别人挂在我身上的账"，先结账再走自己的亡语。

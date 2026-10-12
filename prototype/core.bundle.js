@@ -18,7 +18,7 @@ var Core = (() => {
   };
   var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
-  // src/index.ts
+  // core/src/index.ts
   var index_exports = {};
   __export(index_exports, {
     ACTIONS: () => ACTIONS,
@@ -116,6 +116,7 @@ var Core = (() => {
     registerAfterDrawResolver: () => registerAfterDrawResolver,
     registerAfterLordDamagedResolver: () => registerAfterLordDamagedResolver,
     registerMarkDeathResolver: () => registerMarkDeathResolver,
+    registerOnAllyDeathResolver: () => registerOnAllyDeathResolver,
     registerOnDeathResolver: () => registerOnDeathResolver,
     registerOnDrawResolver: () => registerOnDrawResolver,
     registerOnKillResolver: () => registerOnKillResolver,
@@ -148,7 +149,7 @@ var Core = (() => {
     validateDeck: () => validateDeck
   });
 
-  // src/rng.ts
+  // core/src/rng.ts
   function createRng(seed) {
     let s = seed >>> 0;
     const next = () => {
@@ -186,7 +187,7 @@ var Core = (() => {
     return h >>> 0;
   }
 
-  // src/constants.ts
+  // core/src/constants.ts
   var BOARD = {
     COLS: 8,
     ROWS: ["front"],
@@ -506,6 +507,36 @@ var Core = (() => {
       caps: ["water_damage"],
       note: "\u6C34\u653B\u4F24\u5BB3 +N"
     },
+    fire_gong_bonus: {
+      name: "\u706B\u653B\u5F3A\u5316",
+      kind: "buff",
+      numeric: true,
+      duration: "permanent",
+      caps: ["fire_damage"],
+      note: "\u76F4\u63A5\u706B\u653B\u4F24\u5BB3 +N"
+    },
+    yin_huo: {
+      name: "\u5F15\u706B",
+      kind: "debuff",
+      numeric: false,
+      duration: "permanent",
+      note: "\u9646\u900A\u706B\u70E7\u8FDE\u8425\u7684\u5F15\u706B\u6807\u8BB0"
+    },
+    jiao_kuang: {
+      name: "\u9A84\u72C2",
+      kind: "buff",
+      numeric: true,
+      duration: "permanent",
+      note: "\u8BF8\u845B\u606A\u56DE\u5408\u7ED3\u675F\u65F6\u6309\u5C42\u6570\u5F03\u724C\u5E76\u53D1\u52A8\u4E71\u51FB"
+    },
+    zi_liang: {
+      name: "\u8D44\u7CAE",
+      kind: "buff",
+      numeric: true,
+      duration: "permanent",
+      max_stacks: 3,
+      note: "\u9C81\u8083\u4ED7\u4E49\u758F\u8D22\u7684\u53EF\u7528\u6B21\u6570"
+    },
     teng_jia: {
       name: "\u85E4\u7532",
       kind: "buff",
@@ -652,6 +683,8 @@ var Core = (() => {
     // 阵亡后把手牌重建出来（ADR-141，孟获「蛮王」——亡语作用于**阵亡单位自身**）
     "deploy_from_hand",
     // 手牌 → 场上（免费，按 card_id 精准搬牌；ADR-149，诸葛瞻/诸葛尚「同赴」）
+    "discard_status_count",
+    // 按状态层数弃牌，不足时铣牌库
     "override_rule",
     // 覆盖**无状态**的规则档位（ADR-150，木鹿大王「象兵统领」抬概率）
     "override_status",
@@ -680,7 +713,7 @@ var Core = (() => {
   ];
   var NON_DECK_TYPES = ["elite", "lord", "token", "status", "special"];
 
-  // src/state.ts
+  // core/src/state.ts
   function rollFirstSide(rng) {
     for (let i = 0; i < 100; i++) {
       const own = rng.int(6) + 1;
@@ -887,7 +920,7 @@ var Core = (() => {
     return state.uidSeq;
   }
 
-  // src/rules.ts
+  // core/src/rules.ts
   var isMelee = (u) => u.type !== "strategist" && !hasTrait(u, "shen_she");
   function needsHandPick(skill) {
     const scan = (effs) => (effs ?? []).some((e) => e.action === "discard" && e.mode === "choose" || e.action === "cycle_to_deck");
@@ -915,6 +948,10 @@ var Core = (() => {
       const count = state.sides[side].deck.reduce((n, id) => n + ((cards.get(id)?.tags ?? []).includes(req.tag) ? 1 : 0), 0);
       const ok = req.op === ">=" ? count >= req.value : req.op === "<=" ? count <= req.value : req.op === "==" ? count === req.value : req.op === ">" ? count > req.value : req.op === "<" ? count < req.value : count !== req.value;
       if (!ok) return { ok: false, reason: `\u724C\u5E93\u4E2D${req.tag}\u6570\u91CF\u4E0D\u6EE1\u8DB3\u53D1\u52A8\u6761\u4EF6` };
+    }
+    const statusReq = skill.requires?.status;
+    if (statusReq && (u.statuses[statusReq.id]?.stacks ?? 0) < (statusReq.min ?? 1)) {
+      return { ok: false, reason: `\u9700\u8981${statusReq.id}\u72B6\u6001` };
     }
     return { ok: true, skill };
   }
@@ -1017,7 +1054,7 @@ var Core = (() => {
   }
   var handOverflow = (state, side) => Math.max(0, state.sides[side].hand.length - DECK.HAND_LIMIT);
 
-  // src/mutate.ts
+  // core/src/mutate.ts
   var unitRef = (side, row, col) => ({ kind: "unit", side, row, col });
   var lordRef = (side) => ({ kind: "lord", side });
   var handRef = (side, index) => ({ kind: "hand", side, index });
@@ -1085,6 +1122,10 @@ var Core = (() => {
   function registerOnKillResolver(fn) {
     onKillResolver = fn;
   }
+  var onAllyDeathResolver = null;
+  function registerOnAllyDeathResolver(fn) {
+    onAllyDeathResolver = fn;
+  }
   function registerOnDeathResolver(fn) {
     onDeathResolver = fn;
   }
@@ -1145,6 +1186,50 @@ var Core = (() => {
         delete lord.statuses[shield];
         events.push({ type: "LORD_STATUS_EXPIRED", side: ref.side, status: shield });
         return 0;
+      }
+      const dongxiTriggerKey = `wu_dongxi:dang_feng_hu_jia:${ref.side}`;
+      if (sourceUnit && hasTrait(sourceUnit, "xian_gong") && !state.onceTriggers?.[dongxiTriggerKey]) {
+        const handIndex = state.sides[ref.side].hand.findIndex((hc) => hc.card.id === "wu_dongxi");
+        if (handIndex >= 0) {
+          let slot = null;
+          for (const row of BOARD.ROWS) {
+            const col = state.sides[ref.side].rows[row].findIndex((u2) => !u2);
+            if (col >= 0) {
+              slot = { row, col };
+              break;
+            }
+          }
+          if (slot) {
+            const [hc] = state.sides[ref.side].hand.splice(handIndex, 1);
+            const guard2 = hc ? summonUnit(state, cards, ref.side, slot.row, slot.col, hc.card.id, events) : null;
+            if (guard2) {
+              state.onceTriggers = state.onceTriggers ?? {};
+              state.onceTriggers[dongxiTriggerKey] = true;
+              events.push({
+                type: "DAMAGE_REDIRECTED",
+                side: ref.side,
+                lord: true,
+                to: ref.side,
+                guardName: guard2.name
+              });
+              return dealDamage(
+                state,
+                cards,
+                unitRef(ref.side, slot.row, slot.col),
+                amount,
+                events,
+                source,
+                depth + 1,
+                killerRef,
+                sourceUnit,
+                damageType,
+                reflected,
+                deathSource
+              );
+            }
+            if (hc) state.sides[ref.side].hand.splice(handIndex, 0, hc);
+          }
+        }
       }
       const lguard = findLordGuard(state, ref.side);
       if (lguard && depth < 3) {
@@ -1478,6 +1563,7 @@ var Core = (() => {
     }
     setUnit(state, side, row, col, null);
     events.push({ type: "UNIT_DIED", side, row, col, unit });
+    onAllyDeathResolver?.(state, cards, side, unit, events, createRng(state.rngState));
     if (markDeathResolver) {
       markDeathResolver(state, cards, unit, createRng(state.rngState), events);
     }
@@ -1651,7 +1737,7 @@ var Core = (() => {
     return dropped;
   }
 
-  // src/effects.ts
+  // core/src/effects.ts
   var ELEMENTAL_DOT = {
     fire: "zhuo_shao",
     // 灼烧：回合开始受 N 点火伤，层数可叠加、不封顶
@@ -1690,6 +1776,15 @@ var Core = (() => {
         rng,
         events
       );
+    }
+  });
+  registerOnAllyDeathResolver((state, cards, side, _dead, events, rng) => {
+    for (const ref of allUnits(state, side)) {
+      if (ref.unit.hp <= 0) continue;
+      for (const sk of (ref.unit.skills ?? []).filter((s) => s.trigger === "on_ally_death")) {
+        emitSkillTriggered(state, side, ref.unit, sk, "trigger", events);
+        runEffects(state, cards, effectsOf(sk), { side, source: ref.unit }, rng, events);
+      }
     }
   });
   registerAfterDeathResolver((state, cards, events) => {
@@ -1774,6 +1869,7 @@ var Core = (() => {
     if (f.attacked_this_turn !== void 0 && u.attackedThisTurn > 0 !== f.attacked_this_turn) return false;
     if (f.acted_this_turn !== void 0 && u.actedThisTurn !== f.acted_this_turn) return false;
     if (f.has_status && !((u.statuses[f.has_status]?.stacks ?? 0) > 0)) return false;
+    if (f.has_any_status && !f.has_any_status.some((id) => (u.statuses[id]?.stacks ?? 0) > 0)) return false;
     if (typeof f.attack_max === "number" && u.atk > f.attack_max) return false;
     if (typeof f.cost_max === "number" && u.cost > f.cost_max) return false;
     if (typeof f.cost_min === "number" && u.cost < f.cost_min) return false;
@@ -2008,6 +2104,11 @@ var Core = (() => {
     const side = findSide(state, unit.uid);
     if (!side) return;
     for (const sk of (unit.skills ?? []).filter((x) => x.trigger === trigger)) {
+      const key = sk.id || sk.name || trigger;
+      if (trigger === "on_defend" && sk.frequency === "once_per_turn" && (unit.skillUsesThisTurn[key] ?? 0) >= 1) continue;
+      if (trigger === "on_defend" && sk.frequency === "once_per_turn") {
+        unit.skillUsesThisTurn[key] = (unit.skillUsesThisTurn[key] ?? 0) + 1;
+      }
       emitSkillTriggered(state, side, unit, sk, "trigger", events);
       runEffects(state, cards, effectsOf(sk), { side, source: unit }, rng, events);
     }
@@ -2108,6 +2209,15 @@ var Core = (() => {
       return k.row !== void 0 && k.col !== void 0 ? [unitRef(k.side, k.row, k.col)] : [lordRef(k.side)];
     }
     if (!selector) return ctx.chosen ? [ctx.chosen] : [];
+    if (selector.pick !== void 0) {
+      const picked = pickOf(ctx, selector);
+      if (picked) {
+        const validationSelector = { ...selector, pick: void 0, mode: "choose" };
+        const validationCtx = { ...ctx, chosen: picked, chosen2: void 0 };
+        const valid = resolveTargets(state, validationSelector, validationCtx, rng);
+        return valid.some((target) => sameTarget(target, picked)) ? [picked] : [];
+      }
+    }
     if (selector.zone === "hand") {
       const out = [];
       for (const sd of handSides(selector, ctx)) {
@@ -2269,6 +2379,7 @@ var Core = (() => {
       const targetUnit = getUnit(state, foe, tRow, tCol);
       const hpBefore = targetUnit ? targetUnit.hp : 0;
       const retaliate = effectiveAttack(state, foe, tRow, tCol);
+      if (targetUnit && targetUnit.hp > 0) runUnitTrigger(state, cards, targetUnit, "on_defend", rng, events);
       const dealt = dealDamage(
         state,
         cards,
@@ -2397,7 +2508,8 @@ var Core = (() => {
       const flagVal = eff.value_from_flag ? Number((ctx.flags ?? []).find((f) => f.startsWith(`${eff.value_from_flag}:`))?.split(":")[1]) : void 0;
       const sourceVal = eff.value_from_source === "attack" ? ctx.source?.atk : eff.value_from_source === "health" ? ctx.source?.hp : void 0;
       const statusVal = eff.value_from_status ? ctx.source?.statuses[eff.value_from_status]?.stacks ?? 0 : void 0;
-      const val = flagVal ?? discardVal ?? dynVal ?? statusVal ?? sourceVal ?? eff.value ?? 0;
+      const clashTargetVal = eff.value_from_clash_target === "attack" ? ctx.clashTargetAttack : void 0;
+      const val = flagVal ?? discardVal ?? dynVal ?? statusVal ?? clashTargetVal ?? sourceVal ?? eff.value ?? 0;
       const targets = eff.target ? resolveTargets(state, eff.target, ctx, rng) : [];
       switch (eff.action) {
         case "damage": {
@@ -2411,9 +2523,10 @@ var Core = (() => {
               const convertsToWater = (eff.damage_type ?? "physical") === "physical" && (ctx.source ? hasCap(ctx.source, "water_convert") : allUnits(state, ctx.side).some((ref) => hasCap(ref.unit, "water_convert")));
               const resolvedDamageType = convertsToWater ? "water" : eff.damage_type ?? "physical";
               const waterBonus = resolvedDamageType === "water" ? allUnits(state, ctx.side).reduce((sum, ref) => sum + capStacks(ref.unit.statuses, "water_damage"), 0) : 0;
+              const fireBonus = resolvedDamageType === "fire" ? allUnits(state, ctx.side).reduce((sum, ref) => sum + capStacks(ref.unit.statuses, "fire_damage"), 0) : 0;
               const keywordBonus = victim && eff.bonus_vs_keyword && hasTrait(victim, eff.bonus_vs_keyword.keyword) ? eff.bonus_vs_keyword.value : 0;
               const troopBonus = victim && eff.bonus_vs_troop_kind && victim.troopKind === eff.bonus_vs_troop_kind.troopKind ? eff.bonus_vs_troop_kind.value : 0;
-              const requested = val + waterBonus + keywordBonus + troopBonus;
+              const requested = val + waterBonus + fireBonus + keywordBonus + troopBonus;
               const protectedHp = typeof eff.minimum_hp === "number" && t.kind === "unit" ? Math.max(0, (getUnit(state, t.side, t.row, t.col)?.hp ?? 0) - eff.minimum_hp) : requested;
               const actual = dealDamage(
                 state,
@@ -2470,6 +2583,7 @@ var Core = (() => {
             const card = cards.get(id);
             if (!card) return false;
             if (filter?.faction && card.faction !== filter.faction) return false;
+            if (filter?.factions && !filter.factions.includes(card.faction)) return false;
             if (filter?.type && filter.type !== "character" && card.type !== filter.type) return false;
             if (filter?.type === "character" && !isCharacterType(card.type)) return false;
             if (filter?.tag && !(card.tags ?? []).includes(filter.tag)) return false;
@@ -2560,6 +2674,36 @@ var Core = (() => {
                 }
               }
             }
+          }
+          break;
+        }
+        case "discard_status_count": {
+          const need = ctx.source?.statuses[eff.status ?? ""]?.stacks ?? 0;
+          let discarded = 0;
+          for (let i = 0; i < need; i++) {
+            const hand = state.sides[ctx.side].hand;
+            if (!hand.length) break;
+            const idx = rng.int(hand.length);
+            const [hc] = hand.splice(idx, 1);
+            if (!hc) continue;
+            state.sides[ctx.side].discard.push(hc.card);
+            ctx.lastDiscarded = hc.card;
+            state.lastDiscarded = { card: hc.card, side: ctx.side };
+            discarded += 1;
+            events.push({ type: "CARD_DISCARDED", side: ctx.side, card: hc.card });
+          }
+          for (let i = discarded; i < need && state.sides[ctx.side].deck.length; i++) {
+            const id = state.sides[ctx.side].deck.pop();
+            const card = cards.get(id);
+            if (card) state.sides[ctx.side].discard.push(card);
+            events.push({ type: "CARD_MILLED", side: ctx.side, cardId: id, from: "top" });
+          }
+          if (discarded > 0) {
+            ctx.flags = ctx.flags ?? [];
+            if (!ctx.flags.includes("discarded")) ctx.flags.push("discarded");
+          } else {
+            ctx.lastDiscarded = void 0;
+            state.lastDiscarded = void 0;
           }
           break;
         }
@@ -2759,13 +2903,22 @@ var Core = (() => {
         case "clash": {
           const foe = eff.target?.side === "self" || eff.target?.side === "ally" ? ctx.side : other(ctx.side);
           const mine = ctx.source?.cost ?? 0;
-          const his = topCost(state, foe);
+          const chosen = eff.target ? chosenFor(eff.target)[0] : void 0;
+          const chosenUnit = chosen?.kind === "unit" ? getUnit(state, chosen.side, chosen.row, chosen.col) : null;
+          const his = chosenUnit ? chosenUnit.cost : topCost(state, foe);
           const mode = eff.clashMode ?? "roll";
           const a = mode === "cost" ? mine : rng.int(6) + 1;
           const b = mode === "cost" ? his : rng.int(6) + 1;
-          const win = mode === "cost" && a !== b ? a > b : a >= b;
+          const tie = a === b;
+          const win = tie && !eff.tie_is_neutral ? true : a > b;
           ctx.flags = ctx.flags ?? [];
-          ctx.flags.push(win ? "clash_won" : "clash_lost");
+          if (tie && eff.tie_is_neutral) ctx.flags.push("clash_tie");
+          else ctx.flags.push(win ? "clash_won" : "clash_lost");
+          if (chosen?.kind === "unit" && chosenUnit) {
+            ctx.clashTargetAttack = effectiveAttack(state, chosen.side, chosen.row, chosen.col);
+          } else {
+            ctx.clashTargetAttack = void 0;
+          }
           events.push({ type: "CLASH", side: ctx.side, mine: a, theirs: b, won: win });
           break;
         }
@@ -3268,7 +3421,7 @@ var Core = (() => {
     }
   }
 
-  // src/engine.ts
+  // core/src/engine.ts
   function useLordSkill(state, ctx, action, events, rng) {
     const side = state.active;
     const lord = state.sides[side].lord;
@@ -3664,6 +3817,7 @@ var Core = (() => {
       ref.unit.dealtDamageThisTurn = false;
       ref.unit.skillUsesThisTurn = {};
     }
+    for (const ref of allUnits(state, other(side))) ref.unit.skillUsesThisTurn = {};
     events.push({ type: "TURN_START", side, turn: state.turn, halfTurn: state.halfTurn, command: { ...s.command } });
     drawCard(state, ctx.cards, side, events);
     if (state.secondCompensation === "extra_draw" && state.halfTurn === 2) {
@@ -3869,7 +4023,7 @@ var Core = (() => {
     return true;
   }
 
-  // src/result.ts
+  // core/src/result.ts
   function summarize(state, side) {
     const s = state.sides[side];
     const units = allUnits(state, side);
@@ -3907,7 +4061,7 @@ var Core = (() => {
     ].join("\n");
   }
 
-  // src/setup.ts
+  // core/src/setup.ts
   function mulligan(state, side, indices, cards) {
     const s = state.sides[side];
     if (s.mulliganDone) {
@@ -3977,7 +4131,7 @@ var Core = (() => {
     return { state, log };
   }
 
-  // src/loader.ts
+  // core/src/loader.ts
   function loadData(bundle, lordIds) {
     const cards = /* @__PURE__ */ new Map();
     const byFaction = /* @__PURE__ */ new Map();
@@ -4002,7 +4156,7 @@ var Core = (() => {
     };
   }
 
-  // src/deck.ts
+  // core/src/deck.ts
   var BASIC_TROOP_COPIES = 3;
   var UNIQUE_COPIES = 1;
   function maxCopiesOf(card) {
@@ -4142,7 +4296,7 @@ var Core = (() => {
     return deck.slice(0, DECK.SIZE);
   }
 
-  // src/ai/cards.ts
+  // core/src/ai/cards.ts
   var CHARACTER_TYPES2 = ["troop", "general", "strategist", "machine"];
   var isCharacterCard = (c) => CHARACTER_TYPES2.includes(c.type);
   function skillEffects(sk) {
@@ -4211,7 +4365,7 @@ var Core = (() => {
     return allEffects(card).some((e) => OFFENSIVE.has(e.action) && (e.target?.lord === true || e.target?.side === "enemy" || e.target?.filter?.include_lord === true || e.action === "damage" && e.target === void 0));
   }
 
-  // src/ai/eval.ts
+  // core/src/ai/eval.ts
   var WIN = 1e6;
   var finisherScale = (foeEff) => 1 + Math.max(0, 20 - foeEff) / 20;
   function evaluate(state, side, w) {
@@ -4253,7 +4407,7 @@ var Core = (() => {
     return score;
   }
 
-  // src/ai/options.ts
+  // core/src/ai/options.ts
   var CAP = { attack: 32, play: 28, skill: 24, lord: 6 };
   var PICK1_CAP = 4;
   var PICK2_CAP = 3;
@@ -4521,7 +4675,7 @@ var Core = (() => {
     return [...attacks, ...plays, ...skills, ...lords].sort((a, b) => b.quick - a.quick);
   }
 
-  // src/ai/profile.ts
+  // core/src/ai/profile.ts
   var STYLE_WEIGHTS = {
     // 速攻：打脸优先，场面价值打折，手牌不值钱（抢的是回合数，不是卡差）
     aggro: { face: 0.7, board: 0.85, ready: 0.35, width: 0.3, hand: 0.4, mana: 0.06, threat: 0.5, fatigue: 0.8 },
@@ -4571,7 +4725,7 @@ var Core = (() => {
     return profileCards(fullDeckOf(state, side, ctx));
   }
 
-  // src/ai/index.ts
+  // core/src/ai/index.ts
   var SIM_BUDGET = 160;
   var PASS_EPS = 0.01;
   function decide(state, ctx) {
@@ -4686,7 +4840,7 @@ var Core = (() => {
     return out;
   }
 
-  // src/index.ts
+  // core/src/index.ts
   function newMatch(opts) {
     const state = createMatch(opts);
     const ctx = { cards: opts.cards, lords: opts.lords };

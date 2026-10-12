@@ -171,6 +171,7 @@ test('ADR-073：「拿不到任何数值」的效果 → 警告（空城计就�
 test('ADR-073：有动态取值来源的 damage/heal 不算空转', () => {
   const cases: CardEffect[] = [
     { action: 'damage', value: 0, value_from_flag: 'sacrificed_hp' },
+    { action: 'damage', value_from_source: 'attack' },
     { action: 'heal', value_from: { side: 'ally', count: 'all' } },
   ];
   for (const eff of cases) {
@@ -211,6 +212,9 @@ test('ADR-073：真实卡池里不存在「文案提到关键词但卡上没实�
     }
     const text = texts.join(' ');
     if (!text) continue;
+    // 董袭的「先攻」只作为 on_lord_damaged 的触发条件，由 mutate.ts 读取攻击来源，
+    // 并非董袭自身获得先攻关键词，因此不要求卡面额外挂 xian_gong。
+    if (c.id === 'wu_dongxi' && text.includes('先攻')) continue;
     // 「召唤 / 进化」类卡的关键词文案说的是**被召唤 / 被进化出来的那张卡**
     // （高顺的盾兵"保留架盾"、马腾的西凉铁骑"获得先攻"、黄月英的机械守卫"带架盾"）——
     // 关键词挂在 token / elite 卡上，不该要求本卡也有。

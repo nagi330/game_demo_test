@@ -1581,7 +1581,7 @@ window.GameData = {
       "cost": 5,
       "attack": 4,
       "health": 5,
-      "memo": "不攻击就屯田抽牌",
+      "memo": "本回合没有行动就屯田抽牌",
       "gender": "male",
       "keywords": [],
       "skills": [
@@ -1599,7 +1599,7 @@ window.GameData = {
               }
             }
           ],
-          "text": "回合结束时，若本回合没有攻击，抽 1 张牌。"
+          "text": "回合结束时，若本回合没有行动，抽 1 张牌。"
         }
       ],
       "flavor": ""
@@ -1671,6 +1671,18 @@ window.GameData = {
               "attack": 1,
               "target": {
                 "source": true
+              },
+              "condition": {
+                "count": {
+                  "selector": {
+                    "source": true,
+                    "filter": {
+                      "damaged": true
+                    }
+                  },
+                  "op": "==",
+                  "value": 1
+                }
               }
             }
           ],
@@ -2179,7 +2191,7 @@ window.GameData = {
       "cost": 4,
       "attack": 1,
       "health": 4,
-      "memo": "战吼限制敌方武将和普通兵种下回合攻击",
+      "memo": "战吼限制敌方武将和所有兵种下回合攻击",
       "rarity": "elite",
       "gender": "male",
       "keywords": [],
@@ -2216,7 +2228,7 @@ window.GameData = {
               }
             }
           ],
-          "text": "战吼：选择一个敌方武将，使其和所有敌方普通兵种下个回合无法攻击。"
+          "text": "战吼：选择一个敌方武将，使其和所有敌方兵种下个回合无法攻击。"
         }
       ],
       "flavor": ""
@@ -2609,9 +2621,54 @@ window.GameData = {
       "cost": 2,
       "attack": 2,
       "health": 2,
-      "memo": "2 费 2/2 普通卡，低费填充",
+      "memo": "统领水军并协同追击",
       "gender": "male",
       "keywords": [],
+      "skills": [
+        {
+          "id": "tong_shuai_shui_jun",
+          "name": "统帅水军",
+          "kind": "trigger",
+          "trigger": "on_play",
+          "text": "战吼：从牌库发现一张具有水攻伤害效果的牌。",
+          "effects": [
+            {
+              "action": "discover",
+              "count": 1,
+              "target": {
+                "side": "self",
+                "filter": {
+                  "damage_type": "water"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": "xie_tong_zhui_ji",
+          "name": "协同追击",
+          "kind": "trigger",
+          "trigger": "on_water_damage",
+          "text": "其他己方来源造成水攻伤害后，对一名受伤敌方单位额外造成1点水攻伤害；该伤害不会再次触发本技能。",
+          "effects": [
+            {
+              "action": "damage",
+              "value": 1,
+              "damage_type": "water",
+              "target": {
+                "side": "enemy",
+                "filter": {
+                  "type": "character",
+                  "damaged": true,
+                  "include_lord": false
+                },
+                "count": 1,
+                "mode": "random"
+              }
+            }
+          ]
+        }
+      ],
       "flavor": ""
     },
     {
@@ -2622,9 +2679,42 @@ window.GameData = {
       "cost": 2,
       "attack": 2,
       "health": 3,
-      "memo": "2 费 2/3 扎实身材，无技能纯站场",
+      "memo": "敌回合蓄力，己方回合轻进自损",
       "gender": "male",
       "keywords": [],
+      "skills": [
+        {
+          "id": "fen_ji",
+          "name": "奋戟",
+          "kind": "trigger",
+          "trigger": "enemy_turn_start",
+          "effects": [
+            {
+              "action": "modify",
+              "attack": 1,
+              "target": {
+                "source": true
+              }
+            }
+          ]
+        },
+        {
+          "id": "qing_jin",
+          "name": "轻进",
+          "kind": "trigger",
+          "trigger": "turn_start",
+          "effects": [
+            {
+              "action": "damage",
+              "value": 1,
+              "minimum_hp": 1,
+              "target": {
+                "source": true
+              }
+            }
+          ]
+        }
+      ],
       "flavor": ""
     },
     {
@@ -2632,13 +2722,49 @@ window.GameData = {
       "name": "朱然",
       "faction": "wu",
       "type": "general",
-      "cost": 2,
+      "cost": 3,
       "attack": 2,
-      "health": 2,
-      "keywords": [
-        "jia_dun"
+      "health": 3,
+      "keywords": [],
+      "memo": "截江封锁目标的主公技或战技",
+      "skills": [
+        {
+          "id": "jie_jiang",
+          "name": "截江",
+          "kind": "trigger",
+          "trigger": "on_play",
+          "target": {
+            "side": "enemy",
+            "filter": {
+              "type": "character",
+              "include_lord": true
+            },
+            "count": 1,
+            "mode": "choose"
+          },
+          "text": "战吼：对指定敌方目标造成1点伤害；目标为主公时禁用主公技，否则禁用战技，持续至敌方下个回合结束。",
+          "effects": [
+            {
+              "action": "damage",
+              "value": 1
+            },
+            {
+              "action": "apply_status",
+              "status": "zhuran_lord_lock",
+              "condition": {
+                "chosen_kind": "lord"
+              }
+            },
+            {
+              "action": "apply_status",
+              "status": "zhuran_skill_lock",
+              "condition": {
+                "chosen_kind": "unit"
+              }
+            }
+          ]
+        }
       ],
-      "memo": "2 费前排嘲讽，敌方必须先打掉它",
       "gender": "male",
       "flavor": ""
     },
@@ -2647,41 +2773,34 @@ window.GameData = {
       "name": "祖茂",
       "faction": "wu",
       "type": "general",
-      "cost": 2,
-      "attack": 1,
-      "health": 3,
-      "memo": "主帅的肉盾 —— 伤害全由祖茂扛，他倒下保护就没了",
+      "cost": 3,
+      "attack": 2,
+      "health": 4,
+      "memo": "换帻替友将承受伤害",
       "gender": "male",
       "type_explicit": true,
       "keywords": [],
       "skills": [
         {
-          "id": "ti_zhu",
-          "name": "替主",
-          "kind": "aura",
-          "text": "己方主帅受到伤害时，改由祖茂承受。",
+          "id": "huan_bo",
+          "name": "换帻",
+          "kind": "trigger",
+          "trigger": "on_play",
+          "target": {
+            "side": "ally",
+            "filter": {
+              "type": "character",
+              "exclude_source": true
+            },
+            "count": 1,
+            "mode": "choose"
+          },
+          "text": "战吼：秘密选择另一名己方单位，由祖茂承受其伤害，直至祖茂离场；首次转移伤害时揭示目标。",
           "effects": [
             {
               "action": "apply_status",
-              "status": "hu_zhu",
-              "status_source": "self",
-              "condition": {
-                "count": {
-                  "selector": {
-                    "side": "ally",
-                    "lord": true,
-                    "filter": {
-                      "has_status": "hu_zhu"
-                    }
-                  },
-                  "op": "==",
-                  "value": 0
-                }
-              },
-              "target": {
-                "side": "ally",
-                "lord": true
-              }
+              "status": "shou_hu",
+              "status_source": "self"
             }
           ]
         }
@@ -2696,7 +2815,7 @@ window.GameData = {
       "cost": 3,
       "attack": 2,
       "health": 3,
-      "memo": "入场给敌方一个人物下套，50% 让它动不了",
+      "memo": "设伏压制受伤敌将，恢复满血后解除",
       "gender": "male",
       "keywords": [],
       "skills": [
@@ -2705,20 +2824,26 @@ window.GameData = {
           "name": "设伏",
           "kind": "trigger",
           "trigger": "on_play",
+          "target": {
+            "side": "enemy",
+            "filter": {
+              "type": "general",
+              "damaged": true
+            },
+            "count": 1,
+            "mode": "choose"
+          },
+          "text": "战吼：选择受伤敌方武将，使其攻击力变为0并获得震慑，直至其恢复满生命值。",
           "effects": [
             {
               "action": "apply_status",
+              "status": "attack_zero",
+              "duration": "until_full_health"
+            },
+            {
+              "action": "apply_status",
               "status": "zhen_she",
-              "duration": 1,
-              "chance": 0.5,
-              "target": {
-                "side": "enemy",
-                "filter": {
-                  "type": "character"
-                },
-                "count": 1,
-                "mode": "random"
-              }
+              "duration": "until_full_health"
             }
           ]
         }
@@ -2769,28 +2894,28 @@ window.GameData = {
       "faction": "wu",
       "type": "general",
       "cost": 4,
-      "attack": 4,
-      "health": 4,
-      "memo": "己方有 1 血残兵时自己少 1 费",
-      "cost_rule": {
-        "condition": {
-          "exists": {
-            "side": "ally",
-            "filter": {
-              "type": "character",
-              "health_max": 1
-            }
-          }
-        },
-        "value": -1
-      },
+      "attack": 2,
+      "health": 2,
+      "memo": "雪中奋短兵，强化后续召唤的单位",
       "gender": "male",
-      "keywords": [],
+      "keywords": [
+        "xian_gong"
+      ],
       "skills": [
         {
-          "id": "",
-          "name": "奋勇",
-          "text": "如果己方场上有受伤而且为1血人物，就降低一点统帅消耗。"
+          "id": "xue_zhong_fen_duan_bing",
+          "name": "雪中奋短兵",
+          "kind": "aura",
+          "text": "光环：后续召唤的武将、谋臣或兵种获得先攻，但攻击力和生命上限各-2，最低1。",
+          "effects": [
+            {
+              "action": "apply_status",
+              "status": "dingfeng_aura",
+              "target": {
+                "source": true
+              }
+            }
+          ]
         }
       ],
       "flavor": ""
@@ -2801,23 +2926,23 @@ window.GameData = {
       "faction": "wu",
       "type": "general",
       "cost": 4,
-      "attack": 4,
-      "health": 4,
-      "memo": "上场那回合点名 2 点伤害",
+      "attack": 3,
+      "health": 3,
+      "memo": "救援友军并以火攻接应",
       "gender": "male",
       "keywords": [],
       "skills": [
         {
-          "id": "jian_wu_xu_fa",
-          "name": "箭无虚发",
+          "id": "jiu_yuan",
+          "name": "救援",
           "kind": "trigger",
           "trigger": "on_play",
           "effects": [
             {
-              "action": "damage",
-              "value": 2,
+              "action": "heal",
+              "value": 3,
               "target": {
-                "side": "enemy",
+                "side": "ally",
                 "filter": {
                   "type": "character"
                 },
@@ -2826,7 +2951,28 @@ window.GameData = {
               }
             }
           ],
-          "text": "上场第一回合时，对指定敌人造成2点伤害。"
+          "text": "战吼：为一名友方单位恢复3点生命。"
+        },
+        {
+          "id": "huo_gong_jie_ying",
+          "name": "火攻接应",
+          "kind": "trigger",
+          "trigger": "on_play",
+          "effects": [
+            {
+              "action": "apply_status",
+              "status": "zhuo_shao",
+              "stacks": 1,
+              "target": {
+                "side": "enemy",
+                "filter": {
+                  "type": "character"
+                },
+                "count": "all"
+              }
+            }
+          ],
+          "text": "战吼：所有敌方单位获得1层灼烧。"
         }
       ],
       "flavor": ""
@@ -2839,7 +2985,7 @@ window.GameData = {
       "cost": 4,
       "attack": 3,
       "health": 4,
-      "memo": "自掉 1 血换敌人半数概率混乱，混乱成功再抽 1",
+      "memo": "苦肉诈降并在下个敌回合结束火攻",
       "gender": "male",
       "keywords": [
         "zhan_ji"
@@ -2860,28 +3006,73 @@ window.GameData = {
               }
             },
             {
-              "action": "apply_status",
-              "status": "hun_luan",
-              "duration": 1,
+              "action": "roll",
               "chance": 0.5,
+              "roll_id": "ku_rou_success"
+            },
+            {
+              "action": "apply_status",
+              "status": "jin_gong",
+              "duration": "until_next_turn",
+              "condition": {
+                "roll": "ku_rou_success"
+              },
               "target": {
                 "side": "enemy",
                 "filter": {
-                  "type": "character"
+                  "type": "general"
                 },
                 "count": 1,
                 "mode": "choose"
               }
             },
             {
-              "action": "draw",
-              "value": 1,
+              "action": "apply_status",
+              "status": "ku_rou_fire_ready",
+              "duration": "until_next_turn",
               "condition": {
-                "event": "none"
+                "roll": "ku_rou_success"
+              },
+              "target": {
+                "source": true
+              }
+            }
+          ]
+        },
+        {
+          "id": "ku_rou_huo_gong",
+          "name": "苦肉火攻",
+          "kind": "trigger",
+          "trigger": "enemy_turn_end",
+          "effects": [
+            {
+              "action": "damage",
+              "value": 1,
+              "damage_type": "fire",
+              "condition": {
+                "source_status": "ku_rou_fire_ready"
+              },
+              "target": {
+                "side": "enemy",
+                "filter": {
+                  "type": "character",
+                  "include_lord": false
+                },
+                "count": "all"
+              }
+            },
+            {
+              "action": "remove_status",
+              "status": "ku_rou_fire_ready",
+              "condition": {
+                "source_status": "ku_rou_fire_ready"
+              },
+              "target": {
+                "source": true
               }
             }
           ],
-          "text": "每回合可一次机会自己掉一血指定一名敌人混乱（50%概率），如果混乱成功，则抽一张卡牌."
+          "text": "战技：选择敌方武将，自身受1点伤害；50%使其下个回合无法普通攻击；成功则在下个敌方回合结束时对所有敌方单位造成1点火攻伤害，各挂1层灼烧。"
         }
       ],
       "flavor": ""
@@ -2894,31 +3085,32 @@ window.GameData = {
       "cost": 4,
       "attack": 2,
       "health": 4,
-      "memo": "复制手里或场上友方将领的一个技能",
+      "memo": "休兵养士，回合结束治疗未行动友军",
       "gender": "male",
       "keywords": [],
       "skills": [
         {
-          "id": "qian_chong_ru_chang",
-          "name": "谦冲如常",
+          "id": "xi_bing",
+          "name": "息兵",
           "kind": "trigger",
-          "trigger": "on_play",
+          "trigger": "turn_end",
           "effects": [
             {
-              "action": "copy_skill",
+              "action": "heal",
+              "value": 1,
               "target": {
                 "side": "ally",
-                "zone": "both",
                 "filter": {
                   "type": "character",
-                  "exclude_source": true
+                  "exclude_source": true,
+                  "attacked_this_turn": false,
+                  "acted_this_turn": false
                 },
-                "count": 1,
-                "mode": "choose"
+                "count": "all"
               }
             }
           ],
-          "text": "自上场时，可选择手里或场上友方将领的技能一次。"
+          "text": "己方回合结束时，为本回合未攻击且未使用战技的其他己方单位恢复1点生命。"
         }
       ],
       "flavor": ""
@@ -2928,35 +3120,52 @@ window.GameData = {
       "name": "孙坚",
       "faction": "wu",
       "type": "general",
-      "cost": 4,
-      "attack": 4,
-      "health": 3,
-      "memo": "阵亡拼点，赢了让一张手牌免费下场",
+      "cost": 6,
+      "attack": 5,
+      "health": 5,
+      "memo": "聚义兴师发现武将，阵亡传承孙氏遗志",
       "gender": "male",
       "keywords": [],
       "skills": [
         {
-          "id": "jiang_dong_meng_hu",
-          "name": "江东猛虎",
+          "id": "ju_yi_xing_shi",
+          "name": "聚义兴师",
+          "kind": "trigger",
+          "trigger": "on_play",
+          "effects": [
+            {
+              "action": "discover",
+              "count": 1,
+              "target": {
+                "side": "self",
+                "filter": {
+                  "type": "general"
+                }
+              }
+            }
+          ],
+          "text": "战吼：从牌库发现一张武将。"
+        },
+        {
+          "id": "yi_zhi_xiang_cheng",
+          "name": "遗志相承",
           "kind": "trigger",
           "trigger": "on_death",
           "effects": [
             {
-              "action": "clash",
-              "clashMode": "roll",
+              "action": "cost_modifier",
+              "value": -1,
               "target": {
-                "side": "enemy"
-              }
-            },
-            {
-              "action": "draw",
-              "value": 1,
-              "condition": {
-                "event": "clash_won"
+                "side": "ally",
+                "zone": "hand",
+                "filter": {
+                  "type": "general"
+                },
+                "count": "all"
               }
             }
           ],
-          "text": "阵亡时与敌方拼点。如果拼点获胜，则随机让己方手牌中一名人物不消耗统率上场（但不能触发这张牌的上场效果）。"
+          "text": "亡语：使手牌中所有武将统帅消耗-1。"
         }
       ],
       "flavor": ""
@@ -3024,7 +3233,7 @@ window.GameData = {
       "cost": 4,
       "attack": 3,
       "health": 5,
-      "memo": "受伤后每回合自回 1 血，越拖越难死",
+      "memo": "标记敌军后与其战斗时蓄力反击",
       "gender": "male",
       "keywords": [],
       "skills": [
@@ -3032,17 +3241,39 @@ window.GameData = {
           "id": "yi_yi_dai_lao",
           "name": "以逸待劳",
           "kind": "trigger",
-          "trigger": "turn_start",
+          "trigger": "on_play",
           "effects": [
             {
-              "action": "heal",
-              "value": 1,
+              "action": "apply_status",
+              "status": "pi_kun",
               "target": {
-                "source": true
+                "side": "enemy",
+                "filter": {
+                  "type": "character",
+                  "include_lord": false
+                },
+                "count": "all"
               }
             }
           ],
-          "text": "自己在场时，如果受伤，每回合恢复自己一点血量。"
+          "text": "战吼：标记所有敌方单位为疲困；与被标记单位战斗时，本次攻击+2。"
+        },
+        {
+          "id": "pi_kun_fan_ji",
+          "name": "疲困反击",
+          "kind": "trigger",
+          "trigger": "on_attack",
+          "effects": [
+            {
+              "action": "attack_bonus",
+              "value": 2,
+              "condition": {
+                "attack_target": {
+                  "has_status": "pi_kun"
+                }
+              }
+            }
+          ]
         }
       ],
       "flavor": ""
@@ -3053,14 +3284,44 @@ window.GameData = {
       "faction": "wu",
       "type": "general",
       "cost": 5,
-      "attack": 5,
-      "health": 5,
-      "keywords": [
-        "xian_gong"
-      ],
-      "memo": "第一回合先攻，并让全场敌人 −1 攻一回合",
+      "attack": 3,
+      "health": 3,
+      "keywords": [],
+      "memo": "锦帆水军转攻，召唤锦帆军并劫营扰敌",
       "gender": "male",
       "skills": [
+        {
+          "id": "jin_fan_tong_ling",
+          "name": "锦帆统领",
+          "kind": "aura",
+          "text": "光环：将己方无属性或物理伤害改为水攻。",
+          "effects": [
+            {
+              "action": "apply_status",
+              "status": "water_convert",
+              "target": {
+                "side": "ally",
+                "filter": {
+                  "type": "character"
+                },
+                "count": "all"
+              }
+            }
+          ]
+        },
+        {
+          "id": "jin_fan_ju_zhong",
+          "name": "锦帆聚众",
+          "kind": "trigger",
+          "trigger": "on_play",
+          "effects": [
+            {
+              "action": "summon",
+              "unit": "wu_jinfanjun"
+            }
+          ],
+          "text": "战吼：召唤一名锦帆军。"
+        },
         {
           "id": "bai_qi_jie_ying",
           "name": "百骑劫营",
@@ -3070,7 +3331,7 @@ window.GameData = {
             {
               "action": "modify",
               "attack": -1,
-              "duration": 1,
+              "duration": "until_enemy_turn_end",
               "target": {
                 "side": "enemy",
                 "filter": {
@@ -3080,7 +3341,7 @@ window.GameData = {
               }
             }
           ],
-          "text": "第一回合上场时获得先攻，且所有场上敌方人物 -1 攻一回合。"
+          "text": "战吼：使所有敌方单位攻击力-1，持续至下个敌方回合结束。"
         }
       ],
       "flavor": ""
@@ -3090,37 +3351,28 @@ window.GameData = {
       "name": "凌统",
       "faction": "wu",
       "type": "general",
-      "cost": 5,
-      "attack": 4,
-      "health": 5,
+      "cost": 7,
+      "attack": 3,
+      "health": 4,
       "keywords": [
         "xian_gong"
       ],
-      "memo": "先攻；攻击时半数概率震慑目标",
+      "memo": "逍遥津死战，召唤东吴精骑断后",
       "gender": "male",
       "skills": [
         {
-          "id": "guo_shi_zhi_feng",
-          "name": "国士之风",
+          "id": "xiao_yao_jin_si_zhan",
+          "name": "逍遥津死战",
           "kind": "trigger",
-          "trigger": "on_attack",
+          "trigger": "on_play",
           "effects": [
             {
-              "action": "apply_status",
-              "status": "zhen_she",
-              "duration": 1,
-              "chance": 0.5,
-              "target": {
-                "side": "enemy",
-                "filter": {
-                  "type": "character"
-                },
-                "count": 1,
-                "mode": "random"
-              }
+              "action": "summon",
+              "unit": "wu_dongwujingqi",
+              "status": "die_at_turn_end"
             }
           ],
-          "text": "获得先攻，并且对攻击的敌人有 50% 概率造成震慑。"
+          "text": "战吼：召唤一个东吴精骑，该骑兵在本回合结束时阵亡。"
         }
       ],
       "flavor": ""
@@ -3189,7 +3441,7 @@ window.GameData = {
               "value_from": {
                 "side": "ally",
                 "filter": {
-                  "type": "character"
+                  "type": "general"
                 }
               },
               "target": {
@@ -3212,55 +3464,30 @@ window.GameData = {
       "name": "程普",
       "faction": "wu",
       "type": "general",
-      "cost": 6,
+      "cost": 5,
       "attack": 4,
       "health": 5,
-      "memo": "上场震慑一名敌人；攻击时给随机友军回 1 血",
+      "memo": "三朝虎臣扶持后辈武将",
       "gender": "male",
       "keywords": [],
       "skills": [
         {
-          "id": "hao_yong",
-          "name": "豪勇",
+          "id": "san_chao_hu_chen",
+          "name": "三朝虎臣",
           "kind": "trigger",
-          "trigger": "on_play",
+          "trigger": "on_ally_attack",
+          "frequency": "once_per_turn",
           "effects": [
             {
-              "action": "apply_status",
-              "status": "zhen_she",
-              "duration": 1,
+              "action": "modify",
+              "attack": 1,
+              "health": 1,
               "target": {
-                "side": "enemy",
-                "filter": {
-                  "type": "character"
-                },
-                "count": 1,
-                "mode": "choose"
+                "event": "attacker"
               }
             }
           ],
-          "text": "上场时选择一名敌方人物震慑一回合（无法行动）；攻击时，恢复随机友军 1 点血量。"
-        },
-        {
-          "id": "chi_zhong",
-          "name": "持重",
-          "kind": "trigger",
-          "trigger": "on_attack",
-          "effects": [
-            {
-              "action": "heal",
-              "value": 1,
-              "target": {
-                "side": "ally",
-                "filter": {
-                  "type": "character"
-                },
-                "count": 1,
-                "mode": "random"
-              }
-            }
-          ],
-          "text": "上场时选择一名敌方人物震慑一回合（无法行动）；攻击时，恢复随机友军 1 点血量。"
+          "text": "每回合一次，其他己方武将普通攻击后若存活，使其获得+1/+1。"
         }
       ],
       "flavor": ""
@@ -3270,31 +3497,61 @@ window.GameData = {
       "name": "太史慈",
       "faction": "wu",
       "type": "general",
-      "cost": 6,
-      "attack": 5,
+      "cost": 7,
+      "attack": 3,
       "health": 6,
-      "memo": "−2 攻换一回合打两次",
+      "memo": "归吴召唤骑兵，神射压制敌军",
       "gender": "male",
       "keywords": [
         "zhan_ji"
       ],
       "skills": [
         {
-          "id": "shen_she_hao",
-          "name": "神射豪",
+          "id": "gui_wu",
+          "name": "归吴",
+          "kind": "trigger",
+          "trigger": "on_play",
+          "effects": [
+            {
+              "action": "summon",
+              "unit": "neutral_cavalry"
+            }
+          ],
+          "text": "战吼：召唤一个骑兵。"
+        },
+        {
+          "id": "shen_she",
+          "name": "神射",
           "kind": "active",
           "cost": 0,
           "frequency": "once_per_turn",
+          "target": {
+            "side": "enemy",
+            "filter": {
+              "type": "character",
+              "include_lord": false
+            },
+            "count": 1,
+            "mode": "choose"
+          },
           "effects": [
+            {
+              "action": "damage",
+              "value": 2
+            },
             {
               "action": "modify",
               "attack": -2,
+              "duration": "this_turn",
               "target": {
-                "source": true
+                "pick": 1
+              },
+              "condition": {
+                "chosen_kind": "unit"
               }
             }
           ],
-          "text": "可选择-2攻击力，但一回合可攻击2次."
+          "text": "战技：选择一名敌方单位，造成2点伤害，并使其攻击力-2，持续至我方回合结束。"
         }
       ],
       "flavor": ""
@@ -3304,30 +3561,63 @@ window.GameData = {
       "name": "诸葛恪",
       "faction": "wu",
       "type": "strategist",
-      "cost": 3,
+      "cost": 4,
       "attack": 1,
-      "health": 3,
-      "memo": "偷看对手牌库顶一张；再牺牲一人还能看其手牌",
+      "health": 4,
+      "memo": "急智抽牌，骄狂逐回合弃牌并发动乱击",
       "gender": "male",
       "keywords": [],
       "skills": [
         {
-          "id": "shi_cai",
-          "name": "恃才",
+          "id": "ji_zhi",
+          "name": "急智",
           "kind": "trigger",
           "trigger": "on_play",
           "effects": [
             {
-              "action": "scry",
-              "from": "top",
-              "count": 1,
-              "to": "hand",
+              "action": "draw",
+              "value": 2
+            }
+          ],
+          "text": "战吼：抽2张牌。"
+        },
+        {
+          "id": "jiao_kuang",
+          "name": "骄狂",
+          "kind": "trigger",
+          "trigger": "turn_end",
+          "effects": [
+            {
+              "action": "apply_status",
+              "status": "jiao_kuang",
+              "stacks": 1,
               "target": {
-                "side": "enemy"
+                "source": true
+              }
+            },
+            {
+              "action": "discard_status_count",
+              "status": "jiao_kuang"
+            },
+            {
+              "action": "damage",
+              "value": 1,
+              "count": 3,
+              "condition": {
+                "event": "discarded"
+              },
+              "target": {
+                "side": "enemy",
+                "filter": {
+                  "type": "character",
+                  "include_lord": false
+                },
+                "count": 1,
+                "mode": "random"
               }
             }
           ],
-          "text": "上场时，可查看对手卡池顶部一张牌。如果牺牲一名人物, 可同时查看对手手中一张卡牌。"
+          "text": "己方回合结束时获得1层“骄狂”；随机弃置等同层数的手牌，不足部分移除牌库顶；成功弃牌后，对随机敌方单位造成3次1点伤害。"
         }
       ],
       "flavor": ""
@@ -3340,31 +3630,88 @@ window.GameData = {
       "cost": 4,
       "attack": 1,
       "health": 4,
-      "memo": "每回合送对手 1 张手牌，自己抽 2 张",
+      "memo": "榻上策发现吴蜀战法，资粮扶助友军",
       "gender": "male",
       "keywords": [
         "zhan_ji"
       ],
       "skills": [
         {
+          "id": "ta_shang_ce",
+          "name": "榻上策",
+          "kind": "trigger",
+          "trigger": "on_play",
+          "effects": [
+            {
+              "action": "discover",
+              "count": 3,
+              "target": {
+                "side": "self",
+                "filter": {
+                  "type": "tactic",
+                  "factions": [
+                    "wu",
+                    "shu"
+                  ]
+                }
+              }
+            }
+          ],
+          "text": "战吼：从牌库发现吴国或蜀国战法牌，选择一张加入手牌。"
+        },
+        {
           "id": "zhang_yi_shu_cai",
           "name": "仗义疏财",
           "kind": "active",
           "cost": 0,
           "frequency": "once_per_turn",
+          "requires": {
+            "status": {
+              "id": "zi_liang",
+              "min": 1
+            }
+          },
           "effects": [
             {
-              "action": "discard",
-              "count": 1,
+              "action": "remove_status",
+              "status": "zi_liang",
+              "stacks": 1,
               "target": {
-                "side": "self"
+                "source": true
               }
             },
             {
-              "action": "draw",
-              "value": 2
+              "action": "modify",
+              "attack": 1,
+              "health": 1,
+              "target": {
+                "side": "ally",
+                "filter": {
+                  "exclude_source": true
+                },
+                "count": 1,
+                "mode": "choose"
+              }
             }
-          ]
+          ],
+          "text": "战技：消耗1层资粮，使一名其他己方单位获得+1/+1。"
+        },
+        {
+          "id": "zi_liang_init",
+          "name": "资粮",
+          "kind": "trigger",
+          "trigger": "on_play",
+          "effects": [
+            {
+              "action": "apply_status",
+              "status": "zi_liang",
+              "stacks": 3,
+              "target": {
+                "source": true
+              }
+            }
+          ],
+          "text": "初始拥有3层资粮。"
         }
       ],
       "flavor": ""
@@ -3373,34 +3720,62 @@ window.GameData = {
       "id": "wu_luxun",
       "name": "陆逊",
       "faction": "wu",
-      "type": "strategist",
+      "type": "general",
       "cost": 6,
-      "attack": 1,
-      "health": 5,
-      "memo": "每回合对敌方全体 1 点火伤，各挂 1 层永久灼烧（会累积）",
+      "attack": 4,
+      "health": 4,
+      "memo": "火烧连营：先引火，再焚烧引火或灼烧目标",
       "gender": "male",
       "keywords": [],
       "skills": [
         {
-          "id": "ce_huo_liu_yun",
-          "name": "策火流云",
-          "kind": "trigger",
-          "trigger": "turn_end",
-          "effects": [
+          "id": "huo_shao_lian_ying",
+          "name": "火烧连营",
+          "kind": "active",
+          "cost": 0,
+          "frequency": "once_per_turn",
+          "modes": [
             {
-              "action": "damage",
-              "value": 1,
-              "damage_type": "fire",
-              "target": {
-                "side": "enemy",
-                "filter": {
-                  "type": "character"
-                },
-                "count": "all"
-              }
+              "name": "引火",
+              "effects": [
+                {
+                  "action": "apply_status",
+                  "status": "yin_huo",
+                  "target": {
+                    "side": "enemy",
+                    "filter": {
+                      "type": "character",
+                      "include_lord": false
+                    },
+                    "count": "all"
+                  }
+                }
+              ]
+            },
+            {
+              "name": "焚烧",
+              "effects": [
+                {
+                  "action": "damage",
+                  "value": 1,
+                  "damage_type": "fire",
+                  "target": {
+                    "side": "enemy",
+                    "filter": {
+                      "type": "character",
+                      "has_any_status": [
+                        "yin_huo",
+                        "zhuo_shao"
+                      ],
+                      "include_lord": false
+                    },
+                    "count": "all"
+                  }
+                }
+              ]
             }
           ],
-          "text": "陆逊每回合对敌方全体造成 1 点火攻伤害；每段火攻各挂 1 层永久灼烧，层数会逐回合累积（其回合开始时失去等于层数的生命，ADR-134）。"
+          "text": "战技（每回合一次），抉择：使所有敌方单位获得引火；或对所有具有引火或灼烧的敌方单位各造成1点火攻伤害。"
         }
       ],
       "flavor": ""
@@ -3419,32 +3794,34 @@ window.GameData = {
       "keywords": [],
       "skills": [
         {
-          "id": "li_jian",
-          "name": "离间",
+          "id": "fan_jian_ji",
+          "name": "反间计",
           "kind": "trigger",
           "trigger": "on_play",
-          "text": "拼点：大于对方则使其丢弃一张牌，并对其主公造成等同于该牌统帅值的伤害；小于对方则使场上随机一名敌方人物回到对方手牌。",
+          "target": {
+            "side": "enemy",
+            "filter": {
+              "type": "general"
+            },
+            "count": 1,
+            "mode": "choose"
+          },
+          "text": "战吼：选择一名敌方武将与其拼点；胜利则消灭该武将并按其攻击力对敌方主公造成伤害；失败则使其震慑至下个敌方回合结束；平局无效果。",
           "effects": [
             {
               "action": "clash",
               "clashMode": "roll",
-              "target": {
-                "side": "enemy"
-              }
+              "tie_is_neutral": true
             },
             {
-              "action": "discard",
-              "count": 1,
-              "target": {
-                "side": "enemy"
-              },
+              "action": "destroy",
               "condition": {
                 "event": "clash_won"
               }
             },
             {
               "action": "damage",
-              "value_from_discarded": "cost",
+              "value_from_clash_target": "attack",
               "target": {
                 "side": "enemy",
                 "lord": true
@@ -3454,17 +3831,27 @@ window.GameData = {
               }
             },
             {
-              "action": "return_to_hand",
+              "action": "apply_status",
+              "status": "zhen_she",
+              "duration": "until_enemy_turn_end",
               "condition": {
                 "event": "clash_lost"
-              },
+              }
+            }
+          ]
+        },
+        {
+          "id": "chi_bi_du_jun",
+          "name": "赤壁督军",
+          "kind": "aura",
+          "text": "光环：己方造成的直接火攻伤害增加1点。",
+          "effects": [
+            {
+              "action": "apply_status",
+              "status": "fire_gong_bonus",
+              "stacks": 1,
               "target": {
-                "side": "enemy",
-                "filter": {
-                  "type": "character"
-                },
-                "count": 1,
-                "mode": "random"
+                "source": true
               }
             }
           ]
@@ -5502,22 +5889,21 @@ window.GameData = {
     {
       "id": "wu_panzhang",
       "name": "潘璋",
-      "rarity": "elite",
       "faction": "wu",
       "type": "general",
       "cost": 5,
       "attack": 4,
-      "health": 2,
-      "memo": "擒将：对受伤敌方武将造成 3 点火攻伤害（挂 1 层永久灼烧）",
+      "health": 3,
+      "memo": "擒将夺刃收割受伤敌将，归刃反伤击杀者",
       "gender": "male",
       "keywords": [],
       "skills": [
         {
-          "id": "qin_jiang",
-          "name": "擒将",
+          "id": "qin_jiang_duo_ren",
+          "name": "擒将夺刃",
           "kind": "trigger",
           "trigger": "on_play",
-          "text": "战吼：选择对方一个受伤的武将，造成 3 点火攻伤害并挂 1 层永久灼烧（ADR-134）。",
+          "text": "战吼：对一名受伤的敌方武将造成3点伤害；若该伤害使其阵亡，潘璋获得+2攻击。",
           "target": {
             "side": "enemy",
             "filter": {
@@ -5531,7 +5917,7 @@ window.GameData = {
             {
               "action": "damage",
               "value": 3,
-              "damage_type": "fire",
+              "damage_type": "physical",
               "target": {
                 "side": "enemy",
                 "filter": {
@@ -5540,6 +5926,32 @@ window.GameData = {
                 },
                 "count": 1,
                 "mode": "choose"
+              }
+            },
+            {
+              "action": "modify",
+              "attack": 2,
+              "target": {
+                "source": true
+              },
+              "condition": {
+                "event": "killed"
+              }
+            }
+          ]
+        },
+        {
+          "id": "gui_ren",
+          "name": "归刃",
+          "kind": "trigger",
+          "trigger": "on_death",
+          "text": "亡语：击杀潘璋的敌人获得+2攻击力。",
+          "effects": [
+            {
+              "action": "modify",
+              "attack": 2,
+              "target": {
+                "event": "killer"
               }
             }
           ]
@@ -5795,46 +6207,41 @@ window.GameData = {
       "faction": "wu",
       "type": "general",
       "cost": 5,
-      "attack": 4,
+      "attack": 1,
       "health": 6,
+      "type_explicit": true,
       "keywords": [
         "jia_dun"
       ],
-      "memo": "嘲讽，己方人数少于敌方时获得额外生命",
+      "memo": "架盾；敌方回合首次被攻击时按手牌兵力反击",
       "gender": "male",
       "skills": [
         {
           "id": "yi_cheng",
           "name": "疑城",
           "kind": "trigger",
-          "trigger": "on_play",
+          "trigger": "on_defend",
+          "frequency": "once_per_turn",
           "effects": [
             {
               "action": "modify",
-              "health": 2,
+              "attack_from": {
+                "side": "self",
+                "zone": "hand",
+                "filter": {
+                  "types": [
+                    "general",
+                    "troop"
+                  ]
+                }
+              },
               "target": {
                 "source": true
               },
-              "condition": {
-                "count_vs": {
-                  "left": {
-                    "side": "self",
-                    "filter": {
-                      "type": "character"
-                    }
-                  },
-                  "right": {
-                    "side": "enemy",
-                    "filter": {
-                      "type": "character"
-                    }
-                  },
-                  "op": "<"
-                }
-              }
+              "duration": "until_enemy_turn_end"
             }
           ],
-          "text": "嘲讽；战吼：当己方场上角色少于对方时，获得 +2 生命。"
+          "text": "架盾；每个敌方回合首次被攻击时，获得等同于手牌中武将牌与兵种牌数量的攻击力，持续至该回合结束。"
         }
       ],
       "flavor": "徐盛以疑城退敌，守江东如铁壁。"
@@ -5879,39 +6286,19 @@ window.GameData = {
       "type": "general",
       "cost": 4,
       "attack": 3,
-      "health": 6,
-      "memo": "护主：主公受到的伤害由董袭承担",
+      "health": 5,
+      "memo": "架盾；先攻单位伤害主公时从手牌自动护驾承伤",
+      "keywords": [
+        "jia_dun"
+      ],
       "gender": "male",
       "skills": [
         {
-          "id": "hu_zhu",
-          "name": "护主",
-          "kind": "aura",
-          "text": "主公受到的伤害由董袭承担。",
-          "effects": [
-            {
-              "action": "apply_status",
-              "status": "hu_zhu",
-              "status_source": "self",
-              "condition": {
-                "count": {
-                  "selector": {
-                    "side": "ally",
-                    "lord": true,
-                    "filter": {
-                      "has_status": "hu_zhu"
-                    }
-                  },
-                  "op": "==",
-                  "value": 0
-                }
-              },
-              "target": {
-                "side": "ally",
-                "lord": true
-              }
-            }
-          ]
+          "id": "dang_feng_hu_jia",
+          "name": "当锋护驾",
+          "kind": "trigger",
+          "trigger": "on_lord_damaged",
+          "text": "当己方主公受到敌方先攻单位伤害时，若董袭在手牌中，自动免费召唤并承受此次伤害，每局限一次。"
         }
       ],
       "flavor": "董袭勇猛，曾冒死护卫孙权。"
@@ -5922,34 +6309,46 @@ window.GameData = {
       "faction": "wu",
       "type": "general",
       "cost": 4,
-      "attack": 4,
+      "attack": 2,
       "health": 3,
-      "memo": "先攻，主公危急时亡语重创敌方主公",
+      "memo": "先攻；友军阵亡时奋战，阵亡时冲击敌军全体",
       "gender": "male",
       "keywords": [
         "xian_gong"
       ],
       "skills": [
         {
-          "id": "fen_si",
-          "name": "奋死",
+          "id": "lu_dang_si_zhan",
+          "name": "芦荡死战",
+          "kind": "trigger",
+          "trigger": "on_ally_death",
+          "effects": [
+            {
+              "action": "modify",
+              "attack": 1,
+              "target": {
+                "source": true
+              }
+            }
+          ],
+          "text": "其他己方角色阵亡时，攻击力+1。"
+        },
+        {
+          "id": "lu_dang_si_zhan_death",
+          "name": "芦荡死战",
           "kind": "trigger",
           "trigger": "on_death",
-          "text": "亡语：敌方主公生命低于 15 时，对敌方主公造成 3 点伤害。",
+          "text": "亡语：对敌方全体造成1点物理伤害。",
           "effects": [
             {
               "action": "damage",
-              "value": 3,
+              "value": 1,
               "target": {
                 "side": "enemy",
-                "lord": true
-              },
-              "condition": {
-                "lord_hp": {
-                  "side": "enemy",
-                  "op": "<",
-                  "value": 15
-                }
+                "filter": {
+                  "type": "character"
+                },
+                "count": "all"
               }
             }
           ]
@@ -9435,7 +9834,7 @@ window.GameData = {
       "numeric": false,
       "scope": "character",
       "timing": 10,
-      "duration": "turns",
+      "duration": "permanent",
       "caps": [
         "redirect_damage"
       ],
@@ -9566,6 +9965,104 @@ window.GameData = {
       "memo": "本回合不能普通攻击"
     },
     {
+      "id": "zhuran_skill_lock",
+      "name": "截江封技",
+      "kind": "debuff",
+      "numeric": false,
+      "scope": "character",
+      "timing": 5,
+      "duration": "until_enemy_turn_end",
+      "caps": [
+        "block_skill"
+      ],
+      "memo": "朱然截江：敌方战技被封锁至下个敌方回合结束"
+    },
+    {
+      "id": "zhuran_lord_lock",
+      "name": "截江封主公技",
+      "kind": "debuff",
+      "numeric": false,
+      "scope": "lord",
+      "timing": 5,
+      "duration": "until_enemy_turn_end",
+      "caps": [
+        "block_lord_skill"
+      ],
+      "memo": "朱然截江：敌方主公技被封锁至下个敌方回合结束"
+    },
+    {
+      "id": "attack_zero",
+      "name": "伏击压制",
+      "kind": "debuff",
+      "numeric": false,
+      "scope": "character",
+      "timing": 5,
+      "duration": "conditional",
+      "caps": [
+        "attack_zero"
+      ],
+      "memo": "攻击力固定为0，恢复满血时解除"
+    },
+    {
+      "id": "pi_kun",
+      "name": "疲困",
+      "kind": "debuff",
+      "numeric": false,
+      "scope": "character",
+      "timing": 9,
+      "duration": "permanent",
+      "memo": "朱桓与其战斗时攻击力+2"
+    },
+    {
+      "id": "ku_rou_fire_ready",
+      "name": "苦肉火攻",
+      "kind": "buff",
+      "numeric": false,
+      "scope": "character",
+      "timing": 20,
+      "duration": "until_enemy_turn_end",
+      "memo": "黄盖苦肉成功后延迟火攻"
+    },
+    {
+      "id": "water_convert",
+      "name": "水军转攻",
+      "kind": "buff",
+      "numeric": false,
+      "scope": "character",
+      "timing": 13,
+      "duration": "permanent",
+      "caps": [
+        "water_convert"
+      ],
+      "memo": "来源的物理或无属性伤害改为水攻"
+    },
+    {
+      "id": "dingfeng_aura",
+      "name": "雪中突袭",
+      "kind": "buff",
+      "numeric": false,
+      "scope": "character",
+      "timing": 13,
+      "duration": "permanent",
+      "caps": [
+        "future_summon"
+      ],
+      "memo": "后续召唤的单位获得先攻并降低攻血"
+    },
+    {
+      "id": "die_at_turn_end",
+      "name": "断后",
+      "kind": "debuff",
+      "numeric": false,
+      "scope": "character",
+      "timing": 20,
+      "duration": "this_turn",
+      "caps": [
+        "die_at_turn_end"
+      ],
+      "memo": "本回合结束时阵亡"
+    },
+    {
       "id": "shui_gong_bonus",
       "name": "水攻强化",
       "kind": "buff",
@@ -9574,6 +10071,47 @@ window.GameData = {
       "timing": 13,
       "duration": "permanent",
       "memo": "水攻伤害 +N"
+    },
+    {
+      "id": "fire_gong_bonus",
+      "name": "火攻强化",
+      "kind": "buff",
+      "numeric": true,
+      "scope": "character",
+      "timing": 13,
+      "duration": "permanent",
+      "memo": "直接火攻伤害 +N"
+    },
+    {
+      "id": "yin_huo",
+      "name": "引火",
+      "kind": "debuff",
+      "numeric": false,
+      "scope": "character",
+      "timing": 20,
+      "duration": "permanent",
+      "memo": "陆逊火烧连营的引火标记"
+    },
+    {
+      "id": "jiao_kuang",
+      "name": "骄狂",
+      "kind": "buff",
+      "numeric": true,
+      "scope": "character",
+      "timing": 20,
+      "duration": "permanent",
+      "memo": "诸葛恪回合结束时按层数弃牌并发动乱击"
+    },
+    {
+      "id": "zi_liang",
+      "name": "资粮",
+      "kind": "buff",
+      "numeric": true,
+      "scope": "character",
+      "timing": 8,
+      "duration": "permanent",
+      "max_stacks": 3,
+      "memo": "鲁肃仗义疏财的可用次数"
     },
     {
       "id": "teng_jia",
