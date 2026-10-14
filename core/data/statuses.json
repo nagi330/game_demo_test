@@ -237,9 +237,10 @@
     "timing": 9,
     "duration": "turns",
     "caps": [
-      "untargetable"
+      "untargetable",
+      "immune_all_damage"
     ],
-    "memo": "该方主帅不能被**普通攻击**指定为目标；效果伤害仍可命中（空城计，ADR-074）"
+    "memo": "该方主帅既不能被**普通攻击**指定为目标，也**免疫一切伤害**（空城计，ADR-074 / ADR-156）"
   },
   {
     "id": "xiu_zheng",

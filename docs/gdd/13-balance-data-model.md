@@ -507,7 +507,7 @@ target:
 
 #### ② 条件 `condition`
 
-效果可加 `condition`，不满足则跳过。四种写法，覆盖卡池全部需求：
+效果可加 `condition`，不满足则跳过。下列写法覆盖卡池全部需求：
 
 ```yaml
 # a) exists —— 该集合非空（"当场上有低于 3 统帅的人时"）
@@ -527,7 +527,48 @@ condition: { lord_hp: { side: enemy, op: '<', value: 15 } }
 
 # f) lord_full_hp —— 判断主公在本次技能结算开始时是否满血
 condition: { lord_full_hp: { side: self, value: true } }
+
+# g) chosen_side / chosen_lord / chosen_damaged —— 判断**玩家本次所选的那个目标**
+#    读 `ctx.chosen`，与选择器无关；三者是姊妹条件（ADR-069 陈宫 / ADR-148 华佗 / ADR-159 黄忠）
+condition: { chosen_side: 'enemy' }     # 所选目标属于哪一方（'ally' 判己方）
+condition: { chosen_lord: true }        # 所选目标是主将吗
+condition: { chosen_damaged: true }     # 所选目标**已受伤**吗（hp < maxHp；主将也适用）
+
+# h) has_fallen —— 某张卡**本局是否已经阵亡过**（ADR-160，姜维「复汉」公开判胜技）
+condition: { has_fallen: { side: 'enemy', card_id: 'wei_dengai' } }
 ```
+
+**关于 `has_fallen`（ADR-160）**：
+
+- 数据来源是 `SideState.fallen: string[]` —— **该方本局阵亡过的卡 id 列表**（在 `killUnit` 里 push，不去重、不清理）。
+- ⚠️ **它和"当前不在场上"是两回事**：`has_fallen` 问的是「**死过**」，不是「**现在不在**」。
+  一张还没被打出的卡、和一张已经阵亡的卡，在场上都是"看不见"的 —— 只有 `fallen` 能区分。
+- ⚠️ **为什么必须有它**：`v0` 的 `草船借箭` 卡面曾承诺「敌方每阵亡一个武将，己方抽取两张卡」，
+  而当时引擎**没有任何"谁死过"的记录**（阵亡单位既不进 `discard`，也没有墓地），
+  于是这条效果**一次都没生效过**，最后靠**把卡面改成数场上人物**绕开（ADR-087 记录）。
+  `fallen` 把这个缺口补上了。
+- ⚠️ **标记机制不能替代它**：`apply_status` 的 `on_death` 载荷虽然能在**被标记单位阵亡的那一刻**执行，
+  但它跑的是 `runEffects(state, cards, inst.payoff, { side: inst.srcSide }, rng, events)` ——
+  **`ctx.source` 是空的**，所以载荷无法把"某某已亡"记回某个具体单位身上，也就无法支撑
+  「A 已阵亡 **且** B 在我方」这类**跨时间合取**条件。
+
+
+> ⚠️ **`chosen_damaged` 读的是「本次技能结算开始时」的快照，不是实时状态**（ADR-159 踩出来的）。
+> `condition` 是在**结算到那一条效果时**求值的，而效果**按顺序**发生 —— 若技能自己先打了一段伤害，
+> 目标就当场从满血变成受伤，后面那条"若已受伤则加成"的条件就**必然成立**，
+> "满血 3 点"会整个退化成"必定 4 点"（实测：第一版实现跑出来永远是 4 点）。
+> 与 `lord_full_hp` 用的是同一套做法（`lordFullHpAtStart` / `chosenDamagedAtStart`，都在 `runEffects` 开头快照一次）。
+>
+> ⚠️ **`chosen_*` 三兄弟是判断"所选目标"的唯一手段**。不要试图用
+> `count: { selector: {…, filter: { damaged: true }, mode: 'choose' } }` 去**试探**所选目标的属性 ——
+> `resolveTargets` 在"所选目标不在筛选后的池子里"时会走**兜底**（`narrowByMode` → `pool.slice(0, n)`），
+> 于是"目标没受伤"会静默变成"**打场上第一个受伤的人**"。要判断属性就用 `chosen_*`。
+>
+> ⚠️ **两个提前 `return` 的坑（实测，见 `17-troop-system-rework.md` §三个通用落地坑）**：
+> `count` / `exists` / `count_vs` 会**提前 return**，写在同一 `condition` 对象里、排在它们后面的
+> `event` / `turn_max` / `victim_type` / `chosen_*` 会被**静默忽略**；同理 `chosen_side` 也提前 `return`。
+> 需要组合时用 `all_of` / `any_of`（它们是 `return false`，不短路，可安全与同级条件共存）。
+
 
 #### ③ 动态取值 `value_from`
 
@@ -583,6 +624,7 @@ condition: { lord_full_hp: { side: self, value: true } }
 | `damage` / `heal` | `value_from_flag` | 数值取自 `ctx.flags` 里的 `"<name>:N"`（ADR-041），
 `sacrifice` 写入 `sacrificed_max_hp` / `sacrificed_hp` |
 | `remove_status` | `remove_kind: debuff \| buff` | 按**类别**批量驱散（ADR-071）。载体：**华佗「医圣」**（治疗的同时净化，2026-10-10 设计者追加）—— 与治疗共用同一选择器，plan 里合并成**同一步**，UI 不会问两次 |
+| `cast_random` | count, `pool: { type, factions }` | **从卡池里随机取 N 张卡直接释放**（ADR-162，庞统「连环」）。<br>⚠️ 三条语义必须记住：<br>**① 不消耗任何东西** —— 不碰手牌、不碰牌库、不付统率、不进弃牌堆；卡池是**只读**的 `cards` 表。<br>**② 目标一律随机** —— 释放前对这张卡的所有 `target`/`target2` 递归改写为 `mode: 'random'`（与「混乱」`random_target` 是同一套做法，`effects.ts:787`），**包括 `side: ally` 的选择器**。所以池子里若有"作用于己方"的卡，随机释放时会**打到自己人**，这是**有意保留的风险**（卡面必须写清）。<br>**③ 效果来源** —— 优先取该卡 `skills[].effects`，技能用 `modes` 抉择时**随机挑一个分支**；两者都没有才用 `card.effects`（对齐 ADR-088 的口径）。<br>⚠️ 每张释放的卡发一次现成的 `CARD_AUTO_CAST` 事件（UI 据此播动画）。<br>⚠️ **不要再让池子里的卡自己也带 `cast_random`** —— 那会递归，当前没有这样的卡 |
 
 #### ⑤ 目标选择器补充
 

@@ -332,19 +332,34 @@ test('陆抗 息兵：回合结束治疗本回合未行动的其他己方单位'
 });
 
 /* ============================================================
-   B-10 抽到非某类为止 — 姜维「文武双全」
+   B-10 抽到非某类为止 — `draw_until until_not_type`
+
+   ⚠️ **2026-10-11（ADR-160）改用合成卡作载体**：原先这三条拿真实卡
+   `shu_jiangwei` 的「文武双全」当载体，而那个技能**已从 `on_card_played`（每打出一张
+   策略牌都触发）改为 `on_play` 战吼**（设计者定稿）。机制本身没变，但载体没了 ——
+   按 ADR-148 处理「青囊」的同一套办法，改用**测试内现造的合成卡**承载机制，
+   这样 `draw_until` 不再依赖任何真实卡的命运。
    ============================================================ */
 
+/** 合成载体：战吼「抽牌直到抽到非策略牌为止」 */
+const DRAW_UNTIL: CardDef = {
+  id: 't_draw_until', name: '测试抽牌', faction: 'qun', type: 'general',
+  cost: 3, attack: 2, health: 3, keywords: [], memo: '',
+  skills: [{
+    id: 't_draw_until', name: '抽到非策略', kind: 'trigger', trigger: 'on_play',
+    effects: [{ action: 'draw_until', until_not_type: 'tactic' }],
+  }],
+};
+if (!TEST_CARDS.some((c) => c.id === DRAW_UNTIL.id)) TEST_CARDS.push(DRAW_UNTIL);
+
 test('B-10 抽到非策略牌为止：牌库 [策略,策略,非策略,…] → 恰好抽 3 张停在非策略', () => {
-  realCard('shu_jiangwei');
   // 牌库是 pop() 取牌，故「先抽到的」在数组末尾
-  const { state, ctx } = scenario({ own: { front: ['shu_jiangwei'] }, ownHand: ['tactic_huogong'] });
+  const { state, ctx } = scenario({ ownHand: [DRAW_UNTIL.id] });
   state.sides.own.deck = ['neutral_infantry', 'test_draw_tactic', 'test_draw_tactic'];
   state.turn = 2;                       // 与 enteredTurn 拉开，避免召唤失调干扰
-  state.sides.own.hand = [{ card: base('tactic_huogong'), mods: [] }];
 
-  const r = applyAction(state, ctx, { type: 'PLAY_CARD', cardIndex: 0 });
-  assert.ok(r.ok, `打出策略牌应成功：${r.error}`);
+  const r = applyAction(state, ctx, { type: 'PLAY_CARD', cardIndex: 0, row: 'front', col: 1 });
+  assert.ok(r.ok, `打出载体应成功：${r.error}`);
 
   const drawn = r.events.filter((e): e is Extract<GameEvent, { type: 'CARD_DRAWN' }> => e.type === 'CARD_DRAWN');
   assert.equal(drawn.length, 3, `应抽 3 张（2 张策略 + 停在 1 张非策略），实际 ${drawn.length}`);
@@ -354,12 +369,11 @@ test('B-10 抽到非策略牌为止：牌库 [策略,策略,非策略,…] → �
 });
 
 test('B-10 抽到非策略牌为止：牌库耗尽时停手并触发粮尽，不死循环', () => {
-  realCard('shu_jiangwei');
-  const { state, ctx } = scenario({ own: { front: ['shu_jiangwei'] }, ownHand: ['tactic_huogong'] });
+  const { state, ctx } = scenario({ ownHand: [DRAW_UNTIL.id] });
   state.sides.own.deck = ['test_draw_tactic', 'test_draw_tactic'];   // 全是策略牌 → 抽空
   state.turn = 2;
 
-  const r = applyAction(state, ctx, { type: 'PLAY_CARD', cardIndex: 0 });
+  const r = applyAction(state, ctx, { type: 'PLAY_CARD', cardIndex: 0, row: 'front', col: 1 });
   assert.ok(r.ok, `打出应成功：${r.error}`);
   assert.equal(r.state.sides.own.deck.length, 0, '策略牌应被抽光');
   assert.ok(r.events.some((e) => e.type === 'CARD_DRAWN' && e.card.type === 'troop') === false,
@@ -367,16 +381,17 @@ test('B-10 抽到非策略牌为止：牌库耗尽时停手并触发粮尽，不
   assert.ok(r.state.sides.own.fatigue >= 1, '牌库耗尽后应开始粮尽');
 });
 
-test('B-10 抽到非策略牌为止：只在打出**策略牌**时触发', () => {
-  realCard('shu_jiangwei');
-  const { state, ctx } = scenario({ own: { front: ['shu_jiangwei'] } });
+test('B-10 抽到非策略牌为止：它也只在**该技能触发的时机**跑（换一张不含此技的卡则不触发）', () => {
+  // ⚠️ 原版这条是"只在打出策略牌时触发"（`on_card_played` 的语义）。
+  // 载体改成战吼之后，「什么时候触发」由 `trigger` 决定，所以这里改测
+  // **另一张没有这个技能的卡不会抽牌**，机制边界仍然被钉住。
+  const { state, ctx } = scenario({ ownHand: ['neutral_infantry'] });
   state.sides.own.deck = ['neutral_infantry', 'test_draw_tactic', 'test_draw_tactic'];
   state.turn = 2;
-  state.sides.own.hand = [{ card: base('neutral_infantry'), mods: [] }];
 
   const r = applyAction(state, ctx, { type: 'PLAY_CARD', cardIndex: 0, row: 'front', col: 3 });
   assert.ok(r.ok, `打出人物牌应成功：${r.error}`);
-  assert.equal(r.state.sides.own.deck.length, 3, '打出人物牌不该触发抽牌');
+  assert.equal(r.state.sides.own.deck.length, 3, '没有该技能的卡不该触发抽牌');
 });
 
 /* ============================================================
@@ -741,8 +756,14 @@ test('ADR-093：指向性技能可以选中衍生物（token）', () => {
   setUnit(state, 'enemy', 'front', 1, makeUnit(realCard('wei_xiahouen'), state.turn - 2, 93));
 
   const plan = unitSkillTargetPlan(state, 'own', 'front', 0);
-  const cols = (plan.choices[0]?.targets ?? []).map((t) => t.col).sort();
+  const targets = plan.choices[0]?.targets ?? [];
+  // ⚠️ 按 `kind === 'unit'` 过滤：2026-10-11 起黄忠「百步穿杨」改成 `include_lord: true`（ADR-158），
+  // 敌方**主公**也进了候选池 —— 而主公目标没有 `col`，不过滤会在 `cols` 里多出一个 `undefined`。
+  // 本测试关心的始终是"**衍生物能不能被选中**"，主公那条在下面单独断言。
+  const cols = targets.filter((t) => t.kind === 'unit').map((t) => t.col).sort();
   assert.deepEqual(cols, [0, 1], '衍生物(第0格)与人物(第1格)都该能选');
+  assert.ok(targets.some((t) => t.kind === 'lord'),
+    '黄忠的箭现在也能点名敌方主公（ADR-158：include_lord: true）');
 });
 
 test('ADR-093：避其锐气「收回手牌」的目标清单含衍生物', () => {

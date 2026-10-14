@@ -789,35 +789,10 @@ test('华雄「威震四方」：击杀时 +1/+1；亡语给击杀者 +1/+1', as
   assert.equal(mine2.hp, h0 + 1, '击杀者的生命应 +1（华雄亡语）');
 });
 
-test('马超「铁骑突袭」：仅首回合、仅击杀武将才禁敌方主公技', async () => {
-  const { createMatch, setUnit, makeUnit, getUnit: gu } = await import('../src/state.ts');
-  const { dealDamage, unitRef } = await import('../src/mutate.ts');
-  const d = qun();
-  const ctxData = { cards: d.cards, lords: d.lords };
-
-  const kill = (opts: { turn: number; victimId: string }) => {
-    const base = createMatch({ seed: 3, cards: d.cards, lords: d.lords, decks: { own: [], enemy: [] }, firstSide: 'own' });
-    const s = startMatch(base, ctxData).state;
-    s.turn = opts.turn;
-    const mc = makeUnit(d.cards.get('shu_machao')!, 0, 870);
-    setUnit(s, 'own', 'front', 0, mc);
-    const v = makeUnit(d.cards.get(opts.victimId)!, 0, 871);
-    v.hp = 1; v.maxHp = 1; v.baseMaxHp = 1;
-    setUnit(s, 'enemy', 'front', 1, v);
-    dealDamage(s, d.cards, unitRef('enemy', 'front', 1), 9, [], '马超', 0, { side: 'own', row: 'front', col: 0 });
-    return s.sides.enemy.lord.statuses?.jin_yong;
-  };
-
-  assert.ok(kill({ turn: 1, victimId: 'shu_zhangfei' }), '首回合击杀武将 → 敌主帅应被禁用主公技');
-  assert.equal(kill({ turn: 2, victimId: 'shu_zhangfei' }), undefined, '非首回合不应触发');
-  assert.equal(kill({ turn: 1, victimId: 'shu_zhugeliang' }), undefined,
-    '击杀谋臣（诸葛亮 1/6，攻击 ≤1 → 谋臣）不该触发 —— 文案只认「武将」');
-});
-
-/* ============================================================
-   驱散 remove_status（ADR-066）
-   ============================================================ */
-
+// 马超「铁骑突袭」的旧测试（仅首回合 / 仅击杀武将 / 挂 `jin_yong`）已随 ADR-158 重写：
+//   · `turn_max: 1` 是**数学上不可达**的死条件（第 1 回合根本打不出 6 费卡）；
+//   · 封主公技需要 `jin_yan`（caps `block_lord_skill`），原卡挂的 `jin_yong` **不生效**。
+// 新行为的完整测试见 **`core/test/wuhu-legendary.test.ts`**。
 test('remove_status：移除全部层数并发 STATUS_EXPIRED；关键词状态一并摘掉', async () => {
   const { createMatch, setUnit, makeUnit, getUnit: gu } = await import('../src/state.ts');
   const { runEffects } = await import('../src/effects.ts');

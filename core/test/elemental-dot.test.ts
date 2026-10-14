@@ -262,6 +262,7 @@ test('真实卡：关羽「水淹七军」= 全体各 1 层水困（显式 + 自
   for (const col of [1, 2, 3]) {
     const u = getUnit(r.state, 'enemy', 'front', col)!;
     assert.equal(statusStacks(u, 'shui_kun'), 1, `第 ${col} 列应恰好 1 层水困（max 语义，不会翻倍）`);
-    assert.equal(u.hp, (SANDBAG.health ?? 20) - 1, `第 ${col} 列应吃到 1 点水伤`);
+    // ADR-158：水淹七军的水攻伤害由 1 点提到 **2 点**
+    assert.equal(u.hp, (SANDBAG.health ?? 20) - 2, `第 ${col} 列应吃到 2 点水伤`);
   }
 });

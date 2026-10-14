@@ -322,6 +322,7 @@ export const ACTIONS = [
   'discard', 'return_to_hand', 'clash', 'flip', 'scry', 'ban_play', 'steal_card', 'survive',
   'extra_attack', 'take_control', 'copy_skill', 'force_attack', 'duel',
   'attack_bonus',  // 普通攻击结算前的临时伤害加成
+  'cast_random',   // 从卡池随机取 N 张直接释放（ADR-162，庞统「连环」）
   'add_to_deck',   // 往牌库随机位置塞 N 张指定卡（ADR-050）
   'send_to_deck',  // 把牌库里剩下的指定牌全塞给对方（ADR-050）
   'cycle_to_deck', // 手牌放回牌库随机位置再抽 1 张（ADR-050）

@@ -39,6 +39,8 @@ const FILES = [
   '14-open-questions.md',
   '15-card-visual.md',
   '16-ai.md',
+  '17-troop-system-rework.md',
+  '18-character-skill-design.md',
 ];
 
 // ---------- 工具函数 ----------

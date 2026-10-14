@@ -960,7 +960,8 @@ test('水淹七军（真实 DSL）：水困永久 + 禁用仍 1 回合，且是�
 
 test('水淹七军：伤害是**水攻**属性（不是默认物理）', () => {
   const { target } = playFromHand('shu_guanyu', undefined);
-  assert.equal(target!.hp, (realTroop('neutral_shieldman').health ?? 0) - 1, '应受到 1 点伤害');
+  assert.equal(target!.hp, (realTroop('neutral_shieldman').health ?? 0) - 2,
+    '应受到 2 点伤害（ADR-158：水攻伤害由 1 点提到 2 点）');
 });
 
 /* ========================================================================

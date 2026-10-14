@@ -207,14 +207,27 @@ test('覆国：对手**普通攻击**打死他也会触发（对手也得吃 4 �
    ============================================================ */
 
 test('覆国：4 点是**全池最大单次主公直伤**（追平釜底抽薪），但必须付出己方 −2', () => {
+  // ⚠️ 必须排除**判胜技**（ADR-160 姜维「复汉」）：它以「对敌方主公造成 9999 点伤害」实现"直接获胜"，
+  //    走的是同一条伤害管线，但它**不是伤害数值**而是**判胜开关** —— 拿它跟直伤卡比大小没有意义。
+  //    判据用 `>= 100` 这个明显不可能是正常伤害的阈值；下面单独断言它确实被排除了。
+  const WIN_VALUE = 100;
   const lordHits = REAL.flatMap((c) =>
     (c.skills ?? []).flatMap((s) =>
       (s.effects ?? [])
-        .filter((e) => e.action === 'damage' && e.target?.lord && (e.target.side ?? 'enemy') === 'enemy')
+        .filter((e) => e.action === 'damage' && e.target?.lord && (e.target.side ?? 'enemy') === 'enemy'
+          && (e.value ?? 0) < WIN_VALUE)
         .map((e) => ({ n: e.value ?? 0, name: c.name }))));
   const top = Math.max(...lordHits.map((x) => x.n));
   assert.equal(top, 4, `全池最大单次主公直伤应仍是 4（实测 ${top}）`);
   assert.ok(lordHits.some((x) => x.name === '黄皓' && x.n === 4), '黄皓的 4 点应计入');
+
+  // 被判胜技排除掉的确实存在，且只有它 —— 免得这个阈值将来静默吞掉一张真的直伤卡
+  const winHits = REAL.flatMap((c) =>
+    (c.skills ?? []).flatMap((s) =>
+      (s.effects ?? [])
+        .filter((e) => e.action === 'damage' && e.target?.lord && (e.value ?? 0) >= WIN_VALUE)
+        .map((e) => c.name)));
+  assert.deepEqual(winHits, ['姜维'], `被判胜阈值排除的应只有姜维「复汉」（实际 ${winHits.join('、')}）`);
 
   // 但它是**亡语**且**自伤 2 点** —— 与"4 费即时、无代价"的釜底抽薪不是一回事
   const selfHit = (HH.skills ?? []).flatMap((s) => s.effects ?? [])

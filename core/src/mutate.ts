@@ -789,6 +789,9 @@ export function killUnit(
   }
 
   setUnit(state, side, row, col, null);
+  // ADR-160：记录"这张卡死过"（不去重、不清理 —— 阵亡是不可逆事实）。
+  // 用 cardId 而不是 uid（uid 每局重编，跨局无意义）。供 `has_fallen` 条件查询。
+  state.sides[side].fallen.push(unit.cardId);
   events.push({ type: 'UNIT_DIED', side, row, col, unit });
 
   // 标记阵亡（ADR-041 / ADR-087）：仇敌标记、阵亡标记的结算。

@@ -405,8 +405,8 @@ var Core = (() => {
       numeric: false,
       duration: "turns",
       scope: "lord",
-      caps: ["untargetable"],
-      note: "\u8BE5\u65B9\u4E3B\u5E05**\u4E0D\u80FD\u88AB\u666E\u901A\u653B\u51FB\u6307\u5B9A\u4E3A\u76EE\u6807**\uFF08\u7A7A\u57CE\u8BA1\uFF0CADR-074\uFF09\u3002\u53EA\u6321\u653B\u51FB\uFF0C\u4E0D\u6321\u6548\u679C"
+      caps: ["untargetable", "immune_all_damage"],
+      note: "\u8BE5\u65B9\u4E3B\u5E05**\u4E0D\u80FD\u88AB\u666E\u901A\u653B\u51FB\u6307\u5B9A\u4E3A\u76EE\u6807**\uFF0C\u4E14**\u514D\u75AB\u4E00\u5207\u4F24\u5BB3**\uFF08\u7A7A\u57CE\u8BA1\uFF0CADR-074 / ADR-156\uFF09\u3002\u26A0\uFE0F \u8DE8\u56DE\u5408\u7684\u4E3B\u516C\u514D\u75AB\u53EA\u80FD\u9760\u5B83 \u2014\u2014 `mian_shang` \u662F `this_turn`\uFF0C\u6491\u4E0D\u8FC7\u5F53\u524D\u534A\u56DE\u5408"
     },
     xiu_zheng: {
       name: "\u4F11\u6574",
@@ -628,6 +628,8 @@ var Core = (() => {
     "duel",
     "attack_bonus",
     // 普通攻击结算前的临时伤害加成
+    "cast_random",
+    // 从卡池随机取 N 张直接释放（ADR-162，庞统「连环」）
     "add_to_deck",
     // 往牌库随机位置塞 N 张指定卡（ADR-050）
     "send_to_deck",
@@ -730,6 +732,8 @@ var Core = (() => {
         hand,
         deck,
         discard: [],
+        fallen: [],
+        // ADR-160：本局阵亡过的卡 id（has_fallen 条件读它）
         command: { cur: COMMAND.START, max: COMMAND.START },
         fatigue: 0,
         mulliganDone: false
@@ -934,6 +938,10 @@ var Core = (() => {
     const u = getUnit(state, side, row, col);
     if (!u) return { ok: false, reason: "\u8BE5\u683C\u6CA1\u6709\u4EBA\u7269\u5361" };
     if (u.cardId === "neutral_archer") return { ok: false, reason: "\u5F13\u5175\u53EA\u80FD\u653E\u7BAD\uFF0C\u4E0D\u80FD\u666E\u901A\u653B\u51FB" };
+    if (u.type === "machine") return { ok: false, reason: "\u519B\u68B0\u65E0\u6CD5\u666E\u901A\u653B\u51FB\uFF08\u653B\u51FB\u529B\u53EA\u7528\u4E8E\u53CD\u51FB\uFF09" };
+    if (effectiveAttack(state, side, row, col) <= 0) {
+      return { ok: false, reason: "\u653B\u51FB\u529B\u4E3A 0\uFF0C\u65E0\u6CD5\u666E\u901A\u653B\u51FB" };
+    }
     if (hasCap(u, "block_action") || hasCap(u, "block_attack")) {
       return { ok: false, reason: "\u5F53\u524D\u72B6\u6001\u65E0\u6CD5\u666E\u901A\u653B\u51FB" };
     }
@@ -1477,6 +1485,7 @@ var Core = (() => {
       }
     }
     setUnit(state, side, row, col, null);
+    state.sides[side].fallen.push(unit.cardId);
     events.push({ type: "UNIT_DIED", side, row, col, unit });
     if (markDeathResolver) {
       markDeathResolver(state, cards, unit, createRng(state.rngState), events);
@@ -1679,6 +1688,26 @@ var Core = (() => {
   registerAfterDrawResolver((state, cards, events, rng) => {
     recomputeAuras(state, cards, rng, events);
   });
+  function cardCastEffects(card, rng) {
+    const out = [];
+    for (const sk of card.skills ?? []) {
+      if (sk.modes?.length) {
+        const m = sk.modes[rng.int(sk.modes.length)];
+        if (m) out.push(...m.effects);
+      } else if (sk.effects?.length) {
+        out.push(...sk.effects);
+      }
+    }
+    return out.length ? out : card.effects ?? [];
+  }
+  function forceRandomTargets(effs) {
+    return effs.map((e) => e.target ? { ...e, target: { ...e.target, mode: "random" } } : { ...e });
+  }
+  function inCastPool(card, pool) {
+    if (!pool?.type || card.type !== pool.type) return false;
+    if (pool.factions?.length && !pool.factions.includes(card.faction)) return false;
+    return true;
+  }
   registerOnDeathResolver((state, cards, side, unit, skills, events, rng, killer) => {
     for (const sk of skills) {
       emitSkillTriggered(state, side, unit, sk, "trigger", events);
@@ -1785,6 +1814,17 @@ var Core = (() => {
     return true;
   };
   var cmp = (a, op, b) => op === ">=" ? a >= b : op === "<=" ? a <= b : op === "==" ? a === b : op === ">" ? a > b : op === "<" ? a < b : op === "!=" ? a !== b : false;
+  function chosenDamagedNow(state, t) {
+    if (t.kind === "lord") {
+      const lord = state.sides[t.side].lord;
+      return lord.hp < lord.maxHp;
+    }
+    if (t.kind === "unit") {
+      const u = getUnit(state, t.side, t.row, t.col);
+      return u ? u.hp < u.maxHp : null;
+    }
+    return null;
+  }
   function checkCondition(state, cond, ctx, rng) {
     if (!cond) return true;
     if (cond.last_damage_target_not_type && (!ctx.lastDamageTargetType || ctx.lastDamageTargetType === cond.last_damage_target_not_type)) return false;
@@ -1858,6 +1898,17 @@ var Core = (() => {
       const t = ctx.chosen;
       if (!t) return false;
       if (t.kind === "lord" !== cond.chosen_lord) return false;
+    }
+    if (cond.has_fallen) {
+      const fs = cond.has_fallen.side === "ally" ? ctx.side : other(ctx.side);
+      if (!state.sides[fs].fallen.includes(cond.has_fallen.card_id)) return false;
+    }
+    if (cond.chosen_damaged !== void 0) {
+      const t = ctx.chosen;
+      if (!t) return false;
+      const damaged = ctx.chosenDamagedAtStart ?? chosenDamagedNow(state, t);
+      if (damaged === null) return false;
+      if (damaged !== cond.chosen_damaged) return false;
     }
     return true;
   }
@@ -2374,6 +2425,9 @@ var Core = (() => {
       own: state.sides[ctx.side].lord.hp === state.sides[ctx.side].lord.maxHp,
       enemy: state.sides[other(ctx.side)].lord.hp === state.sides[other(ctx.side)].lord.maxHp
     };
+    if (ctx.chosenDamagedAtStart === void 0 && ctx.chosen) {
+      ctx.chosenDamagedAtStart = chosenDamagedNow(state, ctx.chosen) ?? false;
+    }
     const chosenFor = (sel) => {
       if (sel) return [];
       const p = pickOf(ctx, sel);
@@ -2919,6 +2973,19 @@ var Core = (() => {
             const slot = empties[rng.int(empties.length)];
             setUnit(state, ctx.side, slot.row, slot.col, u);
             events.push({ type: "CONTROL_TAKEN", from: backSide, to: ctx.side, unit: u });
+          }
+          break;
+        }
+        case "cast_random": {
+          const pool = [...cards.values()].filter((c) => inCastPool(c, eff.pool));
+          if (!pool.length) break;
+          const n = eff.count ?? 1;
+          for (let i = 0; i < n; i++) {
+            const card = pool[rng.int(pool.length)];
+            if (!card) continue;
+            events.push({ type: "CARD_AUTO_CAST", side: ctx.side, card });
+            const effs = forceRandomTargets(cardCastEffects(card, rng));
+            runEffects(state, cards, effs, { side: ctx.side, source: ctx.source }, rng, events);
           }
           break;
         }

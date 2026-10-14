@@ -509,44 +509,15 @@ test('进化规则：只影响己方对应兵种，不碰敌方同兵种', () =>
 
 /* ================= 张飞 咆哮（ADR-087）：在场光环 + 全体 1 伤 ================= */
 
-test('张飞 咆哮：−1 攻是在场光环（张飞阵亡即消失），1 伤打敌方全体且不含主公', () => {
-  const zf = realCard('shu_zhangfei');
-  const { state, ctx } = scenario({ ownHand: ['shu_zhangfei'] });
-  state.sides.own.deck = Array(8).fill('neutral_infantry');
-  state.sides.enemy.deck = Array(8).fill('neutral_infantry');
-  const weak = u('weak', 3, 3);       // 3 < 张飞 5 攻 → 吃 −1
-  const strong = u('strong', 6, 8);   // 6 ≥ 5 → 不受 −1 影响，但照样吃 1 伤
-  setUnit(state, 'enemy', 'front', 0, weak);
-  setUnit(state, 'enemy', 'front', 1, strong);
+/* ============================================================
+   张飞「咆哮」→ 已于 2026-10-11 整体替换（ADR-158）
+   ============================================================ */
 
-  const r = applyAction(state, ctx, { type: 'PLAY_CARD', cardIndex: 0, row: 'front', col: 1 });
-  assert.ok(r.ok, `应能打出：${r.error}`);
-
-  // ① −1 攻只给"攻低于张飞"的（strong 不受影响）
-  assert.equal(getUnit(r.state, 'enemy', 'front', 0)?.atk, 2, '攻低于张飞者 −1');
-  assert.equal(getUnit(r.state, 'enemy', 'front', 1)?.atk, 6, '攻不低于张飞者不受 −1 影响');
-  // ② 1 伤打敌方全体人物，与对方攻击力无关（strong 也挨）
-  assert.equal(getUnit(r.state, 'enemy', 'front', 0)?.hp, 2, '3/3 挨 1 伤');
-  assert.equal(getUnit(r.state, 'enemy', 'front', 1)?.hp, 7, '6/8 同样挨 1 伤（与攻击力无关）');
-  // ③ 卡面写明「不含主公」
-  assert.equal(r.state.sides.enemy.lord.hp, 30, '咆哮打不到主将（卡面：不含主公）');
-
-  // ④ 光环跨回合仍在（不是"本回合"就结束）
-  let after = applyAction(r.state, ctx, { type: 'END_TURN' }).state;      // → 敌方回合
-  assert.equal(getUnit(after, 'enemy', 'front', 0)?.atk, 2, '换手后光环依然生效');
-  after = applyAction(after, ctx, { type: 'END_TURN' }).state;            // → 我方回合
-  after = applyAction(after, ctx, { type: 'END_TURN' }).state;            // → 敌方回合（完整回合 +1）
-  assert.equal(getUnit(after, 'enemy', 'front', 0)?.atk, 2, '过了一个完整回合依然 −1');
-
-  // ⑤ 张飞阵亡 → 光环消失（这是设计者强调的关键点）
-  const r2 = applyAction(after, ctx, {
-    type: 'ATTACK', from: { row: 'front', col: 1 }, to: { kind: 'unit', row: 'front', col: 1 },
-  });
-  assert.ok(r2.ok, `敌方反击应能执行：${r2.error}`);
-  assert.equal(getUnit(r2.state, 'own', 'front', 1), null, '张飞应被 6 攻打阵亡（5 血）');
-  assert.equal(getUnit(r2.state, 'enemy', 'front', 0)?.atk, 3, '张飞一死，−1 攻应立即消失');
-  void zf;
-});
+// 旧设计（`咆哮` 在场光环给攻低于自己的敌人 −1 攻 ＋ `咆哮（入场）` 战吼打全体 1 点、**不含主公**）
+// **已整条替换**为「燕人咆哮」：
+//   · `turn_end` 触发 → 每回合（含上场那回合）对敌方全体 **含主公** 造成 1 点伤害；
+//   · `on_kill` 触发 → 击杀后**再次释放**（连吼）。
+// 两条技能的完整测试见 **`core/test/wuhu-legendary.test.ts`**。
 
 /* ================= 范围伤害默认含主公（ADR-087） ================= */
 
@@ -719,13 +690,16 @@ test('蔡文姬 曲名才艺：打出回合人物卡与战法卡各减 1 费，�
   assert.ok(r.ok, `应能打出：${r.error}`);
   const hand = r.state.sides.own.hand;
   const find = (id: string) => hand.find((h) => h.card.id === id)!;
-  assert.equal(effectiveCost(find('shu_zhangfei')), 5 - 1, '人物卡应 −1 费');
-  assert.equal(effectiveCost(find('tactic_huogong')), 3 - 1, '战法卡同样应 −1 费');
+  // ⚠️ 断言**从卡面基础费用推**，不要硬编码数字 —— 本测试曾写死「5 - 1」，
+  // 后来张飞从 5 费改成 6 费（ADR-158），测试就假报错了（实际行为一直是对的）。
+  const baseOf = (id: string) => ALL.find((c) => c.id === id)!.cost;
+  assert.equal(effectiveCost(find('shu_zhangfei')), baseOf('shu_zhangfei') - 1, '人物卡应 −1 费');
+  assert.equal(effectiveCost(find('tactic_huogong')), baseOf('tactic_huogong') - 1, '战法卡同样应 −1 费');
 
   // 只持续本回合
   const s2 = applyAction(r.state, ctx, { type: 'END_TURN' }).state;
   const hand2 = s2.sides.own.hand;
-  assert.equal(effectiveCost(hand2.find((h) => h.card.id === 'shu_zhangfei')!), 5, '换手后恢复原费');
+  assert.equal(effectiveCost(hand2.find((h) => h.card.id === 'shu_zhangfei')!), baseOf('shu_zhangfei'), '换手后恢复原费');
   assert.equal(effectiveCost(hand2.find((h) => h.card.id === 'tactic_huogong')!), 3, '战法卡同样恢复');
   assert.ok(before.length >= 3);
 });

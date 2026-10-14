@@ -48,6 +48,30 @@ export interface EffectCondition {
    */
   chosen_lord?: boolean;
   chosen_kind?: 'unit' | 'lord';
+  /**
+   * 所选目标**是否已受伤**（`hp < maxHp`）——ADR-159，黄忠「百步穿杨」
+   * （对满血人物 3 点，对**主公或已受伤人物**改为 4 点）。
+   *
+   * `chosen_side` / `chosen_lord` 的三妹：同样读 `ctx.chosen`，只是判血量状态。主将也适用
+   * （主将有 `hp`/`maxHp`）。
+   *
+   * ⚠️ **不要用 `count` + `mode:'choose'` + `filter:{damaged:true}` 去"试探"所选目标** ——
+   * `resolveTargets` 在"所选目标不在筛选后的池子里"时会**兜底**（`narrowByMode` → `pool.slice(0,n)`），
+   * 于是"目标没受伤"会静默变成"打场上第一个受伤的人"。判断属性只能用 `chosen_*`。
+   */
+  chosen_damaged?: boolean;
+  /**
+   * **某张卡本局是否已经阵亡过**（ADR-160，姜维「复汉」公开判胜技）——读 `SideState.fallen`。
+   *
+   * ```yaml
+   * condition: { has_fallen: { side: 'enemy', card_id: 'wei_dengai' } }
+   * ```
+   *
+   * ⚠️ 它问的是「**死过**」，不是「**现在不在场上**」——后者用
+   * `count: { selector: { side: …, card_id: … }, op: '==', value: 0 }` 表达，
+   * 但那个条件对"还没被打出"同样成立，两者**不可互换**。
+   */
+  has_fallen?: { side: 'ally' | 'enemy'; card_id: string };
   /** 完整回合数上限（马超「首回合击杀」= turn_max:1，ADR-070） */
   turn_max?: number;
   /** 本次被击杀者的卡牌类型（马超只认「武将」，ADR-070） */
@@ -100,6 +124,20 @@ export interface CardEffect {
   chance?: number;               // 概率 0–1（ADR-033）
   condition?: EffectCondition;   // 条件（ADR-033）
   clashMode?: 'roll' | 'cost';   // clash 的比法
+  /**
+   * `cast_random` 专用（ADR-162，庞统「连环」）：**卡池筛选**。
+   *
+   * 从**全部卡表**（只读）里挑出符合条件的卡，随机取 `count` 张直接释放 ——
+   * 不碰手牌、不碰牌库、不付统率、不进弃牌堆。
+   * ⚠️ 释放前会把这张卡的 `target`/`target2` **递归改写为 `mode: 'random'`**，
+   * 所以"需要指定目标"的卡会随机打；而 `side: ally` 的选择器也会随机 ——
+   * 池子里若有作用于己方的卡，就会打到自己人（有意保留的风险，卡面要写清）。
+   */
+  pool?: {
+    type?: string;
+    /** 允许的阵营（缺省 = 不限） */
+    factions?: string[];
+  };
   from?: 'top' | 'bottom';       // scry 的取牌端
   status_source?: 'self';        // apply_status 时把来源单位记为状态的 srcUid（ADR-039）
   /**
@@ -501,6 +539,16 @@ export interface SideState {
   hand: HandCard[];
   deck: string[];
   discard: CardDef[];
+  /**
+   * **本局在该方阵亡过的卡 id**（ADR-160，姜维「复汉」）。
+   *
+   * `killUnit` 里 push，**不去重、不清理**（阵亡是不可逆事实）。供 `has_fallen` 条件查询。
+   *
+   * ⚠️ 与"当前不在场上"**不是一回事**：没被打出的卡与已阵亡的卡在场上都看不见，
+   * 只有这里能区分「**死过**」。加它的直接原因是 `v0` 的「草船借箭」因为没有阵亡记录，
+   * 承诺过的「敌方每阵亡一个武将抽两张」**一次都没生效**，最后只能改卡面绕开（ADR-087）。
+   */
+  fallen: string[];
   command: { cur: number; max: number };
   fatigue: number;
   /** 本局是否已用过换牌机会（GDD 03 §1 第③步） */

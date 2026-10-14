@@ -91,6 +91,7 @@ export function createMatch(opts: CreateMatchOptions): MatchState {
       hand,
       deck,
       discard: [],
+      fallen: [],          // ADR-160：本局阵亡过的卡 id（has_fallen 条件读它）
       command: { cur: COMMAND.START, max: COMMAND.START },
       fatigue: 0,
       mulliganDone: false,

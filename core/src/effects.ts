@@ -71,6 +71,51 @@ registerAfterDrawResolver((state, cards, events, rng) => {
   recomputeAuras(state, cards, rng, events);
 });
 
+/**
+ * 取一张卡"被释放"时该跑的效果（ADR-162，庞统「连环」）。
+ *
+ * 口径对齐 ADR-088 的「抽到时释放」：**优先取技能自己的效果**，技能用 `modes` 抉择时
+ * **随机挑一个分支**（既然是随机释放，抉择也随机）；两者都没有才退回 `card.effects`。
+ */
+function cardCastEffects(card: CardDef, rng: { int(n: number): number }): CardEffect[] {
+  const out: CardEffect[] = [];
+  for (const sk of card.skills ?? []) {
+    if (sk.modes?.length) {
+      const m = sk.modes[rng.int(sk.modes.length)];
+      if (m) out.push(...m.effects);
+    } else if (sk.effects?.length) {
+      out.push(...sk.effects);
+    }
+  }
+  return out.length ? out : (card.effects ?? []);
+}
+
+/**
+ * 把一组效果里的**所有目标选择器**递归改写成 `mode: 'random'`（ADR-162）。
+ *
+ * 「需要指定目标的卡，随机释放时就随机打」—— 与「混乱」（`random_target` 能力）
+ * 是同一套做法（见 `resolveTargets` 里的 `confused ? {...selector, mode:'random'}`）。
+ *
+ * ⚠️ **只改 `target` / `target2` / `modes[].effects`**：
+ * `condition.*.selector` 是**只读判断**，绝不能改（改了条件语义就变了）。
+ * ⚠️ `count: 'all'` 的选择器不受 `mode` 影响（`narrowByMode` 先看 `count === 'all'`），
+ * 所以群体效果仍然是全体的 —— 包括**作用在己方身上的群体效果**（池子里有这种卡，
+ * 随机释放就会打到自己人，这是有意保留的风险）。
+ */
+export function forceRandomTargets(effs: CardEffect[]): CardEffect[] {
+  // ⚠️ `CardEffect` 上只有 `target` 一个选择器字段（`modes` 在 `SkillDef` 上，
+  // `target2` 在 `Action` 上），所以这里只需处理 `target` —— 抉择分支已在
+  // `cardCastEffects` 里随机挑定了。
+  return effs.map((e) => (e.target ? { ...e, target: { ...e.target, mode: 'random' as const } } : { ...e }));
+}
+
+/** `cast_random` 的卡池筛选 */
+function inCastPool(card: CardDef, pool: CardEffect['pool']): boolean {
+  if (!pool?.type || card.type !== pool.type) return false;
+  if (pool.factions?.length && !pool.factions.includes(card.faction)) return false;
+  return true;
+}
+
 /** 亡语解析器：把 on_death 技能交给 DSL 解释器（ADR-050） */
 registerOnDeathResolver((state, cards, side, unit, skills, events, rng, killer) => {
   for (const sk of skills) {
@@ -146,6 +191,15 @@ export interface EffectContext {
   modeIndex?: number;
   /** 本次技能结算开始时双方主公是否满血 */
   lordFullHpAtStart?: Record<Side, boolean>;
+  /**
+   * **本次技能结算开始时**所选目标是否已受伤（ADR-159，黄忠「百步穿杨」）。
+   *
+   * ⚠️ **为什么必须快照**：`condition` 是在**结算到那一条效果时**求值的，而效果**按顺序**发生 ——
+   * 技能先打 3 点出去，目标就当场从满血变成受伤，后面那条"若已受伤则 +1"的条件**必然成立**，
+   * 于是"满血 3 点"永远退化成"必定 4 点"。设计意图是"**你射击之前**他是否受伤"，故取开始时的快照。
+   * 与 `lordFullHpAtStart`（`lord_full_hp` 条件用）是同一套做法。
+   */
+  chosenDamagedAtStart?: boolean;
   /** 当前普通攻击目标；仅 on_attack 技能条件可读取。 */
   attackTarget?: TargetRef;
   lastDamageTargetType?: CardType;
@@ -271,6 +325,25 @@ const cmp = (a: number, op: string, b: number): boolean =>
  * 条件判定（ADR-033）。全部基于**当前局面的动态查询**，无隐藏状态。
  * `killed` 由本次效果结算过程写入 ctx.flags，供同一张卡的后续效果读取。
  */
+/**
+ * 某个目标引用**此刻**是否已受伤（ADR-159）。主将也适用（有 hp/maxHp）。
+ * @returns `false` = 未受伤，`true` = 已受伤，`null` = 该引用没有"受伤"概念或目标已不在场
+ */
+export function chosenDamagedNow(
+  state: MatchState, t: TargetRef,
+): boolean | null {
+  if (t.kind === 'lord') {
+    const lord = state.sides[t.side].lord;
+    return lord.hp < lord.maxHp;
+  }
+  if (t.kind === 'unit') {
+    const u = getUnit(state, t.side, t.row, t.col);
+    return u ? u.hp < u.maxHp : null;
+  }
+  // hand 等其他引用没有"受伤"概念
+  return null;
+}
+
 function checkCondition(
   state: MatchState, cond: EffectCondition | undefined, ctx: EffectContext, rng: Rng,
 ): boolean {
@@ -348,6 +421,23 @@ function checkCondition(
     const t = ctx.chosen;
     if (!t) return false;
     if ((t.kind === 'lord') !== cond.chosen_lord) return false;
+  }
+  // ADR-160：某张卡**本局是否阵亡过**（姜维「复汉」公开判胜技）——读 `SideState.fallen`。
+  // ⚠️ 问的是「**死过**」，不是「现在不在场上」：没被打出的卡与已阵亡的卡在场上都看不见。
+  if (cond.has_fallen) {
+    const fs = cond.has_fallen.side === 'ally' ? ctx.side : other(ctx.side);
+    if (!state.sides[fs].fallen.includes(cond.has_fallen.card_id)) return false;
+  }
+  // ADR-159：所选目标是否**已受伤**（黄忠「百步穿杨」＝满血 3 点、主公或受伤 4 点）。
+  // 三妹条件，同样读 `ctx.chosen`；主将也有 hp/maxHp，故一并适用。
+  if (cond.chosen_damaged !== undefined) {
+    const t = ctx.chosen;
+    if (!t) return false;
+    // ⚠️ **优先读技能开始时的快照**（见 EffectContext.chosenDamagedAtStart 的注释）：
+    // 本技能自己打出的伤害会把目标变成"受伤"，若不快照，条件在后续效果里必然成立。
+    const damaged = ctx.chosenDamagedAtStart ?? chosenDamagedNow(state, t);
+    if (damaged === null) return false;
+    if (damaged !== cond.chosen_damaged) return false;
   }
   return true;
 }
@@ -1059,6 +1149,7 @@ export const IMPLEMENTED_ACTIONS: ReadonlySet<string> = new Set([
   'override_status',     // 覆盖某状态的档位（ADR-142，兀突骨「藤甲统率」）
   'deploy_from_hand',    // 手牌 → 场上（ADR-149，诸葛瞻/诸葛尚「同赴」）
   'override_rule',       // 无状态规则覆盖（ADR-150，木鹿大王「象兵统领」）
+  'cast_random',         // 从卡池随机取 N 张直接释放（ADR-162，庞统「连环」）
 ]);
 
 /** 该方第一个空格（前军优先，与 `summon` 的填充顺序一致）；场上满了返回 null */
@@ -1131,6 +1222,11 @@ export function runEffects(
     own: state.sides[ctx.side].lord.hp === state.sides[ctx.side].lord.maxHp,
     enemy: state.sides[other(ctx.side)].lord.hp === state.sides[other(ctx.side)].lord.maxHp,
   };
+  // ADR-159：所选目标"是否受伤"也要**在技能开始时快照**一次 —— 否则本技能自己先打出的伤害
+  // 会把这个条件变成恒真（详见 EffectContext.chosenDamagedAtStart 的注释）。
+  if (ctx.chosenDamagedAtStart === undefined && ctx.chosen) {
+    ctx.chosenDamagedAtStart = chosenDamagedNow(state, ctx.chosen) ?? false;
+  }
 
   /** 该效果「没有解析出目标」时的兜底：取 pick 对应的玩家选择（ADR-071） */
   const chosenFor = (sel?: TargetSelector): TargetRef[] => {
@@ -1822,6 +1918,23 @@ export function runEffects(
           const slot = empties[rng.int(empties.length)]!;
           setUnit(state, ctx.side, slot.row, slot.col, u);
           events.push({ type: 'CONTROL_TAKEN', from: backSide, to: ctx.side, unit: u });
+        }
+        break;
+      }
+      case 'cast_random': {
+        // 从卡池随机取 N 张直接释放（ADR-162，庞统「连环」）。
+        // ⚠️ 全程**只读** `cards`：不碰手牌、不碰牌库、不付统率、不进弃牌堆。
+        const pool = [...cards.values()].filter((c) => inCastPool(c, eff.pool));
+        if (!pool.length) break;
+        const n = eff.count ?? 1;
+        for (let i = 0; i < n; i++) {
+          const card = pool[rng.int(pool.length)];
+          if (!card) continue;
+          // 复用现成事件（ADR-050），UI 据此播"这张卡被释放了"的动画
+          events.push({ type: 'CARD_AUTO_CAST', side: ctx.side, card });
+          // 需要指定目标的一律随机；来源仍挂施法单位，故伤害/击杀归属正确
+          const effs = forceRandomTargets(cardCastEffects(card, rng));
+          runEffects(state, cards, effs, { side: ctx.side, source: ctx.source }, rng, events);
         }
         break;
       }
