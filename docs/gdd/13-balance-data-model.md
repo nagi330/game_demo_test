@@ -551,6 +551,33 @@ condition: { has_fallen: { side: 'enemy', card_id: 'wei_dengai' } }
   但它跑的是 `runEffects(state, cards, inst.payoff, { side: inst.srcSide }, rng, events)` ——
   **`ctx.source` 是空的**，所以载荷无法把"某某已亡"记回某个具体单位身上，也就无法支撑
   「A 已阵亡 **且** B 在我方」这类**跨时间合取**条件。
+- 🔴 **`on_death` 载荷曾经是坏的（ADR-164 修复）**：`runMarkDeath` 原本只从
+  `dead.statuses.chou_di_shou ?? dead.statuses.zhen_wang` 里读标记实例，
+  ⚠️ 而 **`chou_di_shou` 这个状态在整个仓库根本不存在**（只在那一行出现过），
+  `zhen_wang` 又是**引擎内部**的阵亡标记（`caps: ['dead']`，不可能由卡牌预先挂上并带 `payoff`）。
+  ⇒ 后果：**卡牌给 `chou_di`（仇敌）挂的 `on_death` 载荷会被写进 `inst.payoff`，却永远没有人读** ——
+  「标记单位阵亡时结算」这条 ADR-087 机制**从落地起就没生效过**；同理 `on_mark_death` 触发技
+  也因为同一个早退（`if (!inst?.srcUid) return;`）而**从未触发过**（这也是池内 0 张卡在用它的原因）。
+  **修法**：`runMarkDeath` 的取值改为 **`dead.statuses.chou_di ?? ...`**（把 `chou_di` 放在最前）。
+  ✅ **向后兼容**：`chou_di` 标记此前从不带 `payoff`，所以旧卡（如旧的「恩怨分明」）行为不变。
+  **判据**：`chou_di` 与 `on_mark_damaged` 必须成对 —— **`on_mark_damaged` 读的就是 `chou_di`**，
+  而 `runMarkDeath` 却去读一个不存在的名字，两者从第一天起就不一致。
+- 🔴 **`on_mark_damaged`（仇敌受伤联动）原本只覆盖 3 条路径（ADR-164 二次修复）**：
+  `dealDamage` 有 **14 个调用点**，而 `runMarkDamaged` 只在 **3 处**被显式调用 ——
+  单位普攻（`effects.ts`）、DSL 的 `damage` 效果、主公攻击。
+  **漏掉的**包括：**灼烧跳伤**（`resolveTurnStartDamage`）、**反击**、**反伤（thorns）**、
+  **疲劳**、**护卫/甲士格挡**、**`9999` 摧毁**、以及升变等杂项路径。
+  ⇒ 后果：卡面写「仇敌**每次受到伤害时**」，但**被烧死、被反伤、被反击都不算** —— 又一次"卡面承诺了、代码没做到"。
+  **修法（架构级，一次覆盖全部）**：把联动**搬进 `dealDamage` 自己** ——
+  照 `afterLordDamagedResolver` 的样子加一个 **`afterUnitDamagedResolver`**，
+  在**单位分支扣血之后、`killUnit` 之前**（`if (actual > 0)`）触发。
+  · **位置在 `killUnit` 之前是有意的**：**致命伤也要触发**（单位对象还在，标记还读得到），
+    而"阵亡载荷"（`on_death`）由 `killUnit` → `runMarkDeath` 另行结算，两者互不干扰。
+  · **`rng` 不新增参数**：用 `createRng(state.rngState)` 派生、用后 `state.rngState = rng.getState()` 写回
+    —— 与 `tryLethalSave` 同一套做法，**14 个调用点一个都不用改签名**。
+  · ⚠️ **必须同时删掉原来那 3 处显式调用**，否则会**双重触发**（仇敌挨一下打，主公掉 2 点）。
+  · **判据**：任何**实质性掉血**（`actual > 0`）都算「受到伤害」—— 这是设计者 2026-10-11 的口径原话：
+    「只要这个有仇敌 debuff 状态的人**受到了任何伤害（实质性掉血）**都会对这个 debuff 仇敌携带者的主公造成 1 点伤」。
 
 
 > ⚠️ **`chosen_damaged` 读的是「本次技能结算开始时」的快照，不是实时状态**（ADR-159 踩出来的）。

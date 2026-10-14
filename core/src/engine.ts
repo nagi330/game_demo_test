@@ -63,7 +63,7 @@ import {
 import {
   costRuleDelta, effectsOf, emitSkillTriggered, recomputeAuras, resolveAttack, resolveTargets,
   resolveDrawTrigger,
-  runCardPlayedTriggers, runEffects, runTriggerSkills, runUnitTrigger, runMarkDamaged,
+  runCardPlayedTriggers, runEffects, runTriggerSkills, runUnitTrigger,
 } from './effects.ts';
 import type {
   Action, ApplyResult, CardDef, CardEffect, EngineContext, GameEvent, MatchState, Row, Side,
@@ -121,7 +121,7 @@ export function applyAction(state: MatchState, ctx: EngineContext, action: Actio
           damage, events, lord.name, 0, undefined, undefined, 'physical', false, { side });
         if (defender && defender.hp > 0) {
           runUnitTrigger(next, ctx.cards, defender, 'on_damaged', rng, events);
-          runMarkDamaged(next, ctx.cards, defender, damage, rng, events);
+          // ⚠️ 仇敌标记联动已挪进 `dealDamage`（ADR-164），此处不再重复调用。
         }
         if (retaliation > 0) dealDamage(next, ctx.cards, lordRef(side), retaliation, events, '反击',
           0, undefined, defender ?? undefined, 'physical', false,

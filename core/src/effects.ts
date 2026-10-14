@@ -7,7 +7,7 @@
 
 import { BOARD, COMMAND, STATUSES, TIMING, type StatusCap } from './constants.ts';
 import { allUnits, applyMods, capOverride, capStacks, capValue, getUnit, hasCap, hasTrait, isBasicTroop, makeUnit, nextUidSeq, other, setUnit } from './state.ts';
-import { handRef, removeStatus } from './mutate.ts';
+import { handRef, registerAfterUnitDamagedResolver, removeStatus } from './mutate.ts';
 import { effectiveAttack } from './rules.ts';
 // 合并说明（rebase 到 main 时）：两边各加了一个 import —— main 把「抽到时释放」
 // 重构成返回 OnDrawResult 的具名函数，我这边（ADR-087 的死亡后光环重算）需要 createRng。
@@ -69,6 +69,20 @@ registerOnDrawResolver(resolveDrawTrigger);
 
 registerAfterDrawResolver((state, cards, events, rng) => {
   recomputeAuras(state, cards, rng, events);
+});
+
+/**
+ * 「单位受伤后」联动（ADR-164）：把 `on_mark_damaged`（仇敌受伤）挂到 `dealDamage` 上。
+ *
+ * `rng` 不新增参数 —— 用 `createRng(state.rngState)` 派生、用后写回，
+ * 与 `tryLethalSave` 同一套做法（保住回放确定性，且 14 个调用点不用改签名）。
+ */
+registerAfterUnitDamagedResolver((state, cards, ref, actual, events) => {
+  const victim = getUnit(state, ref.side, ref.row, ref.col);
+  if (!victim?.statuses.chou_di) return;         // 没被标记 → 连 rng 都不派生
+  const rng = createRng(state.rngState);
+  runMarkDamaged(state, cards, victim, actual, rng, events);
+  state.rngState = rng.getState();
 });
 
 /**
@@ -619,7 +633,13 @@ export function runMarkDamaged(
 export function runMarkDeath(
   state: MatchState, cards: Map<string, CardDef>, dead: Unit, rng: Rng, events: GameEvent[],
 ): void {
-  const inst = dead.statuses.chou_di_shou ?? dead.statuses.zhen_wang;
+  // ⚠️ ADR-164 修复：原来只有 `chou_di_shou ?? zhen_wang`，而 **`chou_di_shou` 这个状态
+  //    在整个仓库根本不存在**（只有这一行提到过它），`zhen_wang` 又是引擎内部的阵亡标记 ——
+  //    于是**卡牌给 `chou_di` 挂的 `on_death` 载荷永远没人读**（`inst.payoff` 写了也白写），
+  //    连 `on_mark_death` 触发技也因为下面 `if (!inst?.srcUid) return;` 的早退而从未触发过。
+  //    判据：`on_mark_damaged` 读的就是 `chou_di`（见 `runMarkDamaged`），这里必须一致。
+  //    ✅ 向后兼容：`chou_di` 标记此前从不带 `payoff`，所以旧卡行为不变。
+  const inst = dead.statuses.chou_di ?? dead.statuses.chou_di_shou ?? dead.statuses.zhen_wang;
   // ① 卡牌级标记（ADR-087）：结算写在标记上，由施法方执行 —— 不依赖任何单位
   if (inst?.payoff?.length && inst.srcSide) {
     runEffects(state, cards, inst.payoff, { side: inst.srcSide }, rng, events);
@@ -1065,7 +1085,8 @@ export function resolveAttack(
     // 时机表第 16 步：受到伤害触发技（on_damaged）
     const hit = getUnit(state, foe, tRow, tCol);
     if (hit && dealt > 0 && hit.hp > 0) runUnitTrigger(state, cards, hit, 'on_damaged', rng, events);
-    if (hit && dealt > 0) runMarkDamaged(state, cards, hit, dealt, rng, events);
+    // ⚠️ 仇敌标记联动（`runMarkDamaged`）已挪进 `dealDamage`（ADR-164），**不要在这里再调一次**
+    //    —— 否则双重触发（挨一下打，主公掉 2 点）。
 
     // 反击（ADR-062，设计者裁定）：**同时结算**，与炉石一致。
     // 只要目标有攻击力，攻击方就吃下这一下 —— **哪怕目标已被打死**。
@@ -1359,8 +1380,7 @@ export function runEffects(
             }
             // 时机表第 16 步：受到伤害触发技（存活才触发）
             if (victim && actual > 0 && victim.hp > 0) runUnitTrigger(state, cards, victim, 'on_damaged', rng, events);
-            // 仇敌标记联动（ADR-041）：无论是否存活都触发，但只认实际受伤
-            if (victim && actual > 0) runMarkDamaged(state, cards, victim, actual, rng, events);
+            // ⚠️ 仇敌标记联动已挪进 `dealDamage`（ADR-164，覆盖全部掉血路径），此处不再重复调用。
           }
         }
         break;

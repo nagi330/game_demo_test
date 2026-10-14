@@ -190,6 +190,25 @@ export type AfterLordDamagedResolver = (
 
 let afterLordDamagedResolver: AfterLordDamagedResolver | null = null;
 
+/**
+ * 「单位受伤后」联动（ADR-164）：**任何实质性掉血**之后触发，供仇敌标记（`on_mark_damaged`）使用。
+ *
+ * ⚠️ 为什么必须放在 `dealDamage` 里，而不是让各调用点自己调：
+ *   `dealDamage` 有 **14 个调用点**，此前只有 3 处显式调了 `runMarkDamaged`
+ *   （单位普攻 / DSL `damage` 效果 / 主公攻击）—— 于是**灼烧、反击、反伤、疲劳、格挡、9999 摧毁
+ *   全都不触发仇敌标记**，而卡面写的是「仇敌**每次受到伤害时**」。
+ *   放进 `dealDamage` 一次覆盖全部路径。
+ */
+type AfterUnitDamagedResolver = (
+  state: MatchState, cards: Map<string, CardDef>,
+  ref: Extract<TargetRef, { kind: 'unit' }>, actual: number, events: GameEvent[],
+) => void;
+let afterUnitDamagedResolver: AfterUnitDamagedResolver | null = null;
+
+export function registerAfterUnitDamagedResolver(fn: AfterUnitDamagedResolver): void {
+  afterUnitDamagedResolver = fn;
+}
+
 export function registerAfterLordDamagedResolver(fn: AfterLordDamagedResolver): void {
   afterLordDamagedResolver = fn;
 }
@@ -455,6 +474,14 @@ export function dealDamage(
 
   // 免死判定（ADR-039）：致命伤害时按 on_lethal 技能掷骰，成功则以 1 血存活
   if (u.hp <= 0 && tryLethalSave(state, u, ref, events)) return finalAmount;
+
+  // 「单位受伤后」联动（ADR-164）：**任何实质性掉血**都走这里 —— 仇敌标记的 `on_mark_damaged`。
+  // ⚠️ 位置刻意排在 `killUnit` **之前**：致命伤也要触发（单位对象还在，标记还读得到）；
+  //    而"阵亡载荷"（`on_death`）由 `killUnit` → `runMarkDeath` 另行结算，两者互不干扰。
+  if (actual > 0) {
+    afterUnitDamagedResolver?.(state, cards, { kind: 'unit', side: ref.side, row: ref.row, col: ref.col },
+      actual, events);
+  }
 
   if (u.hp <= 0) killUnit(state, cards, { side: ref.side, row: ref.row, col: ref.col, unit: u }, events, deathSource ?? killerRef);
   return finalAmount;

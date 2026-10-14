@@ -252,15 +252,31 @@ test('B-6 时序：攻击时加成是临时的，回合结束后不残留（姜�
     '加成必须是**临时**修正（否则会永久累积）');
 });
 
-test('B-6 时序：魏延两条分支都在数据里（攻击时 / 受创时），且都带 duration', () => {
+test('B-6 时序：本回合临时修正的载体已换人三次（现为姜维「智勇双全」）', () => {
+  // ⚠️ 载体沿革（本条测试被换了三次载体，每次都因为原载体退役）：
+  //   · 原载体：魏延「桀骜不驯」（on_attack / on_damaged 各 50% +1）——ADR-163 整条退役
+  //     （掷硬币手感差 + "攻击/挨打加攻"换给任何武将都成立 = 人物指向性为零）。
+  //   · 一度改指魏延「子午奇谋」，但设计者随后把它从"本回合 +3"改成**永久 +3**
+  //     （`modify` 不带 `duration`），于是它也不再是本机制的载体。
+  //   · 再改指曹彰「猛袭」分支二 —— 但 main 的 80819fe（魏国吴国将领效果调整）把曹彰重做成
+  //     6 费「尚武厌文 / 意气益厉」，**「猛袭」整条退役**（本文件另一条断言已改为
+  //     "曹彰不再是抉择卡"），本条遂失去载体。
+  //   · 现载体：**姜维「智勇双全」**（`on_attack` → `modify attack: 1, duration: this_turn`）。
+  //     ⚠️ 代价：合并后的数据里**已没有"抉择分支内的临时加攻"**（陷阵营的分支加攻是永久的），
+  //        所以本条不再覆盖"临时修正出现在 modes 分支内"这一形状；`modes` 本身另有覆盖
+  //        （qun-troops.test.ts 的陷阵营实卡 + 本文件用合成技能测 `effectsOf` 的分支与越界兜底）。
+  //   魏延的新行为见 core/test/weiyan-ziwuqimou.test.ts（9 条：条件成立／四种不成立边界／
+  //   永久性（不得记成 temp mod）／先攻 ≠ 绕开架盾／先攻对照）。
+  const jiangwei = realCard('shu_jiangwei');
+  const sk = jiangwei.skills!.find((s) => s.id === 'zhi_yong_shuang_quan');
+  assert.ok(sk, '姜维应有「智勇双全」');
+  const atkMod = (sk!.effects ?? []).find((e) => e.action === 'modify' && e.attack);
+  assert.ok(atkMod, '「智勇双全」里应有一条临时加攻');
+  assert.equal(atkMod!.duration, 'this_turn', '临时加攻必须标 duration: this_turn（否则会永久累积）');
+  // 顺带守住魏延那条的**反面**：它现在是永久，绝不能带 duration
   const wei = realCard('shu_weiyan');
-  const attack = wei.skills!.find((s) => s.trigger === 'on_attack');
-  const hurt = wei.skills!.find((s) => s.trigger === 'on_damaged');
-  assert.ok(attack, '应有「攻击时」分支');
-  assert.ok(hurt, '卡面写了「受到伤害时」，数据里不能缺（否则就是静默的文案白板）');
-  for (const sk of [attack!, hurt!]) {
-    assert.equal(sk.effects![0]!.duration, 'this_turn', `${sk.name} 的加成应只在本回合有效`);
-  }
+  const wy = wei.skills!.find((s) => s.id === 'zi_wu_qi_mou')!;
+  assert.equal(wy.effects![0]!.duration, undefined, '魏延的是永久加成，带了 duration 就变回一次性');
 });
 
 /* ============================================================

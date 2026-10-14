@@ -115,6 +115,7 @@ var Core = (() => {
     registerAfterDeathResolver: () => registerAfterDeathResolver,
     registerAfterDrawResolver: () => registerAfterDrawResolver,
     registerAfterLordDamagedResolver: () => registerAfterLordDamagedResolver,
+    registerAfterUnitDamagedResolver: () => registerAfterUnitDamagedResolver,
     registerMarkDeathResolver: () => registerMarkDeathResolver,
     registerOnDeathResolver: () => registerOnDeathResolver,
     registerOnDrawResolver: () => registerOnDrawResolver,
@@ -1097,6 +1098,10 @@ var Core = (() => {
     onDeathResolver = fn;
   }
   var afterLordDamagedResolver = null;
+  var afterUnitDamagedResolver = null;
+  function registerAfterUnitDamagedResolver(fn) {
+    afterUnitDamagedResolver = fn;
+  }
   function registerAfterLordDamagedResolver(fn) {
     afterLordDamagedResolver = fn;
   }
@@ -1306,6 +1311,15 @@ var Core = (() => {
       );
     }
     if (u.hp <= 0 && tryLethalSave(state, u, ref, events)) return finalAmount;
+    if (actual > 0) {
+      afterUnitDamagedResolver?.(
+        state,
+        cards,
+        { kind: "unit", side: ref.side, row: ref.row, col: ref.col },
+        actual,
+        events
+      );
+    }
     if (u.hp <= 0) killUnit(state, cards, { side: ref.side, row: ref.row, col: ref.col, unit: u }, events, deathSource ?? killerRef);
     return finalAmount;
   }
@@ -1688,6 +1702,13 @@ var Core = (() => {
   registerAfterDrawResolver((state, cards, events, rng) => {
     recomputeAuras(state, cards, rng, events);
   });
+  registerAfterUnitDamagedResolver((state, cards, ref, actual, events) => {
+    const victim = getUnit(state, ref.side, ref.row, ref.col);
+    if (!victim?.statuses.chou_di) return;
+    const rng = createRng(state.rngState);
+    runMarkDamaged(state, cards, victim, actual, rng, events);
+    state.rngState = rng.getState();
+  });
   function cardCastEffects(card, rng) {
     const out = [];
     for (const sk of card.skills ?? []) {
@@ -2039,7 +2060,7 @@ var Core = (() => {
     }
   }
   function runMarkDeath(state, cards, dead, rng, events) {
-    const inst = dead.statuses.chou_di_shou ?? dead.statuses.zhen_wang;
+    const inst = dead.statuses.chou_di ?? dead.statuses.chou_di_shou ?? dead.statuses.zhen_wang;
     if (inst?.payoff?.length && inst.srcSide) {
       runEffects(state, cards, inst.payoff, { side: inst.srcSide }, rng, events);
     }
@@ -2337,7 +2358,6 @@ var Core = (() => {
       }
       const hit = getUnit(state, foe, tRow, tCol);
       if (hit && dealt > 0 && hit.hp > 0) runUnitTrigger(state, cards, hit, "on_damaged", rng, events);
-      if (hit && dealt > 0) runMarkDamaged(state, cards, hit, dealt, rng, events);
       if (retaliate > 0) {
         const reflected = dealDamage(
           state,
@@ -2497,7 +2517,6 @@ var Core = (() => {
                 ctx.eventCounts.killed = (ctx.eventCounts.killed ?? 0) + 1;
               }
               if (victim && actual > 0 && victim.hp > 0) runUnitTrigger(state, cards, victim, "on_damaged", rng, events);
-              if (victim && actual > 0) runMarkDamaged(state, cards, victim, actual, rng, events);
             }
           }
           break;
@@ -3434,7 +3453,6 @@ var Core = (() => {
           );
           if (defender && defender.hp > 0) {
             runUnitTrigger(next, ctx.cards, defender, "on_damaged", rng, events);
-            runMarkDamaged(next, ctx.cards, defender, damage, rng, events);
           }
           if (retaliation > 0) dealDamage(
             next,
