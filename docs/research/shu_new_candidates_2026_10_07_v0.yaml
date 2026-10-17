@@ -1,0 +1,661 @@
+# ============================================================
+# 蜀国新增人物卡 · 提案草案（**不是真源，不要提交到 data/**）
+# ============================================================
+# 本文件只用于「设计评审」：把建议的卡写成与 data/cards.yaml 同构的 YAML，
+# 由 docs/research/_check_proposals.ts 逐条核对
+#   · 卡级/技能级字段是否都在白名单里
+#   · action 是否都在 core/src/effects.ts 的 IMPLEMENTED_ACTIONS 里
+#   · status / 触发时机 / selector 字段 / filter.card_id / summon 单位是否已注册
+#   · ⚠️ 另有一条「静默空转」黑名单（见文件末尾注释）：引擎实现了字段但**不读它**的组合
+# 通过 ≠ 平衡通过（数值另见 docs/research/_pricing.py 的粗略定价），
+# 但「写不出来的效果」会被当场拦下。
+# ============================================================
+
+- id: shu_xushu
+  name: 徐庶
+  faction: shu
+  type: strategist
+  cost: 3
+  attack: 1
+  health: 2
+  keywords: []
+  gender: male
+  memo: 举荐卧龙的那张嘴；进了曹营，便再无一字
+  note: 徐庶在《三国志》中**无本传**，三条素材分别出自诸葛亮传（举荐、辞别）与董和传（直谏评价）
+  skills:
+  - id: ju_jian
+    name: 举荐
+    kind: trigger
+    trigger: on_play
+    text: 战吼：使一名友方武将永久 +1 攻 / +1 血。
+    effects:
+    - action: modify
+      attack: 1
+      health: 1
+      target:
+        side: ally
+        filter:
+          type: general
+        count: 1
+        mode: choose
+  - id: zuo_gong
+    name: 佐公
+    kind: trigger
+    trigger: on_lord_skill_used
+    text: 每当己方主公技结算后，抽 1 张牌。
+    effects:
+    - action: draw
+      value: 1
+  flavor: 本欲与将军共图王霸之业者，以此方寸之地也。今已失老母，方寸乱矣。
+
+- id: shu_qiaozhou
+  name: 谯周
+  faction: shu
+  type: strategist
+  cost: 3
+  attack: 1
+  health: 3
+  keywords: []
+  gender: male
+  memo: 每回合先看一眼天；人少的时候，兵反而更狠
+  skills:
+  - id: tian_xiang
+    name: 天象
+    kind: trigger
+    trigger: turn_start
+    text: 每回合开始时，查看牌库顶的一张牌并获得之。
+    effects:
+    - action: scry
+      count: 1
+      from: top
+      to: hand
+  - id: chou_guo
+    name: 仇国
+    kind: aura
+    text: 在场时，若己方场上人物少于敌方，己方全体人物 +1 攻。
+    effects:
+    - action: modify
+      attack: 1
+      target:
+        side: ally
+        filter:
+          type: character
+        count: all
+      condition:
+        count_vs:
+          left:
+            side: ally
+            filter:
+              type: character
+          right:
+            side: enemy
+            filter:
+              type: character
+          op: '<'
+  flavor: 典午忽兮，月酉没兮。—— 八月，司马昭果崩。
+
+- id: shu_dongyun
+  name: 董允
+  faction: shu
+  type: strategist
+  cost: 3
+  attack: 1
+  health: 3
+  keywords: []
+  gender: male
+  memo: 上则正色匡主，下则数责宦官 —— 黄皓在他手下止步黄门丞
+  skills:
+  - id: zheng_se
+    name: 正色
+    kind: trigger
+    trigger: on_play
+    text: 战吼：使一名敌方人物获得「虚弱」1 回合。
+    effects:
+    - action: apply_status
+      status: xu_ruo
+      duration: 1
+      target:
+        side: enemy
+        filter:
+          type: character
+        count: 1
+        mode: choose
+  - id: yi_wei
+    name: 抑阉
+    kind: aura
+    text: 光环：在场时，「黄皓」的攻击与生命上限各 −1。
+    effects:
+    - action: modify
+      attack: -1
+      health: -1
+      target:
+        side: both
+        filter:
+          card_id: shu_huanghao
+        count: all
+  flavor: 允常上则正色匡主，下则数责於皓。皓畏允，不敢为非。
+
+- id: shu_mizhu
+  name: 糜竺
+  faction: shu
+  type: strategist
+  cost: 3
+  attack: 1
+  health: 3
+  keywords: []
+  gender: male
+  memo: 奴客二千、金银货币以助军资 —— 于时困匮，赖此复振
+  skills:
+  - id: shu_zi
+    name: 输资
+    kind: trigger
+    trigger: on_play
+    text: 战吼：己方主公本回合统率 +2。
+    effects:
+    - action: gain_command
+      value: 2
+  flavor: 竺雍容敦雅，而幹翮非所长。是以待之以上宾之礼。
+
+- id: shu_jiangwan
+  name: 蒋琬
+  faction: shu
+  type: strategist
+  cost: 4
+  attack: 1
+  health: 4
+  keywords: []
+  gender: male
+  memo: 既无戚容，又无喜色；丞相临终把后事付给了他
+  skills:
+  - id: fang_zheng
+    name: 方整
+    kind: aura
+    text: 在场时，己方全体武将 +1 攻。
+    effects:
+    - action: modify
+      attack: 1
+      target:
+        side: ally
+        filter:
+          type: general
+        count: all
+  - id: tuo_gu
+    name: 托孤
+    kind: trigger
+    trigger: on_death
+    text: 亡语：使一名友方武将永久 +1 攻 / +1 血。
+    target:
+      side: ally
+      filter:
+        type: character
+      count: 1
+      mode: choose
+    effects:
+    - action: modify
+      attack: 1
+      health: 1
+  flavor: 臣若不幸，后事宜以付琬。
+
+- id: shu_liyan
+  name: 李严
+  faction: shu
+  type: strategist
+  cost: 4
+  attack: 1
+  health: 4
+  keywords: []
+  gender: male
+  memo: 能催粮，也能诬告 —— 后半生只顾自己那条线
+  skills:
+  - id: du_liang
+    name: 督粮
+    kind: trigger
+    trigger: on_play
+    text: 战吼：己方主公本回合统率 +2。
+    effects:
+    - action: gain_command
+      value: 2
+  - id: wu_gao
+    name: 诬告
+    kind: trigger
+    trigger: on_death
+    text: 亡语：随机弃掉敌方两张手牌。
+    effects:
+    - action: discard
+      count: 2
+      target:
+        side: enemy
+        count: 2
+        mode: random
+  flavor: 平闻军退，乃更阳惊，说「军粮饶足，何以便归」。
+
+- id: shu_wangping
+  name: 王平
+  faction: shu
+  type: general
+  cost: 4
+  attack: 3
+  health: 4
+  keywords:
+  - jia_dun
+  gender: male
+  memo: 千人鸣鼓自持，张郃疑有伏兵 —— 街亭败，唯其部全
+  skills:
+  - id: ming_gu
+    name: 鸣鼓
+    kind: trigger
+    trigger: on_play
+    text: 战吼：自身获得「披坚」，并于本回合 +1 攻。
+    effects:
+    - action: apply_status
+      status: sheng_dun_status
+      target:
+        source: true
+    - action: modify
+      attack: 1
+      duration: this_turn
+      target:
+        source: true
+  - id: shou_he
+    name: 收合
+    kind: trigger
+    trigger: on_death
+    text: 亡语：使己方全体武将 +1 攻 / +1 血。
+    effects:
+    - action: modify
+      attack: 1
+      health: 1
+      target:
+        side: ally
+        filter:
+          type: general
+        count: all
+  flavor: 平生长戎旅，手不能书，其所识不过十字，而口授作书，皆有意理。
+
+- id: shu_zhangyi
+  name: 张嶷
+  faction: shu
+  type: general
+  cost: 4
+  attack: 3
+  health: 3
+  keywords: []
+  gender: male
+  memo: 诈与和亲、置酒斩首；镇南十五年，邦域安穆
+  skills:
+  - id: he_qin
+    name: 和亲
+    kind: trigger
+    trigger: on_play
+    text: 战吼：随机一名敌方武将技能禁用 1 回合。
+    effects:
+    - action: apply_status
+      status: jin_yong
+      duration: 1
+      target:
+        side: enemy
+        filter:
+          type: character
+        count: 1
+        mode: random
+  - id: shen_yun
+    name: 身陨
+    kind: trigger
+    trigger: on_death
+    text: 亡语：对敌方全体人物造成 1 点伤害。
+    effects:
+    - action: damage
+      value: 1
+      target:
+        side: enemy
+        filter:
+          type: character
+        count: all
+  flavor: 嶷临陈陨身，然其所杀伤亦过倍。
+
+- id: shu_feiyi
+  name: 费祎
+  faction: shu
+  type: strategist
+  cost: 5
+  attack: 1
+  health: 5
+  keywords: []
+  gender: male
+  memo: 辩倒孙权、调和魏延杨仪；最后死在魏降将的刀下
+  skills:
+  - id: zhe_bian
+    name: 折辩
+    kind: trigger
+    trigger: on_play
+    text: 战吼：使一名敌方武将技能禁用 1 回合。
+    effects:
+    - action: apply_status
+      status: jin_yong
+      duration: 1
+      target:
+        side: enemy
+        filter:
+          type: character
+        count: 1
+        mode: choose
+  - id: yu_ci
+    name: 遇刺
+    kind: trigger
+    trigger: on_death
+    text: 亡语：对造成费祎死亡的敌方单位造成 3 点伤害。
+    effects:
+    - action: damage
+      value: 3
+      target:
+        event: killer
+  flavor: 祎辞顺义笃，据理以答，终不能屈。
+
+- id: shu_liaohua
+  name: 廖化
+  faction: shu
+  type: general
+  cost: 3
+  attack: 3
+  health: 3
+  keywords:
+  - xian_gong
+  gender: male
+  memo: 诈死脱吴、携母昼夜西行 —— 蜀中资历最老的先锋
+  skills:
+  - id: hou_ji
+    name: 后继
+    kind: trigger
+    trigger: on_death
+    text: 亡语：使一名友方武将永久 +1 攻 / +1 血，并使其先攻 1 回合。
+    target:
+      side: ally
+      filter:
+        type: character
+      count: 1
+      mode: choose
+    effects:
+    - action: modify
+      attack: 1
+      health: 1
+    - action: apply_status
+      status: xian_gong_status
+      duration: 1
+  flavor: 思归先主，乃诈死，时人谓为信然。
+
+- id: shu_yanyan
+  name: 严颜
+  faction: shu
+  type: general
+  cost: 3
+  attack: 2
+  health: 4
+  keywords:
+  - jia_dun
+  gender: male
+  memo: 我州但有断头将军，无有降将军 —— 被斫头时他面不改色
+  note: 记载在《三国志·蜀书六·张飞传》正文（非裴注）：生获→拒降→斫头色不变→壮而释之引为宾客；卷末评「飞义释严颜，并有国士之风」。《华阳国志》另有他入蜀时的叹语「此所谓独坐穷山，放虎自卫也」。技能②「引为宾客」是**实验性设计**：全卡池没有「死后给敌方增益」的牌，用它承载「飞壮而释之，引为宾客」
+  skills:
+  - id: duan_tou
+    name: 断头
+    kind: trigger
+    trigger: on_damaged
+    text: 受到伤害时，随机一名敌方人物本回合不能普通攻击。
+    effects:
+    - action: apply_status
+      status: jin_gong
+      duration: 1
+      target:
+        side: enemy
+        filter:
+          type: character
+        count: 1
+        mode: random
+  - id: yin_wei_bin_ke
+    name: 引为宾客
+    kind: trigger
+    trigger: on_death
+    text: 亡语：使一名敌方武将获得「披坚」。
+    effects:
+    - action: apply_status
+      status: sheng_dun_status
+      target:
+        side: enemy
+        filter:
+          type: character
+        count: 1
+        mode: random
+
+- id: shu_qinmi
+  name: 秦宓
+  faction: shu
+  type: strategist
+  cost: 3
+  attack: 1
+  health: 3
+  keywords: []
+  gender: male
+  memo: 州郡辟命辄称疾不往；一旦开口，对方就答不上话
+  skills:
+  - id: cheng_ji
+    name: 称疾
+    kind: trigger
+    trigger: on_play
+    text: 战吼：弃 1 张手牌，然后抽 2 张牌。
+    effects:
+    - action: discard
+      count: 1
+      target:
+        side: self
+    - action: draw
+      value: 2
+  - id: da_wen_ru_xiang
+    name: 答问如响
+    kind: trigger
+    trigger: on_damaged
+    text: 受到伤害时，使攻击者获得「虚弱」1 回合。
+    effects:
+    - action: apply_status
+      status: xu_ruo
+      duration: 1
+      target:
+        side: enemy
+        filter:
+          type: character
+        count: 1
+        mode: random
+
+- id: shu_xiahoushi
+  name: 夏侯氏
+  faction: shu
+  type: general
+  cost: 3
+  attack: 2
+  health: 3
+  keywords: []
+  gender: female
+  memo: 张飞之妻、曹丕之妹 —— 蜀国第一位有实战记录的女将
+  note: 正史见于《蜀书·二主妃子传》；「护主」沿用祖茂「替主」的同一套写法
+  skills:
+  - id: hu_zhu_ji
+    name: 护主
+    kind: aura
+    text: 在场时，己方主公受到的伤害由夏侯氏先承担。
+    effects:
+    - action: apply_status
+      status: hu_zhu
+      status_source: self
+      condition:
+        count:
+          selector:
+            side: ally
+            lord: true
+            filter:
+              has_status: hu_zhu
+          op: '=='
+          value: 0
+      target:
+        side: ally
+        lord: true
+  - id: jian_gu
+    name: 兼武
+    kind: trigger
+    trigger: on_damaged
+    text: 受到伤害时，对攻击者造成 1 点伤害。
+    effects:
+    - action: damage
+      value: 1
+      target:
+        event: killer
+- id: shu_zhangyu
+  name: 张裕
+  faction: shu
+  type: strategist
+  cost: 4
+  attack: 1
+  health: 5
+  keywords: []
+  gender: male
+  memo: 说中了两代人的死期，说完自己被腰斩 —— 还知道自己的死期
+  note: 事迹在《蜀书》卷十二「周群传」后半（与周群、杜琼同传），非独立传
+  skills:
+  - id: zhan_hou
+    name: 占候
+    kind: trigger
+    trigger: on_play
+    text: 战吼：随机弃掉敌方两张手牌。
+    effects:
+    - action: discard
+      count: 2
+      target:
+        side: enemy
+        count: 2
+        mode: random
+  - id: zi_zhi_xing_si
+    name: 自知刑死
+    kind: trigger
+    trigger: on_death
+    text: 亡语：对敌方全体人物造成 1 点伤害。
+    effects:
+    - action: damage
+      value: 1
+      target:
+        side: enemy
+        filter:
+          type: character
+        count: all
+  flavor: 裕又私语人曰：「岁在庚子，天下当易代，刘氏祚尽矣。」后魏氏之立，先主之薨，皆如裕所刻。
+
+- id: shu_zhugezhan
+  name: 诸葛瞻
+  faction: shu
+  type: general
+  cost: 6
+  attack: 3
+  health: 6
+  keywords: []
+  gender: male
+  memo: 艾以书诱瞻曰「若降者必表为琅邪王」——瞻怒，斩艾使
+  note: 正史正文只有诸葛亮传末尾一句「亮子瞻，嗣爵」；事迹链条取自《资治通鉴》卷七十七（263 年），非《三国志》正文，做卡前需在 ADR 里说明取源口径
+  skills:
+  - id: zhan_shi
+    name: 斩使
+    kind: trigger
+    trigger: on_play
+    text: 战吼：使一名敌方武将技能禁用 1 回合。
+    effects:
+    - action: apply_status
+      status: jin_yong
+      duration: 1
+      target:
+        side: enemy
+        filter:
+          type: character
+        count: 1
+        mode: choose
+  - id: si_zhan
+    name: 死战
+    kind: trigger
+    trigger: on_damaged
+    text: 受到伤害时，自身永久 +1 攻。
+    effects:
+    - action: modify
+      attack: 1
+      target:
+        source: true
+  flavor: 「父子荷国重恩。」——瞻子尚曰：不早斩黄皓，使败国殄民，用生何为。
+
+- id: shu_simahui
+  name: 司马徽
+  faction: shu
+  type: strategist
+  cost: 4
+  attack: 1
+  health: 5
+  keywords: []
+  gender: male
+  memo: 采桑树上、庞统树下，从昼坐到夜 —— 蜀汉最好的「人事部门」
+  note: 识人之事见《蜀书·庞统法正传》正文；「卧龙凤雏、司马德操为水镜」在裴注引《襄阳记》，本轮未取到原文，卡面未采用
+  skills:
+  - id: zhi_ren_jian
+    name: 知人鉴
+    kind: trigger
+    trigger: on_play
+    text: 战吼：从牌库中选择一张牌加入手牌。
+    effects:
+    - action: discover
+      count: 1
+      discover_to: hand
+  - id: xia_lun
+    name: 树下论
+    kind: trigger
+    trigger: turn_start
+    text: 每回合开始时，若己方场上武将少于 2 名，抽 1 张牌。
+    effects:
+    - action: draw
+      value: 1
+      condition:
+        count:
+          selector:
+            side: ally
+            filter:
+              type: general
+          op: '<='
+          value: 1
+
+- id: shu_maliang
+  name: 马良
+  faction: shu
+  type: strategist
+  cost: 3
+  attack: 1
+  health: 3
+  keywords: []
+  gender: male
+  memo: 兄弟五人皆有才名，乡里谓之「马氏五常，白眉最良」
+  note: 《蜀书·董刘马陈董吕传第九》正文。马谡（马良之弟）已在卡池，本卡是全卡池第一张兄弟羁绊牌
+  skills:
+  - id: bai_mei
+    name: 白眉
+    kind: aura
+    text: 在场时，若己方场上有「马谡」，自身 +1 攻 / +1 血。
+    effects:
+    - action: modify
+      attack: 1
+      health: 1
+      target:
+        source: true
+      condition:
+        exists:
+          side: ally
+          filter:
+            card_id: shu_masu
+  - id: wu_chang
+    name: 五常
+    kind: trigger
+    trigger: on_play
+    text: 战吼：抽 1 张牌。
+    effects:
+    - action: draw
+      value: 1
+  flavor: 兄弟五人，并有才名，乡里为之谚曰：「马氏五常，白眉最良。」
