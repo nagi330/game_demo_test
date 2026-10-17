@@ -60,6 +60,8 @@ for (const c of cards) {
   setUnit(state, 'own', 'front', 3, makeUnit(base('shu_wangping'), 1, 4));
   if (c.id === 'wu_sunce') setUnit(state, 'own', 'front', 1, makeUnit(base('neutral_infantry'), 1, 4));
   if (c.id === 'shu_shamoke') setUnit(state, 'own', 'front', 1, makeUnit({ ...base('neutral_infantry'), tags: ['man_zu'] } as CardDef, 1, 4));
+  // 陈到「白毦统领」按 `card_id` 强化白毦兵 —— 通用场景里没有白毦兵，补一个靶子（同沙摩柯的写法）
+  if (c.id === 'shu_chendao') setUnit(state, 'own', 'front', 1, makeUnit(base('shu_bai_erbing'), 1, 4));
 
   // 条件费用规则类卡（丁奉）：直接核对规则是否被计入费用
   if (!hasDsl(c) && c.cost_rule) {

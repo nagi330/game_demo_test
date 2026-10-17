@@ -221,6 +221,8 @@ export interface EffectContext {
   lastDiscarded?: CardDef;
   /** 协同水攻的额外伤害不再次触发协同。 */
   skipWaterSynergy?: boolean;
+  /** ADR-178：本次 `on_card_played` 触发里**刚被打出的那张牌**（供 `value_from_played` 取值） */
+  playedCard?: CardDef;
 }
 
 /**
@@ -509,8 +511,12 @@ export function runTriggerSkills(
     const u = ref.unit;
     if (u.hp <= 0) continue;
     for (const sk of (u.skills ?? []).filter((s) => s.trigger === trigger)) {
+      if (!freqAllows(u, sk, trigger)) continue;                 // ADR-168：频率闸门
+      const skCtx: EffectContext = { side, source: u };
+      if (!freqConditionOk(state, sk, skCtx, rng)) continue;     // 条件全不成立 → 不发动也不记账
       emitSkillTriggered(state, side, u, sk, 'trigger', events);
-      runEffects(state, cards, effectsOf(sk), { side, source: u }, rng, events);
+      runEffects(state, cards, effectsOf(sk), skCtx, rng, events);
+      freqMarkUsed(u, sk, trigger);
       if (state.pendingDiscover) {
         state.pendingTriggerSkills = { side, trigger, nextIndex: index + 1 };
         return;
@@ -600,7 +606,7 @@ export function runCardPlayedTriggers(
           if (!isCharacterType(played.type)) continue;
         } else if (want && played.type !== want) continue;
         emitSkillTriggered(state, side, u, sk, 'trigger', events);
-        runEffects(state, cards, effectsOf(sk), { side, source: u }, rng, events);
+        runEffects(state, cards, effectsOf(sk), { side, source: u, playedCard: played }, rng, events);
       }
     }
   }
@@ -657,6 +663,54 @@ export function runMarkDeath(
   }
 }
 
+/* ---------- 触发技的频率闸门（ADR-168） ---------- */
+
+/**
+ * `frequency` 在**触发技**上的闸门（ADR-168）。
+ *
+ * ⚠️ **只对显式声明了 `frequency` 的技能生效** —— 不写 ＝ 维持历史行为（不限次）。
+ * 这与主动技"默认 `once_per_turn`"**不同**：触发技的既有语义就是不限次，
+ * 池内 200+ 张卡不能因为补闸门而改变行为。全池唯一声明频率的触发技是程普
+ * 「三朝虎臣」（`on_ally_attack`），而它的派发器本来就硬编码了同款闸门，故行为一致。
+ */
+function freqKeyOf(sk: SkillDef, trigger: string): string {
+  return sk.id || sk.name || trigger;
+}
+
+/** true = 额度还在，可以发动 */
+function freqAllows(u: Unit, sk: SkillDef, trigger: string): boolean {
+  const freq = sk.frequency;
+  if (!freq || freq === 'unlimited') return true;
+  const key = freqKeyOf(sk, trigger);
+  return freq === 'once'
+    ? !u.skillsUsedOnce.includes(key)
+    : (u.skillUsesThisTurn[key] ?? 0) < 1;
+}
+
+/** 发动后记账（同样只对显式声明者） */
+function freqMarkUsed(u: Unit, sk: SkillDef, trigger: string): void {
+  const freq = sk.frequency;
+  if (!freq || freq === 'unlimited') return;
+  const key = freqKeyOf(sk, trigger);
+  if (freq === 'once') {
+    if (!u.skillsUsedOnce.includes(key)) u.skillsUsedOnce.push(key);
+  } else {
+    u.skillUsesThisTurn[key] = (u.skillUsesThisTurn[key] ?? 0) + 1;
+  }
+}
+
+/**
+ * 显式声明频率的技能在发动前的**条件预检**：有没有任一效果的条件成立。
+ * 全不成立 → 整个技能不发动、**也不记账** ⇒「伙伴不在场时才发动」这类条件
+ * 不会把"每局一次"的额度白烧掉（设计者明确要求）。
+ */
+function freqConditionOk(state: MatchState, sk: SkillDef, ctx: EffectContext, rng: Rng): boolean {
+  if (!sk.frequency) return true;
+  const effs = sk.effects ?? [];
+  if (!effs.length) return true;
+  return effs.some((e) => checkCondition(state, e.condition, ctx, rng));
+}
+
 /**
  * 执行**单个单位**的指定时机触发技（ADR-036）
  * 用于 on_attack / on_damaged 这类"由某个单位自己引发"的时机。
@@ -673,8 +727,12 @@ export function runUnitTrigger(
   const side = findSide(state, unit.uid);
   if (!side) return;
   for (const sk of (unit.skills ?? []).filter((x) => x.trigger === trigger)) {
+    if (!freqAllows(unit, sk, trigger)) continue;              // ADR-168：频率闸门
+    const skCtx: EffectContext = { side, source: unit };
+    if (!freqConditionOk(state, sk, skCtx, rng)) continue;     // 条件全不成立 → 不发动也不记账
     emitSkillTriggered(state, side, unit, sk, 'trigger', events);
-    runEffects(state, cards, effectsOf(sk), { side, source: unit }, rng, events);
+    runEffects(state, cards, effectsOf(sk), skCtx, rng, events);
+    freqMarkUsed(unit, sk, trigger);
   }
 }
 
@@ -1137,10 +1195,12 @@ export function resolveAttack(
     runAllyAttackTriggers(state, cards, side, survivor, from.row, from.col, rng, events);
     runOnAttackPhase(state, cards, survivor, 'after', killed, rng, events, overflow, attackTarget, victimType);
     for (const sk of (survivor.skills ?? []).filter(sk => sk.trigger === TIMING.AFTER_ATTACK)) {
+      if (!freqAllows(survivor, sk, TIMING.AFTER_ATTACK)) continue;   // ADR-168：频率闸门
       const ctx: EffectContext = { side, source: survivor, flags: dealtTotal > 0 ? ['damaged'] : [] };
       if (!(sk.effects ?? []).some(e => checkCondition(state, e.condition, ctx, rng))) continue;
       emitSkillTriggered(state, side, survivor, sk, 'trigger', events);
       runEffects(state, cards, effectsOf(sk), ctx, rng, events);
+      freqMarkUsed(survivor, sk, TIMING.AFTER_ATTACK);
     }
   }
   return true;
@@ -1163,6 +1223,7 @@ export const IMPLEMENTED_ACTIONS: ReadonlySet<string> = new Set([
   'sacrifice', 'attack_each', 'draw_until', 'mill',
   'discover',
   'grant_hand', 'replace_lord',
+  'defect_to_deck',
   'roll',
   'attack_bonus',
   'send_hand_to_deck',   // 手牌 → 牌库顶/底/随机（ADR-139，杨仪「筹度粮谷」）
@@ -1286,7 +1347,9 @@ export function runEffects(
     const sourceVal = eff.value_from_source === 'attack' ? ctx.source?.atk
       : eff.value_from_source === 'health' ? ctx.source?.hp : undefined;
     const statusVal = eff.value_from_status ? (ctx.source?.statuses[eff.value_from_status]?.stacks ?? 0) : undefined;
-    const val = flagVal ?? discardVal ?? dynVal ?? statusVal ?? sourceVal ?? eff.value ?? 0;
+    // ADR-178：取「刚被打出的那张牌」的属性（诸葛亮「神机妙算」＝伤害 ＝ 计策费用）
+    const playedVal = eff.value_from_played === 'cost' ? (ctx.playedCard?.cost ?? 0) : undefined;
+    const val = playedVal ?? flagVal ?? discardVal ?? dynVal ?? statusVal ?? sourceVal ?? eff.value ?? 0;
 
     const targets = eff.target ? resolveTargets(state, eff.target, ctx, rng) : [];
     switch (eff.action) {
@@ -1408,7 +1471,12 @@ export function runEffects(
       case 'discover': {
         // 从当前方牌库中筛选候选，随机展示最多 count 张；真正取牌由 CHOOSE_DISCOVER 完成。
         const filter = eff.target?.filter;
-        const candidates = state.sides[ctx.side].deck.filter((id) => {
+        const candidates = (eff.pool
+          ? [...cards.values()].filter((c) =>
+              (!eff.pool!.type || c.type === eff.pool!.type)
+              && (!eff.pool!.factions || eff.pool!.factions.includes(c.faction)))
+              .map((c) => c.id)
+          : state.sides[ctx.side].deck).filter((id) => {
           const card = cards.get(id);
           if (!card) return false;
           if (filter?.faction && card.faction !== filter.faction) return false;
@@ -1428,6 +1496,10 @@ export function runEffects(
         state.pendingDiscover = {
           side: ctx.side, candidates: shown, costModifier: eff.value,
           destination: eff.discover_to ?? 'hand',
+          // ADR-178：多选（`picks`）＋池来源（`fromPool`）＋剩余候选去向（`rest`）
+          picks: eff.picks ?? 1,
+          fromPool: !!eff.pool,
+          rest: eff.rest,
         };
         events.push({
           type: 'DISCOVER_OPTIONS', side: ctx.side,
@@ -1667,13 +1739,29 @@ export function runEffects(
       }
       case 'return_to_hand': {
         // 返回手牌（ADR-033）：把场上单位收回其拥有者手牌
+        //
+        // ⚠️ ADR-175：可带**费用修正**（`value` 增减 ＋ `duration` 持续回合），写法与 `self_to_hand` 一致
+        // —— 用于「收回手牌，其费用下回合 −2」（关平「鸣金救主」）。
+        // ⚠️ 回手后重下是一个**全新单位**（满血、无任何状态）：卡面写的"回满血/清 debuff"由回手自带。
         for (const t of targets) {
           if (t.kind !== 'unit') continue;
           const u = getUnit(state, t.side, t.row, t.col);
           if (!u) continue;
           const def = cards.get(u.cardId);
           state.sides[t.side].rows[t.row][t.col] = null;
-          if (def) state.sides[t.side].hand.push({ card: def, mods: [] });
+          if (def) {
+            const mods: HandMod[] = [];
+            const turns = typeof eff.duration === 'number' ? eff.duration
+              : eff.duration === 'this_turn' ? 1 : undefined;
+            if (eff.value) mods.push({ id: `retcost#${nextUidSeq(state)}`, kind: 'cost', value: eff.value, turns });
+            state.sides[t.side].hand.push({ card: def, mods });
+            if (mods.length) {
+              events.push({
+                type: 'HAND_MODIFIED', side: t.side, index: state.sides[t.side].hand.length - 1,
+                kind: 'cost', value: eff.value, turns,
+              });
+            }
+          }
           events.push({ type: 'UNIT_RETURNED', side: t.side, row: t.row, col: t.col, unit: u });
         }
         break;
@@ -1763,6 +1851,24 @@ export function runEffects(
         events.push({
           type: 'CARD_REBUILT_IN_HAND', side: toSide, card: def, times: n, exceeded, costDelta, healthDelta,
         });
+        break;
+      }
+      case 'defect_to_deck': {
+        // 叛变入对手牌库（ADR-174，糜芳「叛迎」）：阵亡后把**这张卡**换成另一张卡
+        //（`unit` 指定，用来做"变成无技能版本"），放进**对手牌库的随机位置**。
+        //
+        // 与 `self_to_hand` 的区别：① 落点是**牌库**不是手牌 ② 可以**换成另一张卡**。
+        // 牌库方向沿用全项目约定（见 `send_hand_to_deck`）：数组末尾 = 顶、开头 = 底 ⇒ 随机位置用 splice。
+        const dead = ctx.source;
+        if (!dead) break;
+        const toId = (eff.unit as string | undefined) ?? dead.cardId;
+        const def = cards.get(toId);
+        if (!def) break;
+        const foe = other(ctx.side);
+        const deck = state.sides[foe].deck;
+        const at = eff.position === 'top' ? deck.length : rng.int(deck.length + 1);
+        deck.splice(at, 0, toId);
+        events.push({ type: 'CARD_DEFECTED', from: ctx.side, to: foe, card: def });
         break;
       }
       case 'clash': {
@@ -1922,9 +2028,12 @@ export function runEffects(
         break;
       }
       case 'take_control': {
-        // 控制权转移（ADR-041）：把目标单位移到己方随机空格，turns 后归还
+        // 控制权**永久**转移（ADR-041 立，ADR-173 修）：把目标单位**完全**归入己方 ——
+        // 控制权与归属都变成己方，行为**等同于"自己打出的卡"**（设计者 2026-10-17 裁定）。
+        // ⚠️ 旧注释写"turns 后归还"是**错的**：归还从未实现过，且设计者裁定就是要永久 —— 注释已更正。
         const backSide: Side = eff.target?.side === 'self' || eff.target?.side === 'ally'
           ? ctx.side : other(ctx.side);
+        let moved = false;
         for (const t of targets) {
           if (t.kind !== 'unit') continue;
           const u = getUnit(state, t.side, t.row, t.col);
@@ -1933,12 +2042,23 @@ export function runEffects(
           for (const r of BOARD.ROWS) {
             for (let c = 0; c < BOARD.COLS; c++) if (!state.sides[ctx.side].rows[r][c]) empties.push({ row: r, col: c });
           }
-          if (!empties.length) continue;
+          if (!empties.length) continue;          // 己方满场 → 静默失败（与"打不出卡"同义）
           state.sides[t.side].rows[t.row][t.col] = null;
-          const slot = empties[rng.int(empties.length)]!;
+          const slot = empties[0]!;               // 定点落位：最前排最左空格（去掉不可读的随机）
           setUnit(state, ctx.side, slot.row, slot.col, u);
+          // 等同于"自己刚打出的卡"：入场回合重置 ⇒ 当回合不能攻击（除非它有先攻）；
+          // 本回合的行动/攻击/技能计数一并清零。⚠️ `skillsUsedOnce`（每局一次）**不重置** ——
+          // 那是这张单位自己的历史，不因换了主人而回档。
+          u.enteredTurn = state.turn;
+          u.attackedThisTurn = 0;
+          u.actedThisTurn = false;
+          u.skillUsesThisTurn = {};
+          u.dealtDamageThisTurn = false;
           events.push({ type: 'CONTROL_TAKEN', from: backSide, to: ctx.side, unit: u });
+          moved = true;
         }
+        // 有人走了/有人来了 → 双方光环必须立刻重算（否则被偷单位的光环不生效、留下的光环不消失）
+        if (moved) recomputeAuras(state, cards, rng, events);
         break;
       }
       case 'cast_random': {

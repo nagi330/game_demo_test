@@ -62,8 +62,8 @@ function playAgainst(enemyFront: (string | null)[], seed = 1) {
    1. 数据形态
    ============================================================ */
 
-test('数据：赵云 6 费 6/6 传奇，战吼两条效果（披坚 + 按敌方人数加攻）', () => {
-  assert.equal(`${ZY.cost}费 ${ZY.attack}/${ZY.health}`, '6费 6/6');
+test('数据：赵云 7 费 6/6 传奇，战吼两条效果（披坚 + 按敌方人数加攻）', () => {
+  assert.equal(`${ZY.cost}费 ${ZY.attack}/${ZY.health}`, '7费 6/6');
   assert.equal(ZY.type, 'general');
   assert.equal(ZY.rarity, 'legendary');
 
@@ -95,15 +95,16 @@ test('数据（回归锁）：赵云身上**不再有 `mian_yi`** —— 那个�
    2. 按敌方人数加攻
    ============================================================ */
 
-test('一身是胆：敌方 3 个人物在场 → 永久变成 9/6', () => {
+test('一身是胆：敌方 3 个人物在场 → 永久变成 9/9', () => {
   const { zy } = playAgainst(['neutral_infantry', 'neutral_archer', 'neutral_shieldman']);
   assert.equal(zy.atk, 9, '6 + 3 = 9（永久修正写进单位属性）');
-  assert.equal(zy.hp, 6, '血量不变');
+  assert.equal(zy.hp, 9, '6 + 3 = 9（生命值也按敌方人数加）');
 });
 
 test('一身是胆：敌方人数不同 → 加成随之变化（含 0 人与 1 人）', () => {
   assert.equal(playAgainst([null, null, null]).zy.atk, 6, '敌方空场 → 不加法，仍是 6/6');
-  assert.equal(playAgainst(['neutral_infantry']).zy.atk, 7, '敌方 1 人 → 7/6');
+  assert.equal(playAgainst(['neutral_infantry']).zy.atk, 7, '敌方 1 人 → 7/7');
+  assert.equal(playAgainst(['neutral_infantry']).zy.hp, 7, '生命也 +1');
   assert.equal(playAgainst([null, 'neutral_infantry', null, 'neutral_archer']).zy.atk, 8,
     '空格不计数 → 8/6');
 });

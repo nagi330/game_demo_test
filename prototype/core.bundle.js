@@ -653,6 +653,8 @@ var Core = (() => {
     // 把一张手牌放回牌库顶/底/随机位置，**不抽牌**（ADR-139，杨仪「筹度粮谷」）
     "self_to_hand",
     // 阵亡后把手牌重建出来（ADR-141，孟获「蛮王」——亡语作用于**阵亡单位自身**）
+    "defect_to_deck",
+    // 叛变：阵亡后换成另一张卡进对手牌库随机位置（ADR-174，糜芳「叛迎」）
     "deploy_from_hand",
     // 手牌 → 场上（免费，按 card_id 精准搬牌；ADR-149，诸葛瞻/诸葛尚「同赴」）
     "override_rule",
@@ -1965,8 +1967,12 @@ var Core = (() => {
       const u = ref.unit;
       if (u.hp <= 0) continue;
       for (const sk of (u.skills ?? []).filter((s) => s.trigger === trigger)) {
+        if (!freqAllows(u, sk, trigger)) continue;
+        const skCtx = { side, source: u };
+        if (!freqConditionOk(state, sk, skCtx, rng)) continue;
         emitSkillTriggered(state, side, u, sk, "trigger", events);
-        runEffects(state, cards, effectsOf(sk), { side, source: u }, rng, events);
+        runEffects(state, cards, effectsOf(sk), skCtx, rng, events);
+        freqMarkUsed(u, sk, trigger);
         if (state.pendingDiscover) {
           state.pendingTriggerSkills = { side, trigger, nextIndex: index + 1 };
           return;
@@ -2034,7 +2040,7 @@ var Core = (() => {
             if (!isCharacterType(played.type)) continue;
           } else if (want && played.type !== want) continue;
           emitSkillTriggered(state, side, u, sk, "trigger", events);
-          runEffects(state, cards, effectsOf(sk), { side, source: u }, rng, events);
+          runEffects(state, cards, effectsOf(sk), { side, source: u, playedCard: played }, rng, events);
         }
       }
     }
@@ -2075,13 +2081,42 @@ var Core = (() => {
       }
     }
   }
+  function freqKeyOf(sk, trigger) {
+    return sk.id || sk.name || trigger;
+  }
+  function freqAllows(u, sk, trigger) {
+    const freq = sk.frequency;
+    if (!freq || freq === "unlimited") return true;
+    const key = freqKeyOf(sk, trigger);
+    return freq === "once" ? !u.skillsUsedOnce.includes(key) : (u.skillUsesThisTurn[key] ?? 0) < 1;
+  }
+  function freqMarkUsed(u, sk, trigger) {
+    const freq = sk.frequency;
+    if (!freq || freq === "unlimited") return;
+    const key = freqKeyOf(sk, trigger);
+    if (freq === "once") {
+      if (!u.skillsUsedOnce.includes(key)) u.skillsUsedOnce.push(key);
+    } else {
+      u.skillUsesThisTurn[key] = (u.skillUsesThisTurn[key] ?? 0) + 1;
+    }
+  }
+  function freqConditionOk(state, sk, ctx, rng) {
+    if (!sk.frequency) return true;
+    const effs = sk.effects ?? [];
+    if (!effs.length) return true;
+    return effs.some((e) => checkCondition(state, e.condition, ctx, rng));
+  }
   function runUnitTrigger(state, cards, unit, trigger, rng, events) {
     if (unit.hp <= 0) return;
     const side = findSide(state, unit.uid);
     if (!side) return;
     for (const sk of (unit.skills ?? []).filter((x) => x.trigger === trigger)) {
+      if (!freqAllows(unit, sk, trigger)) continue;
+      const skCtx = { side, source: unit };
+      if (!freqConditionOk(state, sk, skCtx, rng)) continue;
       emitSkillTriggered(state, side, unit, sk, "trigger", events);
-      runEffects(state, cards, effectsOf(sk), { side, source: unit }, rng, events);
+      runEffects(state, cards, effectsOf(sk), skCtx, rng, events);
+      freqMarkUsed(unit, sk, trigger);
     }
   }
   function runWaterDamageSynergies(state, cards, side, source, rng, events) {
@@ -2404,10 +2439,12 @@ var Core = (() => {
       runAllyAttackTriggers(state, cards, side, survivor, from.row, from.col, rng, events);
       runOnAttackPhase(state, cards, survivor, "after", killed, rng, events, overflow, attackTarget, victimType);
       for (const sk of (survivor.skills ?? []).filter((sk2) => sk2.trigger === TIMING.AFTER_ATTACK)) {
+        if (!freqAllows(survivor, sk, TIMING.AFTER_ATTACK)) continue;
         const ctx = { side, source: survivor, flags: dealtTotal > 0 ? ["damaged"] : [] };
         if (!(sk.effects ?? []).some((e) => checkCondition(state, e.condition, ctx, rng))) continue;
         emitSkillTriggered(state, side, survivor, sk, "trigger", events);
         runEffects(state, cards, effectsOf(sk), ctx, rng, events);
+        freqMarkUsed(survivor, sk, TIMING.AFTER_ATTACK);
       }
     }
     return true;
@@ -2471,7 +2508,8 @@ var Core = (() => {
       const flagVal = eff.value_from_flag ? Number((ctx.flags ?? []).find((f) => f.startsWith(`${eff.value_from_flag}:`))?.split(":")[1]) : void 0;
       const sourceVal = eff.value_from_source === "attack" ? ctx.source?.atk : eff.value_from_source === "health" ? ctx.source?.hp : void 0;
       const statusVal = eff.value_from_status ? ctx.source?.statuses[eff.value_from_status]?.stacks ?? 0 : void 0;
-      const val = flagVal ?? discardVal ?? dynVal ?? statusVal ?? sourceVal ?? eff.value ?? 0;
+      const playedVal = eff.value_from_played === "cost" ? ctx.playedCard?.cost ?? 0 : void 0;
+      const val = playedVal ?? flagVal ?? discardVal ?? dynVal ?? statusVal ?? sourceVal ?? eff.value ?? 0;
       const targets = eff.target ? resolveTargets(state, eff.target, ctx, rng) : [];
       switch (eff.action) {
         case "damage": {
@@ -2539,7 +2577,7 @@ var Core = (() => {
         }
         case "discover": {
           const filter = eff.target?.filter;
-          const candidates = state.sides[ctx.side].deck.filter((id) => {
+          const candidates = (eff.pool ? [...cards.values()].filter((c) => (!eff.pool.type || c.type === eff.pool.type) && (!eff.pool.factions || eff.pool.factions.includes(c.faction))).map((c) => c.id) : state.sides[ctx.side].deck).filter((id) => {
             const card = cards.get(id);
             if (!card) return false;
             if (filter?.faction && card.faction !== filter.faction) return false;
@@ -2559,7 +2597,11 @@ var Core = (() => {
             side: ctx.side,
             candidates: shown,
             costModifier: eff.value,
-            destination: eff.discover_to ?? "hand"
+            destination: eff.discover_to ?? "hand",
+            // ADR-178：多选（`picks`）＋池来源（`fromPool`）＋剩余候选去向（`rest`）
+            picks: eff.picks ?? 1,
+            fromPool: !!eff.pool,
+            rest: eff.rest
           };
           events.push({
             type: "DISCOVER_OPTIONS",
@@ -2752,7 +2794,22 @@ var Core = (() => {
             if (!u) continue;
             const def = cards.get(u.cardId);
             state.sides[t.side].rows[t.row][t.col] = null;
-            if (def) state.sides[t.side].hand.push({ card: def, mods: [] });
+            if (def) {
+              const mods = [];
+              const turns = typeof eff.duration === "number" ? eff.duration : eff.duration === "this_turn" ? 1 : void 0;
+              if (eff.value) mods.push({ id: `retcost#${nextUidSeq(state)}`, kind: "cost", value: eff.value, turns });
+              state.sides[t.side].hand.push({ card: def, mods });
+              if (mods.length) {
+                events.push({
+                  type: "HAND_MODIFIED",
+                  side: t.side,
+                  index: state.sides[t.side].hand.length - 1,
+                  kind: "cost",
+                  value: eff.value,
+                  turns
+                });
+              }
+            }
             events.push({ type: "UNIT_RETURNED", side: t.side, row: t.row, col: t.col, unit: u });
           }
           break;
@@ -2827,6 +2884,19 @@ var Core = (() => {
             costDelta,
             healthDelta
           });
+          break;
+        }
+        case "defect_to_deck": {
+          const dead = ctx.source;
+          if (!dead) break;
+          const toId = eff.unit ?? dead.cardId;
+          const def = cards.get(toId);
+          if (!def) break;
+          const foe = other(ctx.side);
+          const deck = state.sides[foe].deck;
+          const at = eff.position === "top" ? deck.length : rng.int(deck.length + 1);
+          deck.splice(at, 0, toId);
+          events.push({ type: "CARD_DEFECTED", from: ctx.side, to: foe, card: def });
           break;
         }
         case "clash": {
@@ -2979,6 +3049,7 @@ var Core = (() => {
         }
         case "take_control": {
           const backSide = eff.target?.side === "self" || eff.target?.side === "ally" ? ctx.side : other(ctx.side);
+          let moved = false;
           for (const t of targets) {
             if (t.kind !== "unit") continue;
             const u = getUnit(state, t.side, t.row, t.col);
@@ -2989,10 +3060,17 @@ var Core = (() => {
             }
             if (!empties.length) continue;
             state.sides[t.side].rows[t.row][t.col] = null;
-            const slot = empties[rng.int(empties.length)];
+            const slot = empties[0];
             setUnit(state, ctx.side, slot.row, slot.col, u);
+            u.enteredTurn = state.turn;
+            u.attackedThisTurn = 0;
+            u.actedThisTurn = false;
+            u.skillUsesThisTurn = {};
+            u.dealtDamageThisTurn = false;
             events.push({ type: "CONTROL_TAKEN", from: backSide, to: ctx.side, unit: u });
+            moved = true;
           }
+          if (moved) recomputeAuras(state, cards, rng, events);
           break;
         }
         case "cast_random": {
@@ -3515,13 +3593,30 @@ var Core = (() => {
   function chooseDiscover(state, ctx, action, events, rng) {
     const pending = state.pendingDiscover;
     if (!pending || !pending.candidates.includes(action.cardId)) return false;
-    const index = state.sides[pending.side].deck.indexOf(action.cardId);
-    if (index < 0) return false;
-    const [id] = state.sides[pending.side].deck.splice(index, 1);
+    let id = action.cardId;
+    if (!pending.fromPool) {
+      const index = state.sides[pending.side].deck.indexOf(action.cardId);
+      if (index < 0) return false;
+      [id] = state.sides[pending.side].deck.splice(index, 1);
+    }
     const card = ctx.cards.get(id);
     if (!card) return false;
-    delete state.pendingDiscover;
     events.push({ type: "CARD_DISCOVERED", side: pending.side, card, costModifier: pending.costModifier, destination: pending.destination ?? "hand" });
+    const picks = pending.picks ?? 1;
+    if (picks > 1) {
+      state.sides[pending.side].hand.push({
+        card,
+        mods: pending.costModifier ? [{ id: "discover", kind: "cost", value: pending.costModifier }] : []
+      });
+      pending.picks = picks - 1;
+      pending.candidates = pending.candidates.filter((x) => x !== id);
+      recomputeAuras(state, ctx.cards, rng, events);
+      return true;
+    }
+    delete state.pendingDiscover;
+    if (pending.rest === "deck" && pending.fromPool) {
+      for (const rest of pending.candidates) if (rest !== id) state.sides[pending.side].deck.push(rest);
+    }
     const auto = resolveDrawTrigger(state, ctx.cards, pending.side, card, events, rng);
     if (auto) {
       if (auto.discard) state.sides[pending.side].discard.push(card);

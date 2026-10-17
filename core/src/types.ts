@@ -176,6 +176,12 @@ export interface CardEffect {
   roll_id?: string;               // roll 动作写入的结果标识
   copy_source_stats?: boolean;    // summon：复制来源当前攻血，不复制技能或状态
   discover_to?: 'hand' | 'deck_top'; // discover 专用：选择后进手牌或牌库顶
+  /** ADR-178：数值取「刚被打出的那张牌」的属性（目前只支持 `cost`），配合 `on_card_played` 触发器 */
+  value_from_played?: 'cost';
+  /** ADR-178：discover 要选几张（缺省 1） */
+  picks?: number;
+  /** ADR-178：discover 选完后剩余候选的去向（`'deck'` ＝ 放入牌库） */
+  rest?: 'deck';
   value_from_flag?: string;                   // 取 flags 中 "<name>:N" 的 N 作为数值（ADR-041）        // apply_status 时把来源单位记为状态的 srcUid（ADR-039）
   attack_from?: TargetSelector;  // 动态取值：攻击 = 该集合数量
   health_from?: TargetSelector;  // 动态取值：生命 = 该集合数量
@@ -578,6 +584,12 @@ export interface MatchState {
     candidates: string[];
     costModifier?: number;
     destination?: 'hand' | 'deck_top';
+    /** ADR-178：要选几张（缺省 1）。选满前挂起持续，每次 `CHOOSE_DISCOVER` 选一张 */
+    picks?: number;
+    /** ADR-178：候选来自**公共卡池**（不是牌库）—— `chooseDiscover` 因此不能从牌库切除 */
+    fromPool?: boolean;
+    /** ADR-178：选完后**剩余候选**的去向（`'deck'` ＝ 放入牌库；缺省丢弃） */
+    rest?: 'deck';
   };
   /** 发现流程暂停时，等待继续结算的同一时机触发技队列。 */
   pendingTriggerSkills?: { side: Side; trigger: string; nextIndex: number };
@@ -712,6 +724,7 @@ export type GameEvent =
   | { type: 'UNIT_FLIPPED'; side: Side; row: Row; col: number; to: 'front' | 'back'; unit: Unit }
   | { type: 'HAND_MODIFIED'; side: Side; index: number; kind: 'cost' | 'ban' | 'attack' | 'health'; value?: number; turns?: number }
   | { type: 'CARD_STOLEN'; from: Side; to: Side; card: CardDef }
+  | { type: 'CARD_DEFECTED'; from: Side; to: Side; card: CardDef }
   | { type: 'CARD_SCRYED'; side: Side; cardId: string; from: 'top' | 'bottom' }
   | { type: 'CLASH'; side: Side; mine: number; theirs: number; won: boolean }
   | { type: 'STATUS_BLOCKED'; side: Side; row?: Row; col?: number; status: string; reason: string }

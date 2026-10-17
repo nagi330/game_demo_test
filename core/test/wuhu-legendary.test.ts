@@ -64,17 +64,20 @@ function victim(state: ReturnType<typeof scenario>['state'], side: 'own' | 'enem
    一、关羽
    ============================================================ */
 
-test('关羽 数据：6 费 6/6 传奇，战吼三条效果（禁用 / 水困 / 2 点水攻）', () => {
-  assert.equal(`${GY.cost}费 ${GY.attack}/${GY.health}`, '6费 6/6');
+test('关羽 数据：8 费 7/7 传奇，战吼四条效果（禁用 / 水困 / 2 点水攻含主公 / 震慑）', () => {
+  assert.equal(`${GY.cost}费 ${GY.attack}/${GY.health}`, '8费 7/7');
   assert.equal(GY.rarity, 'legendary');
   const sk = (GY.skills ?? [])[0]!;
   assert.equal(sk.trigger, 'on_play', '是战吼');
   const effs = sk.effects ?? [];
-  assert.deepEqual(effs.map((e) => e.action), ['apply_status', 'apply_status', 'damage']);
+  assert.deepEqual(effs.map((e) => e.action), ['apply_status', 'apply_status', 'damage', 'apply_status']);
   assert.equal(effs[0]!.status, 'jin_yong');
   assert.equal(effs[1]!.status, 'shui_kun');
   assert.equal(effs[2]!.value, 2, '水攻伤害应为 2 点');
   assert.equal(effs[2]!.damage_type, 'water');
+  assert.equal(effs[2]!.target?.filter?.include_lord, true, '水攻要连敌方主公一起打');
+  assert.equal(effs[3]!.status, 'zhen_she', '全体震慑（本回合无法行动）');
+  assert.equal(effs[3]!.target?.count, 'all');
 });
 
 test('关羽 水淹七军：敌方已上场全体吃「禁用 + 水困 + 2 点水攻」；**水攻连主公一起打**', () => {
@@ -111,8 +114,8 @@ test('关羽 水淹七军：敌方已上场全体吃「禁用 + 水困 + 2 点�
    二、马超（两个死因的回归锁）
    ============================================================ */
 
-test('马超 数据：6 费 6/5 传奇、先攻、西凉系，击杀挂的是 `jin_yan` 而不是 `jin_yong`', () => {
-  assert.equal(`${MC.cost}费 ${MC.attack}/${MC.health}`, '6费 6/5');
+test('马超 数据：5 费 5/5 传奇、先攻、西凉系，击杀挂的是 `jin_yan` 而不是 `jin_yong`', () => {
+  assert.equal(`${MC.cost}费 ${MC.attack}/${MC.health}`, '5费 5/5');
   assert.equal(MC.rarity, 'legendary');
   assert.deepEqual(MC.keywords, ['xian_gong'], '先攻');
   assert.ok((MC.tags ?? []).includes('xi_liang'), '西凉系 tag 应与马腾/马岱一致');
@@ -177,13 +180,13 @@ test('马超 铁骑突袭：重复击杀**不叠加**（层数恒为 1，时长�
    三、张飞（含连吼的终止性）
    ============================================================ */
 
-test('张飞 数据：6 费 6/5 传奇，`turn_end` 主吼 + `on_kill` 连吼，两条都**含主公**', () => {
+test('张飞 数据：6 费 6/5 传奇，`on_play` 吼 + `turn_start` 余威 + `on_kill` 连吼，全**含主公**', () => {
   assert.equal(`${ZF.cost}费 ${ZF.attack}/${ZF.health}`, '6费 6/5');
   assert.equal(ZF.rarity, 'legendary');
   const skills = ZF.skills ?? [];
-  assert.equal(skills.length, 2);
-  assert.equal(skills[0]!.trigger, 'turn_end');
-  assert.equal(skills[1]!.trigger, 'on_kill');
+  assert.equal(skills.length, 3);
+  assert.deepEqual(skills.map((k) => k.trigger), ['on_play', 'turn_start', 'on_kill'],
+    '⭐ 设计者 2026-10-17：打出当回合是战吼，之后每回合开始时继续生效');
   for (const sk of skills) {
     const eff = (sk.effects ?? [])[0]!;
     assert.equal(eff.action, 'damage');
@@ -194,7 +197,7 @@ test('张飞 数据：6 费 6/5 传奇，`turn_end` 主吼 + `on_kill` 连吼，
   }
 });
 
-test('张飞 燕人咆哮：己方回合结束时对敌方全体（含主公）各 1 点；**没人死就只吼一次**', () => {
+test('张飞 燕人咆哮：己方回合开始时对敌方全体（含主公）各 1 点；**没人死就只吼一次**', () => {
   const { state, ctx } = scenario({
     own: { front: ['shu_zhangfei'] }, ownCommand: 10,
     enemy: { front: ['test_champion', null, 'test_champion'] },   // 5/5，1 点打不死
@@ -204,15 +207,19 @@ test('张飞 燕人咆哮：己方回合结束时对敌方全体（含主公）�
   state.sides.own.deck = DECK;
   state.sides.enemy.deck = DECK;
   const lordBefore = state.sides.enemy.lord.hp;
-  const r = applyAction(state, ctx, { type: 'END_TURN' });
+  // 先结束我方回合，再结束敌方回合 → 回到我方回合开始，`turn_start` 才会吼
+  const r1 = applyAction(state, ctx, { type: 'END_TURN' });
+  assert.ok(r1.ok, r1.error ?? '');
+  const r = applyAction(r1.state, ctx, { type: 'END_TURN' });
   assert.ok(r.ok, r.error ?? '');
 
   for (const col of [0, 2]) {
     assert.equal(getUnit(r.state, 'enemy', 'front', col)!.hp, 4, '每个敌方人物各吃 1 点');
   }
   assert.equal(r.state.sides.enemy.lord.hp, lordBefore - 1, '敌方主公也吃 1 点');
+  // 回合开始的那一条叫「燕人咆哮（余威）」，打出当回合的那条才叫「燕人咆哮」
   const roars = r.events.filter((e) => e.type === 'SKILL_TRIGGERED'
-    && (e as { skillName?: string }).skillName === '燕人咆哮');
+    && ['燕人咆哮', '燕人咆哮（余威）'].includes((e as { skillName?: string }).skillName ?? ''));
   assert.equal(roars.length, 1, '没有任何击杀 → 只吼一次（连吼不该空转）');
 });
 
@@ -223,7 +230,9 @@ test('张飞 燕人咆哮：吼死人会**接着吼**（连锁），且连吼次
   for (const col of [1, 2, 3]) victim(state, 'enemy', col, 'neutral_infantry');   // 三个 1 血
   const lordBefore = state.sides.enemy.lord.hp;
 
-  const r = applyAction(state, ctx, { type: 'END_TURN' });
+  const r1 = applyAction(state, ctx, { type: 'END_TURN' });
+  assert.ok(r1.ok, r1.error ?? '');
+  const r = applyAction(r1.state, ctx, { type: 'END_TURN' });
   assert.ok(r.ok, r.error ?? '');
   for (const col of [1, 2, 3]) {
     assert.equal(getUnit(r.state, 'enemy', 'front', col), null, `第 ${col} 列应被吼死`);
@@ -242,7 +251,9 @@ test('张飞 燕人咆哮：**终止性** —— 把敌方主公吼死时对局�
   victim(state, 'enemy', 1, 'neutral_infantry');
   state.sides.enemy.lord.hp = 1;                 // 主公只剩 1 血：男主吼就会打死他
 
-  const r = applyAction(state, ctx, { type: 'END_TURN' });
+  const r1 = applyAction(state, ctx, { type: 'END_TURN' });
+  assert.ok(r1.ok, r1.error ?? '');
+  const r = applyAction(r1.state, ctx, { type: 'END_TURN' });
   assert.ok(r.ok, r.error ?? '');
   assert.equal(r.state.sides.enemy.lord.hp, 0);
   assert.equal(r.state.winner, 'own', '吼死主公 → 立即判胜（checkWinner 终止一切后续结算）');
@@ -353,13 +364,13 @@ test('黄忠 定军山：击杀**兵种/谋臣**不成长（`victim_type: genera
   }
 });
 
-test('黄忠 定军山：成长有**硬上限 +3**（5 → 8 攻封顶）', () => {
+test('黄忠 定军山：**无上限**（连杀 5 将 → 5 → 10 攻）', () => {
   const { state, ctx } = scenario({ own: { front: ['shu_huangzhong'] }, ownCommand: 10 });
   for (const col of [1, 2, 3, 4, 5]) victim(state, 'enemy', col, 'shu_zhangfei');
   for (const col of [1, 2, 3, 4, 5]) {
     dealDamage(state, ctx.cards, unitRef('enemy', 'front', col), 9, [], '黄忠', 0,
       { side: 'own', row: 'front', col: 0 });
   }
-  assert.equal(effectiveAttack(state, 'own', 'front', 0), 8,
-    '连杀 5 个武将也只到 8 攻（attack_max:7 过滤器封顶）');
+  assert.equal(effectiveAttack(state, 'own', 'front', 0), 10,
+    '⭐ 2026-10-17 设计者去掉上限：连杀 5 将 → 5 + 5 = 10 攻');
 });

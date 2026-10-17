@@ -205,31 +205,6 @@ test('蒙冲斗舰「蒙冲」：只对指定单位造成 1 点水攻，不扩�
     '水攻不产生灼烧状态');
 });
 
-test('黄权「断后」：受创后对敌方全体 1 点火攻 → 每个敌方单位各 1 层', () => {
-  const s = setup({});
-  put(s, 'own', 2, 3, realCard('shu_huangquan'));
-  put(s, 'enemy', 0, 5);
-  put(s, 'enemy', 1, 5);
-  const attacker = { ...DUMMY, id: 'test_fire_attacker', attack: 1 };
-  put(s, 'enemy', 2, 5, attacker);            // 同列的攻击者
-
-  const events: GameEvent[] = [];
-  const ok = resolveAttack(
-    s.state, s.ctx.cards, 'enemy', { row: 'front', col: 2 },
-    { kind: 'unit', row: 'front', col: 2 }, events, createRng(1), { toSide: 'own' },
-  );
-  assert.ok(ok, '攻击应成立');
-
-  // 断后打的是"敌方全体"，所以连**攻击者自己**也吃 1 点；它另外还挨了黄权的反击 1 点。
-  assert.equal(5 - unitAt(s, 'enemy', 0).hp, 1, '敌方第 0 格只吃断后 1 点');
-  assert.equal(5 - unitAt(s, 'enemy', 1).hp, 1, '敌方第 1 格只吃断后 1 点');
-  assert.equal(5 - unitAt(s, 'enemy', 2).hp, 2, '攻击者吃断后 1 点 + 黄权反击 1 点');
-  for (const col of [0, 1, 2]) {
-    assert.equal(stacksOf(unitAt(s, 'enemy', col)), 1, `敌方第 ${col} 格应挂 1 层`);
-  }
-  assert.equal(s.state.sides.enemy.lord.hp, 29, '断后是范围火伤 → 主公也吃 1 点（ADR-087）');
-  assert.equal(s.state.sides.enemy.lord.statuses?.zhuo_shao, undefined, '但主公不挂层');
-});
 
 test('荀攸「乌巢袭粮」：2 名受伤单位各 1 层 —— **恰好 2 层，不得 4 层**（防双倍）', () => {
   const s = setup({ seed: 1, ownHand: ['wei_xunyou'] });

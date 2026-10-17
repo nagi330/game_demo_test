@@ -68,43 +68,28 @@ const u = (id: string, atk: number, hp: number, tags: string[] = [], faction: 's
 const uReady = (id: string, atk: number, hp: number, faction: 'shu' | 'wei' = 'wei') =>
   makeUnit({ id, name: id, faction, type: 'general', cost: 2, attack: atk, health: hp, keywords: [], tags: [], memo: '' } as CardDef, 0, 1);
 
-/* ================= 黄权：受创时对敌方全体造成火攻伤害 ================= */
+/* ============================================================
+   条件先攻 —— 载体由「关兴 将门虎子」换成「乐进 先登」（ADR-169）
+   ============================================================ */
 
-test('黄权 断后：受到伤害时对敌方全体造成 1 点火攻伤害', () => {
-  // on_damaged 由「普通攻击结算」触发（时机表第 16 步，effects.ts:833），
-  // 必须走 resolveAttack（攻击的正规入口），裸调 dealDamage 不派发触发技。
-  const { state, ctx } = scenario({ own: { front: ['shu_huangquan'] } });
-  setUnit(state, 'enemy', 'front', 0, u('e0', 2, 4));
-  setUnit(state, 'enemy', 'front', 1, u('e1', 2, 4));
-  setUnit(state, 'enemy', 'front', 2, u('attacker', 1, 4));
-  const before0 = getUnit(state, 'enemy', 'front', 0)!.hp;
-  const before1 = getUnit(state, 'enemy', 'front', 1)!.hp;
+/* 关兴在 ADR-169 重做为 8 费「并肩赴阵」（与张苞互拉），旧「将门虎子」的**条件先攻**随之撤下。
+   该能力仍有卡在用，故**换载体保留覆盖**：乐进「先登」＝自己场上没有其他武将时才获得先攻。 */
 
-  // 敌方 2 号位攻击己方黄权
-  const events: GameEvent[] = [];
-  const ok = resolveAttack(
-    state, ctx.cards, 'enemy', { row: 'front', col: 2 },
-    { kind: 'unit', row: 'front', col: 0 }, events, createRng(1), { toSide: 'own' },
-  );
-  assert.ok(ok, '攻击应成立');
-
-  const after0 = getUnit(state, 'enemy', 'front', 0)!.hp;
-  const after1 = getUnit(state, 'enemy', 'front', 1)!.hp;
-  assert.equal(before0 - after0, 1, '敌方单位 0 应因断后掉 1 血');
-  assert.equal(before1 - after1, 1, '敌方单位 1 应因断后掉 1 血');
-});
-
-/* ================= 关兴：条件先攻 + 击杀后额外行动 ================= */
-
-test('关兴 将门虎子：敌方有 3 费以下人物时才获得先攻', () => {
-  const card = realCard('shu_guanxing');
-  // 场景 A：敌方有 2 费人物 → 获得先攻
-  const a = scenario({ ownHand: ['shu_guanxing'] });
-  setUnit(a.state, 'enemy', 'front', 0, u('cheap', 2, 2));
+test('条件先攻：乐进「先登」——场上没有其他武将时获得先攻，有则不获得', () => {
+  realCard('wei_lejin');
+  // 场景 A：己方场上没有其他武将 → 获得先攻
+  const a = scenario({ ownHand: ['wei_lejin'] });
   const ra = applyAction(a.state, a.ctx, { type: 'PLAY_CARD', cardIndex: 0, row: 'front', col: 0 });
-  assert.ok(getUnit(ra.state, 'own', 'front', 0)?.statuses.xian_gong_status, '有低费敌军 → 应获得先攻');
+  assert.ok(ra.ok, `打出应成功：${ra.error}`);
+  assert.ok(getUnit(ra.state, 'own', 'front', 0)?.statuses.xian_gong_status, '没有其他武将 → 应获得先攻');
 
-  void card;
+  // 场景 B：己方场上已有一名武将 → 不获得
+  const b = scenario({ ownHand: ['wei_lejin'] });
+  setUnit(b.state, 'own', 'front', 1, u('mate', 3, 3));
+  const rb = applyAction(b.state, b.ctx, { type: 'PLAY_CARD', cardIndex: 0, row: 'front', col: 0 });
+  assert.ok(rb.ok, `打出应成功：${rb.error}`);
+  assert.equal(getUnit(rb.state, 'own', 'front', 0)?.statuses.xian_gong_status, undefined,
+    '已有其他武将 → 不应获得先攻');
 });
 
 /* ================= 法正：仇敌标记 → 受伤时给友军回血 ================= */

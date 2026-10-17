@@ -269,21 +269,16 @@ test('ADR-075 / ADR-074：`skip_turn` 能力与 `xiu_zheng` 状态仍保留（�
 });
 
 /* ============================================================
-   陈到：先作为**无技能武将**进卡池（ADR-075）
+   陈到：「白毦兵」暂缓设计（ADR-075）→ 已由 ADR-165 定稿
    ============================================================ */
 
-test('ADR-075 陈到：无技能、无关键词的白板武将（技能名「白毦兵」暂缓设计）', () => {
-  const chendao = ALL.find((c) => c.id === 'shu_chendao');
-  assert.ok(chendao, '陈到应存在于卡表');
-  assert.equal(chendao.type, 'general', '是武将');
-  assert.equal(chendao.attack, 2, '2 攻 > 1 → 按 ADR-018 判武将，不需要 type_explicit');
-  assert.equal(chendao.health, 2);
-  assert.equal(chendao.cost, 3);
-  assert.deepEqual(chendao.keywords ?? [], [], '没有关键词');
-  // 关键：不能留一条 `pending: true` 的空技能，那会让卡面显示一个不存在的技能
-  assert.deepEqual(chendao.skills ?? [], [], '不该再有「白毦兵」这条待设计技能');
-  assert.ok(chendao.memo, '白板卡也要有 memo');
-});
+/* ADR-075 曾裁定「陈到先作为**无技能武将**进卡池」（手写稿只写了技能名「白毦兵」、正文区空白，
+   挂 `pending: true` 会让卡面显示一个点不动也没有效果的技能）。
+   ⚠️ 该裁定已被 **ADR-165**（2026-10-15）取代：陈到改为 **4 费 3/3**，技能「**白毦统领**」
+   ＝ `kind: aura`，给己方白毦兵的「忠勇」（thorns）**+1 层**。
+   原先这里的三条「3 费 2/2 白板」断言（含「不该有任何技能」）已随重做删除 ——
+   数据形态与行为的守门人移到了 **`core/test/chendao-zhongyong.test.ts`（10 条）**，
+   那里锁死了「必须是 aura 而不是战吼」这条硬约束（ADR-165 实测：战吼加层会被静默吃掉）。 */
 
 /**
  * ⚠️ 这条测试必须读 `cards.json`（真实运行数据 + 校验器读的那份）。
@@ -467,9 +462,10 @@ test('ADR-074：触发技 / 光环 / 主动技 / 主公技都发 SKILL_TRIGGERED
   assert.ok(rz.events.some((e) => e.type === 'SKILL_TRIGGERED' && e.timing === 'turn_end'),
     'turn_end 触发技应发事件');
 
-  // 光环：关平（勇武）。注：此处不能用黄权——它已从「劝谏」光环改为「断后」on_damaged
-  realCard('shu_guanping');
-  const hq = scenario({ ownHand: ['shu_guanping'] });
+  // 光环：陈到（白毦统率）。注：此处不能用黄权（已从「劝谏」光环改为「断后」on_damaged）；
+  // 也不能用关平 —— 他在 ADR-175 重做后技能改为「鸣金救主」战吼，**已无光环**。
+  realCard('shu_chendao');
+  const hq = scenario({ ownHand: ['shu_chendao'] });
   const rh = applyAction(hq.state, hq.ctx, { type: 'PLAY_CARD', cardIndex: 0, row: 'front', col: 0 });
   assert.ok(rh.events.some((e) => e.type === 'SKILL_TRIGGERED' && e.kind === 'aura'),
     '光环重算应发事件');

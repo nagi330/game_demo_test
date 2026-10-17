@@ -85,8 +85,8 @@ const wyAtk = (s: ReturnType<typeof setup>['state']) => effectiveAttack(s, 'own'
    一、数据形态
    ============================================================ */
 
-test('魏延 数据：5 费 4/5 精英、自带先攻、战吼子午奇谋', () => {
-  assert.equal(`${WY.cost}费 ${WY.attack}/${WY.health}`, '5费 4/5');
+test('魏延 数据：4 费 4/4 精英、自带先攻、战吼子午奇谋', () => {
+  assert.equal(`${WY.cost}费 ${WY.attack}/${WY.health}`, '4费 4/4');
   assert.equal(WY.rarity, 'elite');
   assert.ok(WY.keywords?.includes('xian_gong'), '应自带先攻');
   const sk = (WY.skills ?? [])[0]!;

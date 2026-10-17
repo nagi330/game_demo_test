@@ -9,7 +9,7 @@
  * |---|---|---|
  * | B-3  | 抉择 `modes` + `modeIndex`              | 曹彰「猛袭」 |
  * | B-4  | 性别筛选 `filter.gender`                | 貂蝉「祸国倾城」 |
- * | B-5  | 连续普攻 `attack_each`（复用普攻结算）  | 张苞「父子将风」 |
+ * | B-5  | 连续普攻 `attack_each`（复用普攻结算）  | **合成卡**（原载体张苞「父子将风」已随 ADR-169 撤下） |
  * | B-6  | 攻击时加成的**时序**修正                | 姜维 / 魏延 |
  * | B-7  | 批量驱散 `remove_kind: debuff`          | 华佗「青囊」 |
  * | B-8  | 牺牲取值 `sacrifice` + `value_from_flag`| 程昱「审时度势」 |
@@ -171,16 +171,31 @@ test('B-4 性别：貂蝉「祸国倾城」只震慑男性，指定女性无效'
 });
 
 /* ============================================================
-   B-5 连续普通攻击 — 张苞「父子将风」
+   B-5 连续普通攻击 — 载体：**合成卡**（原载体张苞「父子将风」在 ADR-169 随重做撤下）
    ============================================================ */
 
+/* 张苞在 ADR-169 重做为 8 费「折箭相援」（与关兴互拉），旧「父子将风」撤下 →
+   `attack_each` 目前**池内 0 张卡在用**，但引擎仍实现 ⇒ 用合成卡保留覆盖
+   （与 `modes` 的处理一致：机制不删，覆盖不丢）。身材照抄旧张苞 4/4/3，故断言里的数值全部不变。 */
+const ATTACK_EACH_CARRIER: CardDef = {
+  id: 'test_attack_each_carrier', name: '连打载体', faction: 'shu', type: 'general',
+  cost: 4, attack: 4, health: 3, keywords: [], memo: '',
+  skills: [{
+    id: 'lian_da', name: '连打', kind: 'trigger', trigger: 'on_play',
+    effects: [{
+      action: 'attack_each',
+      target: { side: 'enemy', filter: { type: 'character', attack_below_source: true }, count: 'all' },
+    }],
+  }],
+} as unknown as CardDef;
+TEST_CARDS.push(ATTACK_EACH_CARRIER);
+
 test('B-5 连续普攻：每个「攻 < 自己」的敌人各吃一次**真正的普攻**（含反击）', () => {
-  realCard('shu_zhangbao');
-  const { state, ctx } = scenario({ ownHand: ['shu_zhangbao'] });
-  // 张苞卡面 4 攻 3 血；两个 2 攻 5 血的敌人 → 都吃 4 点，各自反击 2 点
+  const { state, ctx } = scenario({ ownHand: ['test_attack_each_carrier'] });
+  // 载体卡面 4 攻 3 血；两个 2 攻 5 血的敌人 → 都吃 4 点，各自反击 2 点
   const e0 = mk('e0', 2, 5);
   const e1 = mk('e1', 2, 4);          // 4 血 → 吃 4 点正好阵亡
-  const e2 = mk('e2', 4, 5);          // 攻 = 4，**不**小于张苞 → 不该被打
+  const e2 = mk('e2', 4, 5);          // 攻 = 4，**不**小于载体 → 不该被打
   setUnit(state, 'enemy', 'front', 0, e0);
   setUnit(state, 'enemy', 'front', 1, e1);
   setUnit(state, 'enemy', 'front', 2, e2);
@@ -192,24 +207,23 @@ test('B-5 连续普攻：每个「攻 < 自己」的敌人各吃一次**真正�
   assert.equal(getUnit(r.state, 'enemy', 'front', 1), null, '目标 1 应被 4 点击杀（4 血）');
   assert.equal(getUnit(r.state, 'enemy', 'front', 2)!.hp, 5, '攻 >= 自己的敌人不该被选中');
 
-  // 反击：两次普攻各吃 2 点 → 张苞 3 - 4 < 0 → 阵亡
-  assert.equal(getUnit(r.state, 'own', 'front', 5), null, '张苞应被两次反击打死');
+  // 反击：两次普攻各吃 2 点 → 载体 3 - 4 < 0 → 阵亡
+  assert.equal(getUnit(r.state, 'own', 'front', 5), null, '载体应被两次反击打死');
   assert.equal(r.events.filter((e) => e.type === 'ATTACK_DECLARED').length, 2, '应声明两次攻击');
 });
 
-test('B-5 连续普攻：张苞中途阵亡则立即停手，剩余目标一点伤害都不吃', () => {
-  realCard('shu_zhangbao');
-  const { state, ctx } = scenario({ ownHand: ['shu_zhangbao'] });
-  const e0 = mk('e0', 3, 9);          // 反击 3 → 张苞（3 血）第一次普攻后就被打死
+test('B-5 连续普攻：载体中途阵亡则立即停手，剩余目标一点伤害都不吃', () => {
+  const { state, ctx } = scenario({ ownHand: ['test_attack_each_carrier'] });
+  const e0 = mk('e0', 3, 9);          // 反击 3 → 载体（3 血）第一次普攻后就被打死
   const e1 = mk('e1', 1, 9);
   setUnit(state, 'enemy', 'front', 0, e0);
   setUnit(state, 'enemy', 'front', 1, e1);
 
   const r = applyAction(state, ctx, { type: 'PLAY_CARD', cardIndex: 0, row: 'front', col: 5 });
   assert.ok(r.ok, `打出应成功：${r.error}`);
-  assert.equal(getUnit(r.state, 'own', 'front', 5), null, '张苞应在第一次普攻后阵亡');
+  assert.equal(getUnit(r.state, 'own', 'front', 5), null, '载体应在第一次普攻后阵亡');
   assert.equal(getUnit(r.state, 'enemy', 'front', 0)!.hp, 9 - 4, '第一个目标应吃到伤害');
-  assert.equal(getUnit(r.state, 'enemy', 'front', 1)!.hp, 9, '张苞已阵亡 → 第二个目标不该再被打');
+  assert.equal(getUnit(r.state, 'enemy', 'front', 1)!.hp, 9, '载体已阵亡 → 第二个目标不该再被打');
   assert.equal(r.events.filter((e) => e.type === 'ATTACK_DECLARED').length, 1, '只应声明一次攻击');
 });
 
@@ -652,12 +666,12 @@ test('ADR-072：没杀死就不该触发击杀分支', () => {
   assert.equal(r.state.sides.enemy.lord.hp, lordBefore, '没杀死 → 主将也不掉血');
 });
 
-test('ADR-072：关兴击杀后获得额外行动（extra_attack 真的重置了攻击次数）', () => {
-  const guanCard = realCard('shu_guanxing');
-  // 「额外行动」是 50% 概率；删掉 chance 让它必中 —— 被测的是"击杀条件有没有被满足"
-  for (const sk of guanCard.skills ?? []) for (const e of sk.effects ?? []) delete e.chance;
-
-  const { state, ctx } = scenario({ own: { front: ['shu_guanxing'] } });
+test('ADR-072：击杀后获得额外行动（载体换成豹骑营「豹袭」；extra_attack 真的重置了攻击次数）', () => {
+  realCard('wei_hubaoki_bao');
+  /* 载体说明：原载体关兴「额外行动」在 ADR-169 随重做撤下；`extra_attack` 仍有卡在用
+     （豹骑营「豹袭」、东吴精骑「激励」），其中豹骑营的额外攻击**同样带 `condition: event: killed`**
+     —— 与被测的"击杀条件有没有被满足"完全同构，故换它保留覆盖（且不再需要删 chance）。 */
+  const { state, ctx } = scenario({ own: { front: ['wei_hubaoki_bao'] } });
   const atk = getUnit(state, 'own', 'front', 0)!.atk;
   setUnit(state, 'enemy', 'front', 0, mk('victim', 1, atk));   // 正好被打死
   setUnit(state, 'enemy', 'front', 1, mk('bystander', 1, 30));
@@ -666,10 +680,9 @@ test('ADR-072：关兴击杀后获得额外行动（extra_attack 真的重置了
     type: 'ATTACK', from: { row: 'front', col: 0 }, to: { kind: 'unit', row: 'front', col: 0 },
   });
   assert.ok(r.ok, `攻击应成功：${r.error}`);
-  const guan = getUnit(r.state, 'own', 'front', 0)!;
   assert.ok(r.events.some((e) => e.type === 'EXTRA_ATTACK'),
-    '击杀后应触发额外行动（原先击杀条件永假 → 事件根本不会出现）');
-  assert.equal(guan.attackedThisTurn, 0, 'extra_attack 应把本回合攻击次数重置为 0');
+    '击杀后应触发额外行动（击杀条件不满足时事件根本不会出现）');
+  assert.equal(getUnit(r.state, 'own', 'front', 0)!.attackedThisTurn, 0, 'extra_attack 应把本回合攻击次数重置为 0');
 });
 
 test('ADR-072：攻击者被反击打死时，不再拿击杀奖励', () => {

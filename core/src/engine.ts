@@ -190,13 +190,35 @@ function chooseDiscover(
     // 发现的拥有方仍然是 pending.side，但不能要求它恰好是当前回合方，
     // 否则对方回合触发的发现会永远无法选择，且会卡住后续结算。
     if (!pending || !pending.candidates.includes(action.cardId)) return false;
-  const index = state.sides[pending.side].deck.indexOf(action.cardId);
-  if (index < 0) return false;
-  const [id] = state.sides[pending.side].deck.splice(index, 1);
+  // ADR-178：池来源的候选**不在牌库**里，只有牌库来源才切除
+  let id = action.cardId;
+  if (!pending.fromPool) {
+    const index = state.sides[pending.side].deck.indexOf(action.cardId);
+    if (index < 0) return false;
+    [id] = state.sides[pending.side].deck.splice(index, 1);
+  }
   const card = ctx.cards.get(id);
   if (!card) return false;
-  delete state.pendingDiscover;
   events.push({ type: 'CARD_DISCOVERED', side: pending.side, card, costModifier: pending.costModifier, destination: pending.destination ?? 'hand' });
+
+  // ADR-178：多选 —— 还有额度时保持挂起，本张先入手牌，不跑抽牌触发/续结算
+  const picks = pending.picks ?? 1;
+  if (picks > 1) {
+    state.sides[pending.side].hand.push({
+      card,
+      mods: pending.costModifier ? [{ id: 'discover', kind: 'cost', value: pending.costModifier }] : [],
+    });
+    pending.picks = picks - 1;
+    pending.candidates = pending.candidates.filter((x) => x !== id);
+    recomputeAuras(state, ctx.cards, rng, events);
+    return true;
+  }
+
+  delete state.pendingDiscover;
+  // ADR-178：选完后剩余候选的去向 —— `rest: 'deck'` 且候选来自池（牌库来源的本就在牌库里）
+  if (pending.rest === 'deck' && pending.fromPool) {
+    for (const rest of pending.candidates) if (rest !== id) state.sides[pending.side].deck.push(rest);
+  }
   // 发现到带“抽到时”技能的牌时，沿用抽牌触发规则；例如曹休会立即召唤。
   const auto = resolveDrawTrigger(state, ctx.cards, pending.side, card, events, rng);
   if (auto) {

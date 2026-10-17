@@ -82,8 +82,8 @@ const casts = (events: GameEvent[]) =>
    一、数据形态
    ============================================================ */
 
-test('庞统 数据：6 费 1/5 精英；战吼 cast_random 三张计策 + 亡语抽 2', () => {
-  assert.equal(`${PT.cost}费 ${PT.attack}/${PT.health}`, '6费 1/5');
+test('庞统 数据：7 费 1/5 精英；战吼 cast_random 三张计策 + 亡语抽 2', () => {
+  assert.equal(`${PT.cost}费 ${PT.attack}/${PT.health}`, '7费 1/5');
   assert.equal(PT.rarity, 'elite');
   const [lh, fz] = PT.skills ?? [];
   assert.equal(lh!.trigger, 'on_play');
