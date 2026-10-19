@@ -123,7 +123,10 @@ function unitSkillState(st, side, row, col, skillId) {
   // 保留技能 ID，点击卡面上的额外战技按钮时必须用它精确定位技能。
   // 之前只返回名称/可用状态，onUnitSkillClick 按 `skill.id` 查找时拿到
   // undefined，导致所有主动战技都被静默跳过。
-  return { id: sk.id, name: sk.name, usable: can.ok, why: can.reason || '' };
+  return {
+    id: sk.id, name: sk.name, usable: can.ok, why: can.reason || '',
+    modes: (sk.modes || []).map(function (m, i) { return m.name || ('选项 ' + (i + 1)); }),
+  };
 }
 
 /* ---------- 视图适配 ---------- */
@@ -575,7 +578,7 @@ function bindBoardClick() {
 
 /** 目标高亮复位（ADR-088 修订）：红框（可选）/ 灰（不可选）都要清干净 */
 function clearTargetMarks() {
-  $all('.unit-wrap.is-target, .unit-wrap.is-notarget').forEach(function (el) {
+  $all('.unit-wrap.is-target, .unit-wrap.is-notarget, .slot.is-target').forEach(function (el) {
     el.classList.remove('is-target', 'is-notarget', 'is-ally');
   });
   ['own', 'enemy'].forEach(function (sd) {
@@ -627,7 +630,7 @@ function renderLanes(st) {
     var el = t.kind === 'lord' ? lordEl(t.side)
       : (function () {
           var slot = document.querySelector('.row[data-side="' + t.side + '"][data-row="' + t.row + '"] .slot[data-col="' + t.col + '"]');
-          return slot && slot.querySelector('.unit-wrap');
+          return t.kind === 'slot' ? slot : (slot && slot.querySelector('.unit-wrap'));
         })();
     if (!el) return;
     markTarget(el, t);
@@ -1102,6 +1105,12 @@ function trySkillTargeting(row, col) {
     return true;                            // 消费这次点击，别让它变成"选中/普攻"
   }
   var plan = Core.unitSkillTargetPlan(st, 'own', row, col);
+  // 有多个模式的主动技（如陆逊「火烧连营」）必须先选择分支，
+  // 不能因为默认分支没有目标就直接按 modeIndex=0 释放。
+  if (skill.modes && skill.modes.length > 1) {
+    onUnitSkillClick(row, col, skill);
+    return true;
+  }
   // ⚠️ ADR-145：**不需要目标的主动技**（`plan.choices` 为空，如杨仪「筹度粮谷」）要**直接释放**。
   //    原先这里一律 `return false`，于是这类技能"点了没反应"：轻点会落回"选中该单位准备攻击"，
   //    而刚入场的单位本回合又不能攻击 —— 玩家看到的就是"技能没生效、牌也没抽"。
@@ -1577,8 +1586,12 @@ function advancePlay() {
     var step = pp.plan.choices[pp.idx];
     var stepNo = '（第 ' + (pp.idx + 1) + '/' + pp.plan.choices.length + ' 步）';
     if (step.zone === 'hand') {
+      if (step.handIndices && !step.handIndices.length) { pp.idx++; continue; }
       pendingSkill = { handPick: true, playWalk: true };
-      $all('.hcard-wrap').forEach(function (el) { el.classList.add('is-target'); });
+      $all('.hcard-wrap').forEach(function (el) {
+        var index = Number(el.dataset.cardIndex);
+        el.classList.toggle('is-target', index !== pp.cardIndex && (!step.handIndices || step.handIndices.indexOf(index) >= 0));
+      });
       var hc0 = session.state.sides.own.hand[pp.cardIndex];
       showDetail('选择手牌' + stepNo, (hc0 ? hc0.card.name : '这张牌') + '：请选择' + step.label,
         '点一张高亮的手牌' + (step.action === 'discard' ? '弃掉它' : '选它') + '　·　空白处或 Esc 取消');
@@ -1769,12 +1782,13 @@ function onBoardClick(ev) {
    与战吼共用同一套"按 plan.choices 逐步问"的思路（`pendingPlay` 那套），
    区别是这里的主语是**场上单位 + 技能**，而且**手牌步骤**要进"点手牌"模式（不出箭头）。
    两步的选择最终一次性提交：`USE_SKILL { target, handIndex }` —— 动作协议早就支持这两个字段。 */
-var skillWalk = null;   // { row, col, skillId, skillName, plan, idx, handIndex, pick }
+var skillWalk = null;   // { row, col, skillId, skillName, modeIndex, plan, idx, handIndex, pick }
 
-function beginSkillWalk(row, col, def, plan) {
+function beginSkillWalk(row, col, def, plan, modeIndex) {
   skillWalk = {
     row: row, col: col, skillId: def.id, skillName: def.name,
-    plan: plan, idx: 0, handIndex: undefined, pick: undefined,
+    modeIndex: modeIndex,
+    plan: plan, idx: 0, handIndex: undefined, pick: undefined, pick2: undefined,
   };
   advanceSkillWalk();
 }
@@ -1787,14 +1801,16 @@ function advanceSkillWalk() {
     var step = w.plan.choices[w.idx];
     var stepNo = '（第 ' + (w.idx + 1) + '/' + total + ' 步）';
     if (step.zone === 'hand') {
-      if (!session.state.sides.own.hand.length) {
-        showDetail('无法继续', w.skillName, '手牌为空，没有可以弃掉的牌');
+      if (!session.state.sides.own.hand.length || (step.handIndices && !step.handIndices.length)) {
+        showDetail('无法继续', w.skillName, '手牌中没有符合条件的牌');
         cancelSkillWalk();
         return;
       }
       // 手牌步骤：高亮手牌、**不出箭头**，也不走 beginTargetPick（那条路只认场上目标）
       pendingSkill = { handPick: true, skillWalk: true };
-      $all('.hcard-wrap').forEach(function (el) { el.classList.add('is-target'); });
+      $all('.hcard-wrap').forEach(function (el) {
+        el.classList.toggle('is-target', !step.handIndices || step.handIndices.indexOf(Number(el.dataset.cardIndex)) >= 0);
+      });
       var hint = step.action === 'discard' ? '弃掉它（回血量＝它的统率值）' : '选它';
       showDetail('选择手牌' + stepNo, w.skillName + '：请选择' + step.label,
         '点一张高亮的手牌' + hint + '　·　点空白处取消');
@@ -1802,7 +1818,9 @@ function advanceSkillWalk() {
     }
     if (step.targets.length) {
       beginTargetPick(step.targets, function (t) {
-        w.pick = { side: t.side, row: t.row, col: t.col };
+        var picked = { side: t.side, row: t.row, col: t.col };
+        if (step.pick === 2) w.pick2 = picked;
+        else w.pick = picked;
         w.idx += 1;
         advanceSkillWalk();
       }, {
@@ -1824,7 +1842,9 @@ function finishSkillWalk() {
   clearMarks();
   if (!w) return;
   var action = { type: 'USE_SKILL', row: w.row, col: w.col, skillId: w.skillId };
+  if (w.modeIndex !== undefined) action.modeIndex = w.modeIndex;
   if (w.pick) action.target = w.pick;
+  if (w.pick2) action.target2 = w.pick2;
   if (typeof w.handIndex === 'number') action.handIndex = w.handIndex;
   doAction(action);
 }
@@ -1837,7 +1857,7 @@ function cancelSkillWalk() {
   return true;
 }
 
-function onUnitSkillClick(row, col, skill) {
+function onUnitSkillClick(row, col, skill, modeIndex) {
   if (session.state.winner) return;
   if (busy) skipAnimation();
   var st = session.state;
@@ -1847,13 +1867,19 @@ function onUnitSkillClick(row, col, skill) {
   var u = st.sides.own.rows[row][col];
   var def = (u.skills || []).filter(function (x) { return x.kind === 'active' && (!skill || x.id === skill.id); })[0];
   if (!def) return;
+  if (modeIndex === undefined && def.modes && def.modes.length > 1) {
+    showModePicker(u, def.modes.map(function (m, i) { return m.name || ('选项 ' + (i + 1)); }), function (mi) {
+      onUnitSkillClick(row, col, skill, mi);
+    });
+    return;
+  }
   // ⚠️ 目标集一律由 core 给（ADR-077）：原先这里自己按 selector.side 枚举"该方所有单位"，
   //    **完全忽略 filter** —— 貂蝉（只认男性）、陆抗（排除自己）这类技能会高亮一堆非法目标，
   //    点了之后引擎又退回兜底目标，表现为"指向性技能的选择逻辑有问题，有些又没问题"。
-  var plan = Core.unitSkillTargetPlan(st, 'own', row, col, 0, def.id);
+  var plan = Core.unitSkillTargetPlan(st, 'own', row, col, modeIndex, def.id);
   // 多步（或首步就是手牌）→ 交给 walker 逐步问（ADR-146）
   if (plan.choices.length > 1 || (plan.choices[0] && plan.choices[0].zone === 'hand')) {
-    beginSkillWalk(row, col, def, plan);
+    beginSkillWalk(row, col, def, plan, modeIndex);
     return;
   }
   var choice = plan.choices[0];
@@ -1864,6 +1890,7 @@ function onUnitSkillClick(row, col, skill) {
     }
     beginTargetPick(choice.targets, function (t) {
       doAction({ type: 'USE_SKILL', row: row, col: col, skillId: def.id,
+        ...(modeIndex !== undefined ? { modeIndex: modeIndex } : {}),
         target: { side: t.side, row: t.row, col: t.col } });
     }, {
       title: '选择目标',
@@ -1872,7 +1899,8 @@ function onUnitSkillClick(row, col, skill) {
     });
     return;
   }
-  doAction({ type: 'USE_SKILL', row: row, col: col, skillId: def.id });
+  doAction({ type: 'USE_SKILL', row: row, col: col, skillId: def.id,
+    ...(modeIndex !== undefined ? { modeIndex: modeIndex } : {}) });
 }
 
 /** 取一段技能的可读文案（详情面板里用；没有 text 就退回"动作列表"） */
@@ -1910,7 +1938,8 @@ function highlightPickTargets() {
     var el = t.kind === 'lord' ? lordEl(t.side)
       : (function () {
           var slot = document.querySelector('.row[data-side="' + t.side + '"][data-row="' + t.row + '"] .slot[data-col="' + t.col + '"]');
-          return slot && slot.querySelector('.unit-wrap');
+          // 空位目标（张郃「巧变」）没有 unit-wrap，直接高亮格子本身。
+          return slot && (t.kind === 'slot' ? slot : slot.querySelector('.unit-wrap'));
         })();
     if (!el) return;
     markTarget(el, t);
@@ -1939,6 +1968,7 @@ function onHandPick(index) {
   if (pendingPlay) {
     var pstep = pendingPlay.plan.choices[pendingPlay.idx];
     if (!pstep || pstep.zone !== 'hand') return false;
+    if (index === pendingPlay.cardIndex || (pstep.handIndices && pstep.handIndices.indexOf(index) < 0)) return true;
     pendingPlay.handIndex = index;
     pendingPlay.idx += 1;
     pendingSkill = null;
@@ -1950,6 +1980,7 @@ function onHandPick(index) {
   if (skillWalk) {
     var step = skillWalk.plan.choices[skillWalk.idx];
     if (!step || step.zone !== 'hand') return false;
+    if (step.handIndices && step.handIndices.indexOf(index) < 0) return true;
     skillWalk.handIndex = index;
     skillWalk.idx += 1;
     pendingSkill = null;
@@ -2607,8 +2638,11 @@ function setupPendingHandChoice() {
     var idx = Number(el.getAttribute('data-card-index'));
     if (!allowed.length || allowed.indexOf(idx) >= 0) el.classList.add('is-target');
   });
-  var whereText = phc.kind === 'deck_top' ? '顶部' : phc.kind === 'discard' ? '弃牌堆' : '底部';
-  showDetail('选择手牌', '挑一张放回牌库' + whereText, '点高亮的手牌 · 「筹度粮谷」：抽两张，选一张留在手里');
+  var instruction = phc.kind === 'tactic_pair' ? '弃置一张战法，按费用随机获得两张战法'
+    : phc.kind === 'discard' ? '选择一张牌弃置'
+    : phc.kind === 'random' ? '选择一张牌放回牌库随机位置'
+    : '选择一张牌放回牌库' + (phc.kind === 'deck_top' ? '顶部' : '底部');
+  showDetail('选择手牌', instruction, '点击高亮的手牌继续结算');
 }
 
 function skipAnimation() {

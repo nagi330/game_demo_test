@@ -89,6 +89,15 @@
   max_stacks: 3
   memo: "司马懿未行动时积累，行动造成伤害后转为范围伤害"
 
+- id: bu_qu
+  name: 不屈
+  kind: buff
+  numeric: true
+  scope: character
+  duration: until_consumed
+  replenish_on_full_health: true
+  memo: "受到致命伤害时消耗一层并保留1点生命；恢复满血后补回一层"
+
 # ---------- 减益 ----------
 
 - id: zhen_she
@@ -396,6 +405,43 @@
   duration: permanent
   memo: "水攻伤害 +N"
 
+- id: fire_gong_bonus
+  name: 火攻强化
+  kind: buff
+  numeric: true
+  scope: character
+  timing: 13
+  duration: permanent
+  memo: "直接火攻伤害 +N"
+
+- id: yin_huo
+  name: 引火
+  kind: debuff
+  numeric: false
+  scope: character
+  timing: 20
+  duration: permanent
+  memo: "陆逊火烧连营的引火标记"
+
+- id: jiao_kuang
+  name: 骄狂
+  kind: buff
+  numeric: true
+  scope: character
+  timing: 20
+  duration: permanent
+  memo: "诸葛恪回合结束时按层数弃牌并发动乱击"
+
+- id: zi_liang
+  name: 资粮
+  kind: buff
+  numeric: true
+  scope: character
+  timing: 8
+  duration: permanent
+  max_stacks: 3
+  memo: "鲁肃仗义疏财的可用次数"
+
 - id: teng_jia
   name: 藤甲
   kind: buff
@@ -436,3 +482,71 @@
   caps: [damage_on_action, stage_up]
   stack_mode: max       # 层数＝阶段：重复施加取较大者、不降级（连续施加反而削弱是反直觉的）
   memo: "**层数＝阶段**（卡面徽章上的数字就是阶段）。① 只有**主动行动**（普攻/主动技）才受水伤：2^(阶段-1) → 阶段 1/2/3/4 = 1/2/4/8，**无上限**；**不行动则完全不受伤** ② 阶段在该方回合结束时 +1（施加当回合为阶段 1）③ **永久**，直到被净化 ④ 重复施加取较大者（ADR-132 重做：删去回合末水伤与回合上限）"
+
+- id: he_bing_target
+  name: 合兵目标
+  kind: debuff
+  numeric: false
+  scope: character
+  timing: 8
+  duration: this_turn
+  memo: "李典本回合强化己方武将对该目标的普通攻击"
+
+- id: si_zhan
+  name: 死战
+  kind: buff
+  numeric: false
+  scope: character
+  timing: 8
+  duration: permanent
+  caps: [immune_debuff, immune_control]
+  memo: "庞德锁定死敌后免疫行动控制"
+
+- id: yin_cheng
+  name: 因敌制变
+  kind: buff
+  numeric: false
+  scope: character
+  timing: 8
+  duration: permanent
+  caps: [reduce_troop_damage, thorns_machine]
+  memo: "受到兵种伤害减免，受到军械伤害后反伤军械"
+
+- id: jiang_fang
+  name: 江防
+  kind: buff
+  numeric: false
+  scope: character
+  timing: 8
+  duration: permanent
+  caps: [immune_water_damage]
+  memo: "己方单位免疫水攻伤害"
+
+- id: fire_gong_ready
+  name: 火攻准备
+  kind: buff
+  numeric: true
+  scope: character
+  timing: 8
+  duration: until_consumed
+  memo: "下一次直接火攻伤害增加3点"
+
+- id: yi_dao_qian_zhi
+  name: 夷道牵制
+  kind: debuff
+  numeric: false
+  scope: character
+  timing: 8
+  duration: permanent
+  caps: [block_action]
+  memo: "孙桓与指定敌将互相牵制；任一方阵亡时解除"
+
+- id: wei_cheng_suo
+  name: 围城封锁
+  kind: debuff
+  numeric: false
+  scope: lord
+  timing: 8
+  duration: until_enemy_turn_end
+  caps: [block_summon]
+  memo: "下个敌方回合不能召唤武将和兵种"

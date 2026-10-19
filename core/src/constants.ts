@@ -112,6 +112,7 @@ export const TAGS: Record<string, { name: string; note: string }> = {
   // ⚠️ 旧的 `shi_zu`（士族）**已作废删除**：它是早期设计，与袁氏体系重复且没有别的门阀在用。
   yuan_shi:  { name: '袁氏', note: '袁绍体系：袁绍、士族兵（袁术待入库）' },
   cao_clan:  { name: '曹氏宗亲', note: '曹操宗族人物：曹昂、曹休、曹彰、曹仁、曹丕等' },
+  sun_clan:  { name: '孙氏宗亲', note: '孙氏宗亲人物：孙坚、孙策、孙尚香、孙翊及其后继者' },
 };
 
 export const FORBIDDEN_KEYWORD_COMBOS: string[][] = [
@@ -126,10 +127,12 @@ export const FORBIDDEN_KEYWORD_COMBOS: string[][] = [
 export type StatusCap =
   | 'block_attack'      // 不能普通攻击
   | 'block_skill'       // 不能使用主动技
+  | 'block_summon'      // 不能召唤武将和兵种
   | 'block_action'      // 完全无法行动（攻击与技能都封）
   | 'untargetable'      // 不能被指定为目标（含攻击与效果）
   | 'random_target'     // 攻击与技能的目标在**全场**随机（混乱）
   | 'immune_debuff'     // 免疫负面状态（负面 debuff 施加无效）
+  | 'immune_control'    // 免疫震慑、禁锢、无法攻击等行动控制
   | 'immune_damage'     // 免疫伤害（一次性，触发后消耗）
   | 'immune_all_damage' // 当前回合免疫所有伤害，不消耗
   | 'redirect_damage'   // 伤害重定向：伤害转由状态的 srcUid 承受（ADR-039）
@@ -139,6 +142,7 @@ export type StatusCap =
   | 'duel_lock'          // 单挑锁定：不可被第三方选中（许褚，ADR-041）
   | 'mark_damage'        // 被标记：受到伤害时触发标记者的联动（法正，ADR-041）
   | 'water_damage'       // 水攻伤害加成
+  | 'fire_damage'        // 直接火攻伤害加成
   | 'water_convert'      // 将来源的物理/无属性伤害转为水攻
   | 'attack_zero'        // 攻击力固定为 0
   | 'future_summon'      // 后续召唤的单位获得预设强化
@@ -151,6 +155,9 @@ export type StatusCap =
   | 'reduce_physical'    // 受到普通/无属性伤害时 −N（最低 0）
   | 'vulnerable_fire'    // 受到火属性伤害时 +N
   | 'thorns'             // 本次实际受伤后，伤害来源反弹 N 点
+  | 'reduce_troop_damage' // 受到兵种伤害 −N
+  | 'thorns_machine'     // 受到军械伤害后反伤军械 N 点
+  | 'immune_water_damage' // 免疫水攻伤害
   // 水困（ADR-116/132）：火惩罚「存在」（每回合掉血），水惩罚「行动」（动就掉血）。
   // 这一条是行动税的实现载体 —— 引擎在 attack() / useUnitSkill() 两处检查。
   // 扣血量 = `2^(阶段-1)`（阶段 = 该状态层数），故读的是**每个状态自己的层数**。
@@ -193,6 +200,8 @@ export interface StatusDef {
    * 只影响 `numeric: true` 的状态；标志型（numeric: false）本就只判"存在与否"。
    */
   stack_mode?: 'add' | 'max';
+  /** 满血治疗后补回一层的充能状态（如周泰「不屈」）。 */
+  replenish_on_full_health?: boolean;
   /**
    * 守护范围（ADR-071）：只有这个状态挂在**谁**身上、以及它拦截**谁**的伤害。
    *   · 'any'（默认）—— `shou_hu`：被守护者受到的伤害都转给 srcUid（陈宫「忠烈」）
@@ -249,6 +258,20 @@ export const STATUSES: Record<string, StatusDef> = {
   jin_gong:   { name: '无法攻击', kind: 'debuff', numeric: false, duration: 'turns',
                 caps: ['block_attack'],
                 note: '本回合不能普通攻击' },
+  wei_cheng_suo: { name: '围城封锁', kind: 'debuff', numeric: false, duration: 'until_enemy_turn_end', scope: 'lord',
+                caps: ['block_summon'], note: '下个敌方回合不能召唤武将和兵种' },
+  yi_dao_qian_zhi: { name: '夷道牵制', kind: 'debuff', numeric: false, duration: 'permanent',
+                caps: ['block_action'], note: '与孙桓互相牵制，任一方阵亡时解除' },
+  he_bing_target: { name: '合兵目标', kind: 'debuff', numeric: false, duration: 'this_turn',
+                note: '李典本回合强化己方武将对该目标的普通攻击' },
+  si_zhan: { name: '死战', kind: 'buff', numeric: false, duration: 'permanent',
+                caps: ['immune_debuff', 'immune_control'], note: '庞德锁定死敌后免疫行动控制' },
+  yin_cheng: { name: '因敌制变', kind: 'buff', numeric: false, duration: 'permanent',
+                caps: ['reduce_troop_damage', 'thorns_machine'], note: '郝昭针对兵种和军械的守城防御' },
+  jiang_fang: { name: '江防', kind: 'buff', numeric: false, duration: 'permanent',
+                caps: ['immune_water_damage'], note: '己方单位免疫水攻伤害' },
+  fire_gong_ready: { name: '火攻准备', kind: 'buff', numeric: true, duration: 'until_consumed',
+                note: '下一次直接火攻伤害增加3点' },
   zhuran_skill_lock: { name: '截江封技', kind: 'debuff', numeric: false, duration: 'until_enemy_turn_end',
                 caps: ['block_skill'], note: '战技被封锁至敌方下个回合结束' },
   zhuran_lord_lock: { name: '截江封主公技', kind: 'debuff', numeric: false, duration: 'until_enemy_turn_end', scope: 'lord',
@@ -266,6 +289,14 @@ export const STATUSES: Record<string, StatusDef> = {
                 caps: ['die_at_turn_end'], note: '本回合结束时阵亡' },
   shui_gong_bonus: { name: '水攻强化', kind: 'buff', numeric: true, duration: 'permanent',
                 caps: ['water_damage'], note: '水攻伤害 +N' },
+  fire_gong_bonus: { name: '火攻强化', kind: 'buff', numeric: true, duration: 'permanent',
+                caps: ['fire_damage'], note: '直接火攻伤害 +N' },
+  yin_huo:      { name: '引火', kind: 'debuff', numeric: false, duration: 'permanent',
+                note: '陆逊火烧连营的引火标记' },
+  jiao_kuang:   { name: '骄狂', kind: 'buff', numeric: true, duration: 'permanent',
+                note: '诸葛恪回合结束时按层数弃牌并发动乱击' },
+  zi_liang:     { name: '资粮', kind: 'buff', numeric: true, duration: 'permanent', max_stacks: 3,
+                note: '鲁肃仗义疏财的可用次数' },
   teng_jia:   { name: '藤甲', kind: 'buff', numeric: true, duration: 'permanent',
                 caps: ['reduce_physical', 'vulnerable_fire'],
                 note: '受到普通/无属性伤害 −N（最低 0），受到火属性伤害 +N（ADR-108；ADR-110 删反伤层）' },
@@ -274,6 +305,8 @@ export const STATUSES: Record<string, StatusDef> = {
                 note: '受到**普通攻击**并实际受伤后，对攻击者额外造成 N 点伤害（与自动反击分开结算；技能伤害不触发）。ADR-110 释放的 thorns cap 的首个使用者' },
   xu_mou:     { name: '蓄谋', kind: 'buff', numeric: true, duration: 'permanent', max_stacks: 3,
                 note: '司马懿未行动时积累；行动并造成伤害后转为范围伤害' },
+  bu_qu:      { name: '不屈', kind: 'buff', numeric: true, duration: 'until_consumed',
+                replenish_on_full_health: true, note: '受到致命伤害时消耗一层并保留1点生命；恢复满血后补回一层' },
   shui_kun:   { name: '水困', kind: 'debuff', numeric: true, duration: 'permanent',
                 caps: ['damage_on_action', 'stage_up'], stack_mode: 'max',
                 note: '**层数＝阶段**（徽章上的数字就是阶段）。① 只有**主动行动**（普攻/主动技）才受水伤，数值 = 2^(阶段-1)：阶段 1/2/3/4 → 1/2/4/8，**无上限**；不行动则完全不受伤 ② 阶段在该方**回合结束时 +1**（施加当回合为阶段 1）③ **永久**，直到被净化；重复施加取较大者、不降级。见 GDD 10 §3.2.2（ADR-116/132）' },
@@ -332,12 +365,17 @@ export const ACTIONS = [
   'roll',          // 生成可供后续 condition.roll 读取的确定性概率结果
   'mill',          // 弃掉目标方牌库的 N 张牌（ADR-074，司马懿「谋定后动」②）
   'discover',      // 从牌库随机展示候选牌并由玩家选择（曹丕）
+  'discover_tactic_pair', // 弃置一张战法后按其费用随机获得两张指定阵营可构筑战法（曹冲）
   'send_hand_to_deck', // 把一张手牌放回牌库顶/底/随机位置，**不抽牌**（ADR-139，杨仪「筹度粮谷」）
   'self_to_hand',      // 阵亡后把手牌重建出来（ADR-141，孟获「蛮王」——亡语作用于**阵亡单位自身**）
   'defect_to_deck',    // 叛变：阵亡后换成另一张卡进对手牌库随机位置（ADR-174，糜芳「叛迎」）
   'deploy_from_hand',  // 手牌 → 场上（免费，按 card_id 精准搬牌；ADR-149，诸葛瞻/诸葛尚「同赴」）
+  'discard_status_count', // 按状态层数弃牌，不足时铣牌库
   'override_rule',     // 覆盖**无状态**的规则档位（ADR-150，木鹿大王「象兵统领」抬概率）
   'override_status',   // 覆盖目标身上某状态的若干档位（ADR-142，兀突骨「藤甲统率」）
+  'summon_random',     // 从候选列表随机召唤一个单位
+  'reveal_hand',       // 观察对手手牌中的指定费用牌（孙韶）
+  'chain_damage',      // 从起火点沿相邻站位向外传播伤害（陆逊）
   'grant_hand',    // 强化一张手牌
   'replace_lord',  // 清除指定标签并替换主公
 ] as const;

@@ -35,7 +35,7 @@ export interface EffectCondition {
   exists?: TargetSelector;                                   // 该集合非空
   count?: { selector: TargetSelector; op: CompareOp; value: number };   // 数量与定值比
   count_vs?: { left: TargetSelector; right: TargetSelector; op: CompareOp };  // 两集合互比
-  event?: 'killed' | 'clash_won' | 'clash_lost' | 'damaged'; // 本次结算中的事件
+  event?: 'killed' | 'clash_won' | 'clash_lost' | 'damaged' | 'sacrificed'; // 本次结算中的事件
   roll?: string;                                           // 本组效果中的随机结果标识
   source_status?: string;                                  // 来源单位具有指定状态
   /** 所选目标属于哪一方（陈宫「忠烈」：选敌将 vs 选友将走不同分支，ADR-069） */
@@ -89,6 +89,12 @@ export interface EffectCondition {
   lord_full_hp?: { side: 'self' | 'enemy'; value: boolean };
   /** 双方主公当前生命值比较；self 始终是效果来源方。 */
   lord_hp_vs_enemy?: CompareOp;
+  /** 最近弃置牌的类型（华歆等分支效果）。 */
+  last_discarded_type?: CardType | 'character';
+  /** 所选目标当前生命值比较。 */
+  chosen_health?: { op: CompareOp; value: number };
+  /** 牌库中带指定标签的牌数量条件（司马昭「司马之心」）。 */
+  deck_tag?: { tag: string; op: CompareOp; value: number };
   /** 本次普通攻击的目标类别或固有关键词。 */
   attack_target?: { type?: CardType | 'character' | 'lord'; keyword?: string; damaged?: boolean; has_status?: string };
   /**
@@ -138,6 +144,8 @@ export interface CardEffect {
     /** 允许的阵营（缺省 = 不限） */
     factions?: string[];
   };
+  /** clash 专用：平局不视为失败，不执行胜负分支（周瑜「反间计」） */
+  tie_is_neutral?: boolean;
   from?: 'top' | 'bottom';       // scry 的取牌端
   status_source?: 'self';        // apply_status 时把来源单位记为状态的 srcUid（ADR-039）
   /**
@@ -154,7 +162,11 @@ export interface CardEffect {
   from_drawn?: number;
   value_from_discarded?: 'cost' | 'health';   // 取「最近被弃牌」的属性作为数值（ADR-040）
   value_from_source?: 'attack' | 'health';    // 取来源单位当前攻/血作为数值
+  /** 取最近一次 clash 指定目标在拼点前的攻击力（周瑜「反间计」） */
+  value_from_clash_target?: 'attack';
   value_from_status?: string;                  // 取来源单位身上某状态的层数
+  /** summon 专用：按选择器命中数量决定召唤数量。 */
+  count_from?: TargetSelector;
   damage_type?: DamageType;       // damage 专用：水攻/火攻/毒攻伤害（缺省 physical，见 DamageType）
   /**
    * gain_command 专用（ADR-139，蒋琬「足食」）：**永久提升统率上限**而不只是本回合可用值。
@@ -182,21 +194,48 @@ export interface CardEffect {
   picks?: number;
   /** ADR-178：discover 选完后剩余候选的去向（`'deck'` ＝ 放入牌库） */
   rest?: 'deck';
+  discover_from?: 'deck' | 'pool';
+  /** discover 专用：候选费用必须互不相同。 */
+  discover_distinct_costs?: boolean;
+  /** discover 专用：未被选择的候选放置到牌库顶。 */
+  discover_unselected_to?: 'deck_top';
+  /** discover 专用：选入手牌后本回合禁止打出。 */
+  ban_choice?: boolean;
+  /** 战法费用配对从该阵营的可构筑卡池获取（含公共池）。 */
+  pool_faction?: Faction;
+  /** discover 选择后按牌型附加手牌修正（曹叡「知人善任」）。 */
+  discover_modifiers?: Partial<Record<'general' | 'strategist', {
+    cost?: number;
+    attack?: number;
+    health?: number;
+  }>>;
+  /** discover 选择后按卡牌标签附加手牌修正（曹爽「宗亲辅政」）。 */
+  discover_tag_modifiers?: Record<string, {
+    cost?: number;
+    attack?: number;
+    health?: number;
+  }>;
+  move_bonus?: 'facing_type';
   value_from_flag?: string;                   // 取 flags 中 "<name>:N" 的 N 作为数值（ADR-041）        // apply_status 时把来源单位记为状态的 srcUid（ADR-039）
   attack_from?: TargetSelector;  // 动态取值：攻击 = 该集合数量
   health_from?: TargetSelector;  // 动态取值：生命 = 该集合数量
   value_from?: TargetSelector;   // 动态取值：value = 该集合数量（damage/heal/draw 等通用）
+  /** 按来源单位身上的状态层数决定动作次数（诸葛恪「骄狂」） */
+  count_from_status?: string;
   attack?: number;               // modify 专用：单独修正攻击（ADR-030）
   health?: number;               // modify 专用：单独修正生命上限
   status?: string;
   stacks?: number;
   duration?: string | number;
   unit?: string;                 // summon 的召唤物 id；scry 的 'top' | 'bottom'
+  units?: string[];              // summon_random 的候选召唤物
   count?: number;
   position?: string;
   to?: 'hand' | 'deck_top' | 'deck_bottom' | 'discard' | 'board';   // scry/steal 的落点
   // transform：进化目标卡 id（写在 to 上，与 scry 的落点区分由 action 决定）
   target?: TargetSelector;
+  /** 第二个场上选择，供需要同时指定来源与空位的技能使用（如张郃「巧变」）。 */
+  target2?: TargetSelector;
   /** discard 专用：'choose' 表示由调用方通过 ctx.handIndex 指定弃哪张 */
   mode?: 'choose' | 'random';
   /**
@@ -261,7 +300,7 @@ export interface TargetSelector {
    */
   attack_target?: boolean;
   /** 本次事件里的另一方单位（华雄亡语：使**击杀者**获得 +1/+1，ADR-070） */
-  event?: 'killer' | 'victim' | 'attacker';
+  event?: 'killer' | 'victim' | 'attacker' | 'upgraded';
   lord?: boolean;                // true = 选该方主帅（ADR-036）
   /**
    * 取玩家的第几个选择（ADR-071，程昱「审时度势」需要同时指定「牺牲谁」与「治疗谁」）。
@@ -276,11 +315,13 @@ export interface TargetSelector {
     keyword?: string;
     tag?: string;                  // 归属标签，见 data/tags.yaml（ADR-029）
     faction?: Faction;
+    factions?: Faction[];
     gender?: Gender;               // 性别筛选（ADR-071，貂蝉「祸国倾城」只认男性）
     lane?: number;
     row?: Row;
     health_max?: number;
     damaged?: boolean;          // true=低于生命上限；false=**毫发无伤**（越骑「厉志」用）
+    damaged_or_controlled?: boolean; // 受伤或带行动控制状态（陈泰「援军解围」）
     attacked_this_turn?: boolean;
     acted_this_turn?: boolean;
     cost_max?: number;             // 统帅值上限（绝对，含）
@@ -298,6 +339,9 @@ export interface TargetSelector {
     exclude_source?: boolean;
     include_lord?: boolean;        // 候选池额外纳入该方主将（ADR-051，弓兵射箭「含主将」）
     basic_troop?: boolean;         // 四种可升变的基础兵
+    has_any_status?: string[];     // 至少拥有其中一种状态
+    /** 满足任一简单筛选条件，用于“孙氏宗亲或武将”这类并集目标池。 */
+    any_of?: Array<{ type?: CardType | 'character'; tag?: string; faction?: Faction }>;
   };
   count?: number | 'all';
   mode?: 'choose' | 'random' | 'first' | 'lowest_health' | 'highest_cost';
@@ -317,9 +361,15 @@ export interface SkillDef {
   duration?: 'this_turn';
   chance?: number;               // 技能级概率（免死等，ADR-039）
   target?: TargetSelector;
+  /** 第二个选择器，供需要同时指定来源与空位的主动技使用（如张郃「巧变」）。 */
+  target2?: TargetSelector;
   same_side?: boolean;
   played_rightmost?: boolean;
-  requires?: { deck_tag?: { tag: string; op: CompareOp; value: number } };
+  requires?: {
+    deck_tag?: { tag: string; op: CompareOp; value: number };
+    /** 来源单位发动技能前必须拥有至少指定层数的状态 */
+    status?: { id: string; min?: number };
+  };
   effects?: CardEffect[];
   /**
    * 抉择：同一技能的二选一分支（ADR-071，曹彰「猛袭」）。
@@ -407,6 +457,8 @@ export interface StatusInstance {
   skipTick?: boolean;
   expiresAtHalfTurn?: number;     // 当前行动方回合结束时清除，不按状态拥有方递减
   untilFullHealth?: boolean;      // 恢复满血时移除该控制状态
+  /** 绑定另一单位的 UID；绑定目标阵亡时由引擎清除此状态。 */
+  linkedUid?: string;
 }
 
 /**
@@ -583,6 +635,8 @@ export interface MatchState {
     side: Side;
     candidates: string[];
     costModifier?: number;
+    choiceModifiers?: CardEffect['discover_modifiers'];
+    choiceTagModifiers?: CardEffect['discover_tag_modifiers'];
     destination?: 'hand' | 'deck_top';
     /** ADR-178：要选几张（缺省 1）。选满前挂起持续，每次 `CHOOSE_DISCOVER` 选一张 */
     picks?: number;
@@ -590,6 +644,10 @@ export interface MatchState {
     fromPool?: boolean;
     /** ADR-178：选完后**剩余候选**的去向（`'deck'` ＝ 放入牌库；缺省丢弃） */
     rest?: 'deck';
+    source?: 'deck' | 'pool';
+    unselectedCandidates?: string[];
+    unselectedTo?: 'deck_top';
+    banChoice?: boolean;
   };
   /** 发现流程暂停时，等待继续结算的同一时机触发技队列。 */
   pendingTriggerSkills?: { side: Side; trigger: string; nextIndex: number };
@@ -604,9 +662,13 @@ export interface MatchState {
   pendingHandChoice?: {
     side: Side;
     /** 选完之后做什么（目前只有放回牌库顶/底，为"弃一张""交给对手"留扩展位） */
-    kind: 'deck_top' | 'deck_bottom' | 'random' | 'discard';
+    kind: 'deck_top' | 'deck_bottom' | 'random' | 'discard' | 'tactic_pair';
     /** 只允许在这些手牌下标里选（如"刚抽到的那两张"）；缺省 = 全部手牌 */
     indices?: number[];
+    /** 手牌选择完成后继续执行同一技能的剩余效果。 */
+    continuation?: { effects: CardEffect[]; sourceUid?: string };
+    /** 费用配对在选完手牌后执行的原效果定义。 */
+    choiceEffect?: CardEffect;
   };
   /**
    * 「阵亡后重建于手牌」的次数计数（ADR-141，孟获「蛮王」）
@@ -616,6 +678,8 @@ export interface MatchState {
    * 只有用过 `self_to_hand` 的对局才会创建这个字段，老回放不受影响。
    */
   recalls?: Record<string, number>;
+  /** 对局级一次性触发标记（如董袭「当锋护驾」）。 */
+  onceTriggers?: Record<string, boolean>;
 }
 
 /* ============================================================
@@ -653,7 +717,7 @@ export type Action =
   | { type: 'ATTACK'; from: { row: Row; col: number }; to: { kind: 'unit'; row: Row; col: number } | { kind: 'lord' } }
   | { type: 'LORD_ATTACK'; to: { kind: 'unit'; row: Row; col: number } | { kind: 'lord' } }
   | { type: 'USE_LORD_SKILL'; target?: { side: Side; row?: Row; col?: number }; handIndex?: number; modeIndex?: number }
-  | { type: 'USE_SKILL'; row: Row; col: number; target?: { side: Side; row?: Row; col?: number }; handIndex?: number; modeIndex?: number; skillId?: string }
+  | { type: 'USE_SKILL'; row: Row; col: number; target?: { side: Side; row?: Row; col?: number }; target2?: { side: Side; row?: Row; col?: number }; handIndex?: number; modeIndex?: number; skillId?: string }
   | { type: 'END_TURN' };
 
 /* ============================================================
@@ -696,6 +760,8 @@ export type GameEvent =
       costDelta: number; healthDelta: number }
   /** 结算中途要求玩家选一张手牌（ADR-144）：`indices` = 可选的候选手牌下标 */
   | { type: 'HAND_CHOICE_OPTIONS'; side: Side; kind: string; indices: number[] }
+  /** 观察手牌，不改变手牌状态（孙韶「情报侦察」）。 */
+  | { type: 'HAND_REVEALED'; side: Side; cards: CardDef[] }
   /** 玩家选定了哪张手牌与它的去向（ADR-144，杨仪「筹度粮谷」） */
   | { type: 'HAND_CHOSEN'; side: Side; card: CardDef; kind: string }
   /** 某状态的某个档位被规则覆盖（ADR-142，兀突骨「藤甲统率」） */
@@ -704,6 +770,7 @@ export type GameEvent =
   | { type: 'FATIGUE'; side: Side; amount: number; hp: number }
   | { type: 'CARD_PLAYED'; side: Side; card: CardDef; row?: Row; col?: number; handIndex?: number }
   | { type: 'UNIT_SUMMONED'; side: Side; row: Row; col: number; unit: Unit }
+  | { type: 'UNIT_MOVED'; side: Side; from: { row: Row; col: number }; to: { row: Row; col: number }; unit: Unit }
   | { type: 'ATTACK_DECLARED'; side: Side; from: { row: Row; col: number }; to: unknown }
   | { type: 'DAMAGE'; target: { kind: 'unit' | 'lord'; side: Side; row?: Row; col?: number }; amount: number; source: string }
   | { type: 'HEAL'; target: { kind: 'unit' | 'lord'; side: Side; row?: Row; col?: number }; amount: number; hp: number }
