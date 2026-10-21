@@ -28,8 +28,11 @@ const all: CardDef[] = JSON.parse(readFileSync(join(ROOT, 'data', 'cards.json'),
 // 不再有草稿层的 `skills[].dsl` 需要摊平。
 const hasDsl = (c: CardDef) => (c.skills ?? []).length > 0 || (c.effects?.length ?? 0) > 0;
 
-// 主公卡不进卡组、不能从手牌打出，单独走主公技流程，不在此验证
-const cards: CardDef[] = all.filter((c) => (hasDsl(c) || c.cost_rule) && c.type !== 'lord');
+// 主公卡不进卡组、不能从手牌打出，单独走主公技流程，不在此验证。
+// token 只能由召唤效果生成，不能从手牌直接打出；通用 PLAY_CARD 场景无法
+// 代表它的真实生命周期，因此由召唤/光环专项测试覆盖，避免误报 DSL 失败。
+const cards: CardDef[] = all.filter((c) => (hasDsl(c) || c.cost_rule)
+  && c.type !== 'lord' && c.type !== 'token');
 
 // ① 先注册**已摊平 DSL** 的卡（供打出与技能执行）。
 // 正式卡表可能与测试夹具存在同 ID 的旧定义（例如弓射手曾是“神射”），

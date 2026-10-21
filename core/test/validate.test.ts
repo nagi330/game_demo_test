@@ -77,6 +77,23 @@ test('卡名超过 4 字 → 报错', () => {
   assert.ok(errs.some((m) => m.includes('卡名')), `应报卡名错误，实际：${errs.join('；')}`);
 });
 
+test('八门金锁阵完整卡名允许五字，但不放宽其他卡的命名限制', () => {
+  const card: CardDef = { id: 'wei_bamenjinsuo', name: '八门金锁阵', faction: 'wei', type: 'tactic', cost: 4, memo: '测试阵法' };
+  assert.deepEqual(errorsOf(card), []);
+  for (const changed of [{ ...card, id: 'wei_other' }, { ...card, name: '八门金锁阵法' }]) {
+    assert.ok(errorsOf(changed).some((message) => message.includes('卡名')));
+  }
+});
+
+test('正对面组合选择器：递归校验内层引用，防止错误状态或标签静默选空', () => {
+  for (const filter of [{ has_status: 'bu_cun_zai' }, { tag: 'bu_cun_zai' }]) {
+    const card = strategist({ effects: [{ action: 'modify', attack: 2,
+      target: { side: 'ally', opposite_of: { side: 'enemy', filter } },
+    }] });
+    assert.ok(errorsOf(card).some((message) => message.includes('未注册')));
+  }
+});
+
 test('缺 memo → 警告（不是错误）', () => {
   const c = strategist();
   delete (c as { memo?: string }).memo;

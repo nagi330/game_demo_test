@@ -288,6 +288,8 @@ export interface CardEffect {
 
 export interface TargetSelector {
   side?: 'ally' | 'enemy' | 'both' | 'self';
+  /** 只保留与内层选择器命中单位分属两方、同排同列的场上单位。 */
+  opposite_of?: TargetSelector;
   /** 作用区域，默认 board（ADR-038）。'both' = 手牌 + 场上都算候选（ADR-071，陆抗） */
   zone?: 'board' | 'hand' | 'both';
   source?: boolean;              // true = 只选「来源单位自身」（ADR-033）

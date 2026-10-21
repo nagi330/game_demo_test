@@ -245,7 +245,7 @@ test('主公通用普攻：任意效果使主公获得本回合攻击力后均�
 });
 
 /* ========================================================================
- * 军械「无法普通攻击」是**类型级规则**（ADR-119 / ADR-153）
+ * 军械默认「无法普通攻击」，但蒙冲斗舰由 `machine_attackable` 标签允许普攻。
  *
  * 设计者口径（ADR-153，原话）：「机械卡我们现在设计的是没办法普通攻击的，
  * **带的攻击值是为了别人打的时候有一定的伤害**」
@@ -253,41 +253,44 @@ test('主公通用普攻：任意效果使主公获得本回合攻击力后均�
  *
  * ## 这条为什么值得单独钉死
  *
- * ADR-119 宣布「霹雳车、楼船军、蒙冲斗舰改为军械且**无法普通攻击**」，
- * 但数据里**只有霹雳车**写了 `jin_gong` 光环 —— 楼船军 2/4、蒙冲斗舰 1/3
- * **静默地**保留着普攻能力，横跨多轮无人发现（`validate` 不校验行为，测试也没覆盖）。
- * 现改为两层：
- *   · **引擎层（兜底 + 唯一真源）**：`canAttack` 里 `type === 'machine'` 直接拒绝；
- *   · **数据层（可见反馈）**：四张军械各自保留 `jin_gong` 光环，给玩家看「无法攻击」徽章。
- * 第三、四条测试专门验证**反击不受影响** —— 这正是设计者要那个攻击值的原因。
+ * 引擎层仍以 `canAttack` 作为唯一真源：没有该标签的军械被拒绝，蒙冲斗舰正常走普攻流程。
+ * 反击测试继续保留，确保攻击力字段在军械受到攻击时仍然有效。
  * ===================================================================== */
 
 const MACHINES = ['wei_piliche', 'wu_louchuanjun', 'wu_mengchongdoujian', 'shu_muniuliuma'];
 
-test('军械：四张全部带 jin_gong 光环（防再次漏写 —— 楼船军/蒙冲斗舰就漏过一次）', () => {
+test('军械：不可攻击军械带 jin_gong，蒙冲斗舰使用可攻击标签', () => {
   for (const id of MACHINES) {
     const c = real.find((x) => x.id === id);
     assert.ok(c, `cards.json 里应有 ${id}`);
     assert.equal(c!.type, 'machine', `${id} 应是军械`);
+    const attackable = id === 'wu_mengchongdoujian';
+    assert.equal(!!c!.tags?.includes('machine_attackable'), attackable,
+      `${c!.name} 的可攻击标签应与设计一致`);
     const aura = (c!.skills ?? []).find((s) => s.kind === 'aura');
-    assert.ok(aura, `${c!.name} 应有光环（jin_gong）`);
-    const st = (aura!.effects ?? []).find((e) => e.action === 'apply_status');
-    assert.equal(st?.status, 'jin_gong', `${c!.name} 光环应施加 jin_gong`);
+    if (attackable) {
+      assert.equal(aura, undefined, '蒙冲斗舰不应再挂无法攻击光环');
+    } else {
+      assert.ok(aura, `${c!.name} 应有光环（jin_gong）`);
+      const st = (aura!.effects ?? []).find((e) => e.action === 'apply_status');
+      assert.equal(st?.status, 'jin_gong', `${c!.name} 光环应施加 jin_gong`);
+    }
   }
 });
 
-test('军械：一律不能普攻 —— 即使把 jin_gong 光环扒掉，类型规则仍然拦住', () => {
+test('军械：类型规则拦截不可攻击军械，蒙冲斗舰例外', () => {
   const s = setup();
   for (const id of MACHINES) {
     const u = place(s, id, 'own', 0);
     const withAura = canAttack(s.state, 'own', 'front', 0);
-    assert.equal(withAura.ok, false, `${u.name}（带光环）不该能普攻`);
+    const attackable = id === 'wu_mengchongdoujian';
+    assert.equal(withAura.ok, attackable, `${u.name} 的普攻资格应与设计一致`);
 
     // 直接删掉光环留下的状态 → **依然**拒绝，证明拦截来自 `type` 而非状态
     delete u.statuses.jin_gong;
     const bare = canAttack(s.state, 'own', 'front', 0);
-    assert.equal(bare.ok, false, `${u.name}（无光环）仍不该能普攻 —— 类型级兜底`);
-    assert.match(bare.reason ?? '', /军械/, '理由应说明是军械规则');
+    assert.equal(bare.ok, attackable, `${u.name} 移除光环后的普攻资格应保持一致`);
+    if (!attackable) assert.match(bare.reason ?? '', /军械/, '理由应说明是军械规则');
 
     setUnit(s.state, 'own', 'front', 0, null);
   }
@@ -306,7 +309,7 @@ test('军械的攻击力**只用于反击**：打楼船军（2/4）要吃 2 点�
   assert.ok(evs.some((e) => e.type === 'DAMAGE'), '应有伤害事件');
 });
 
-test('军械的攻击力**只用于反击**：打霹雳车（0/3）不吃反击，但它照样不能普攻', () => {
+test('霹雳车的攻击力只用于反击，且仍不能普攻', () => {
   const s = setup();
   place(s, 'wei_piliche', 'enemy', 0);
   const atk = place(s, 'test_champion', 'own', 0);

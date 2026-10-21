@@ -1059,6 +1059,12 @@ export function resolveTargets(
     finalPool = chosen?.kind === 'unit' ? finalPool.filter(t => t.kind === 'unit'
       && t.side === chosen.side && t.row === chosen.row && t.col === chosen.col + offset) : [];
   }
+  if (selector.opposite_of) {
+    const origins = resolveTargets(state, selector.opposite_of, ctx, rng);
+    finalPool = finalPool.filter((target) => target.kind === 'unit' && origins.some((origin) =>
+      origin.kind === 'unit' && target.side !== origin.side
+      && target.row === origin.row && target.col === origin.col));
+  }
 
   const sel: TargetSelector = confused ? { ...selector, mode: 'random' } : selector;
   const pick = pickOf(ctx, sel);
@@ -1315,7 +1321,7 @@ export const IMPLEMENTED_ACTIONS: ReadonlySet<string> = new Set([
   'extra_attack', 'take_control', 'copy_skill', 'force_attack', 'duel',
   'add_to_deck', 'send_to_deck', 'cycle_to_deck',
   'sacrifice', 'attack_each', 'draw_until', 'mill',
-  'discover', 'discover_tactic_pair',
+  'discover', 'discover_tactic_pair', 'draw_random',
   'move',
   'grant_hand', 'replace_lord',
   'defect_to_deck',
@@ -1524,10 +1530,16 @@ export function runEffects(
               ? eff.bonus_vs_keyword.value : 0;
             const troopBonus = victim && eff.bonus_vs_troop_kind && victim.troopKind === eff.bonus_vs_troop_kind.troopKind
               ? eff.bonus_vs_troop_kind.value : 0;
-            const readyFire = resolvedDamageType === 'fire'
-              ? allUnits(state, ctx.side).find((ref) => (ref.unit.statuses.fire_gong_ready?.stacks ?? 0) > 0)
-              : undefined;
-            const readyFireBonus = readyFire ? Math.max(1, readyFire.unit.statuses.fire_gong_ready?.stacks ?? 3) : 0;
+            // 阚泽的火攻准备只强化下一次直接火攻；同一张范围伤害的后续目标不重复消耗。
+            let readyFireBonus = 0;
+            if (resolvedDamageType === 'fire' && eff.damage_origin !== 'reflected') {
+              for (const ref of allUnits(state, ctx.side)) {
+                const stacks = ref.unit.statuses.fire_gong_ready?.stacks ?? 0;
+                if (stacks <= 0) continue;
+                readyFireBonus += stacks;
+                removeStatus(state, unitRef(ctx.side, ref.row, ref.col), 'fire_gong_ready', events);
+              }
+            }
             const troopReduction = victim && ctx.source?.type === 'troop'
               ? capStacks(victim.statuses, 'reduce_troop_damage') : 0;
             const waterImmune = victim && resolvedDamageType === 'water' && hasCap(victim, 'immune_water_damage');
@@ -1539,9 +1551,6 @@ export function runEffects(
               ctx.source && findPos(state, ctx.side, ctx.source.uid)
                 ? { side: ctx.side, ...findPos(state, ctx.side, ctx.source.uid)! } : undefined);
 
-            if (readyFire) {
-              delete readyFire.unit.statuses.fire_gong_ready;
-            }
             const sourcePos = ctx.source ? findPos(state, ctx.side, ctx.source.uid) : undefined;
             if (victim && actual > 0 && ctx.source?.type === 'machine' && sourcePos
                 && capStacks(victim.statuses, 'thorns_machine') > 0) {
@@ -1703,6 +1712,22 @@ export function runEffects(
           type: 'DISCOVER_OPTIONS', side: ctx.side,
           cards: shown.map((id) => cards.get(id)!).filter(Boolean),
         });
+        break;
+      }
+      case 'draw_random': {
+        const filter = eff.target?.filter;
+        const deck = state.sides[ctx.side].deck;
+        const candidates = deck.map((id, index) => ({ id, index, card: cards.get(id) }))
+          .filter(({ card }) => !!card && (!filter?.type || (filter.type === 'character'
+            ? isCharacterType(card!.type) : card!.type === filter.type))
+            && (!filter?.faction || card!.faction === filter.faction)
+            && (!filter?.factions || filter.factions.includes(card!.faction))
+            && (!filter?.tag || (card!.tags ?? []).includes(filter.tag)));
+        const picked = candidates.length ? candidates[rng.int(candidates.length)] : undefined;
+        if (!picked?.card) break;
+        deck.splice(picked.index, 1);
+        state.sides[ctx.side].hand.push({ card: picked.card, mods: [] });
+        events.push({ type: 'CARD_DRAWN', side: ctx.side, card: picked.card, deckLeft: deck.length });
         break;
       }
       case 'discover_tactic_pair': {

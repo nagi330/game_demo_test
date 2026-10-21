@@ -46,7 +46,9 @@ export function validateCards(cards: CardDef[]): Issue[] {
 
   for (const c of cards) {
     // ③ 卡名长度
-    if (!c.name || [...c.name].length > 4) add('error', c.id, `卡名必须 1–4 字，当前「${c.name}」`);
+    // ADR-191：设计者指定保留完整阵名，仅此卡豁免五字名称。
+    const namedFormation = c.id === 'wei_bamenjinsuo' && c.name === '八门金锁阵' && c.type === 'tactic';
+    if (!c.name || ([...c.name].length > 4 && !namedFormation)) add('error', c.id, `卡名必须 1–4 字，当前「${c.name}」`);
     // ⑨ 缺 memo
     if (!c.memo) add('warn', c.id, '缺少 memo（一句话记忆点）');
     // ④ 非法关键词组合
@@ -71,12 +73,31 @@ export function validateCards(cards: CardDef[]): Issue[] {
         if (e.remove_kind && !['buff', 'debuff'].includes(e.remove_kind)) {
           add('error', c.id, `${where} remove_kind 只能是 buff / debuff，当前「${e.remove_kind}」`);
         }
-        if (e.target?.filter?.keyword && !KEYWORDS[e.target.filter.keyword]) {
-          add('error', c.id, `${where} 选择器引用了未注册的关键词：${e.target.filter.keyword}`);
+        function scanSelector(selector: TargetSelector | undefined): void {
+          if (!selector) return;
+          const filter = selector.filter;
+          if (filter?.keyword && !KEYWORDS[filter.keyword]) {
+            add('error', c.id, `${where} 选择器引用了未注册的关键词：${filter.keyword}`);
+          }
+          if (filter?.tag && !TAGS[filter.tag]) {
+            add('error', c.id, `${where} 选择器引用了未注册的归属标签：${filter.tag}`);
+          }
+          if (filter?.has_status && !STATUSES[filter.has_status]) {
+            add('error', c.id, `${where} 选择器引用了未注册的状态：${filter.has_status}`);
+          }
+          for (const type of filter?.types ?? []) {
+            if (!(CARD_TYPES as readonly string[]).includes(type)) add('error', c.id, `${where} types 使用了非法类型：${type}`);
+          }
+          if (filter?.gender && !['male', 'female', 'unknown'].includes(filter.gender)) {
+            add('error', c.id, `${where} 选择器使用了非法性别：${filter.gender}`);
+          }
+          if (selector.pick !== undefined && ![1, 2].includes(selector.pick)) {
+            add('error', c.id, `${where} pick 只能是 1 或 2，当前「${selector.pick}」`);
+          }
+          scanSelector(selector.opposite_of);
         }
-        if (e.target?.filter?.tag && !TAGS[e.target.filter.tag]) {
-          add('error', c.id, `${where} 选择器引用了未注册的归属标签：${e.target.filter.tag}`);
-        }
+        scanSelector(e.target);
+        scanSelector(e.target2);
         const scanCondition = (condition: EffectCondition | undefined): void => {
           if (!condition) return;
           if (condition.deck_tag && !TAGS[condition.deck_tag.tag]) {
@@ -87,9 +108,6 @@ export function validateCards(cards: CardDef[]): Issue[] {
         scanCondition(e.condition);
         if (e.pool_faction && !['wei', 'shu', 'wu', 'qun', 'neutral'].includes(e.pool_faction)) {
           add('error', c.id, `${where} pool_faction 使用了非法阵营：${e.pool_faction}`);
-        }
-        for (const type of e.target?.filter?.types ?? []) {
-          if (!(CARD_TYPES as readonly string[]).includes(type)) add('error', c.id, `${where} types 使用了非法类型：${type}`);
         }
         for (const [type, modifier] of Object.entries(e.discover_modifiers ?? {})) {
           if (!['general', 'strategist'].includes(type)) add('error', c.id, `${where} discover_modifiers 使用了非法人物类型：${type}`);
@@ -105,14 +123,6 @@ export function validateCards(cards: CardDef[]): Issue[] {
               add('error', c.id, `${where} 发现修正非法：${key}=${String(value)}`);
             }
           }
-        }
-        // 性别筛选（ADR-071）：只认这三个值，写错会静默选不中任何人
-        const g = e.target?.filter?.gender;
-        if (g && !['male', 'female', 'unknown'].includes(g)) {
-          add('error', c.id, `${where} 选择器使用了非法性别：${g}`);
-        }
-        if (e.target?.pick && ![1, 2].includes(e.target.pick)) {
-          add('error', c.id, `${where} pick 只能是 1 或 2，当前「${e.target.pick}」`);
         }
         if (e.unit && !ids.has(e.unit)) add('error', c.id, `${where} 召唤了不存在的卡：${e.unit}`);
         /**
