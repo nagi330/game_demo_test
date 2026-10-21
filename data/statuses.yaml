@@ -318,6 +318,16 @@
   caps: [block_attack]
   memo: "本回合不能普通攻击"
 
+- id: iron_lock
+  name: 铁锁
+  kind: buff
+  numeric: false
+  scope: character
+  timing: 8
+  duration: permanent
+  caps: [immune_all_damage, break_on_fire]
+  memo: "免疫所有伤害；受到火攻时立即失效"
+
 - id: zhuran_skill_lock
   name: 截江封技
   kind: debuff

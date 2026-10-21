@@ -18,7 +18,7 @@ var Core = (() => {
   };
   var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
-  // core/src/index.ts
+  // src/index.ts
   var index_exports = {};
   __export(index_exports, {
     ACTIONS: () => ACTIONS,
@@ -150,7 +150,7 @@ var Core = (() => {
     validateDeck: () => validateDeck
   });
 
-  // core/src/rng.ts
+  // src/rng.ts
   function createRng(seed) {
     let s = seed >>> 0;
     const next = () => {
@@ -188,7 +188,7 @@ var Core = (() => {
     return h >>> 0;
   }
 
-  // core/src/constants.ts
+  // src/constants.ts
   var BOARD = {
     COLS: 8,
     ROWS: ["front"],
@@ -294,7 +294,8 @@ var Core = (() => {
     // ⚠️ 旧的 `shi_zu`（士族）**已作废删除**：它是早期设计，与袁氏体系重复且没有别的门阀在用。
     yuan_shi: { name: "\u8881\u6C0F", note: "\u8881\u7ECD\u4F53\u7CFB\uFF1A\u8881\u7ECD\u3001\u58EB\u65CF\u5175\uFF08\u8881\u672F\u5F85\u5165\u5E93\uFF09" },
     cao_clan: { name: "\u66F9\u6C0F\u5B97\u4EB2", note: "\u66F9\u64CD\u5B97\u65CF\u4EBA\u7269\uFF1A\u66F9\u6602\u3001\u66F9\u4F11\u3001\u66F9\u5F70\u3001\u66F9\u4EC1\u3001\u66F9\u4E15\u7B49" },
-    sun_clan: { name: "\u5B59\u6C0F\u5B97\u4EB2", note: "\u5B59\u6C0F\u5B97\u4EB2\u4EBA\u7269\uFF1A\u5B59\u575A\u3001\u5B59\u7B56\u3001\u5B59\u5C1A\u9999\u3001\u5B59\u7FCA\u53CA\u5176\u540E\u7EE7\u8005" }
+    sun_clan: { name: "\u5B59\u6C0F\u5B97\u4EB2", note: "\u5B59\u6C0F\u5B97\u4EB2\u4EBA\u7269\uFF1A\u5B59\u575A\u3001\u5B59\u7B56\u3001\u5B59\u5C1A\u9999\u3001\u5B59\u7FCA\u53CA\u5176\u540E\u7EE7\u8005" },
+    machine_attackable: { name: "\u53EF\u653B\u51FB\u519B\u68B0", note: "\u5141\u8BB8\u6307\u5B9A\u519B\u68B0\u8FDB\u884C\u666E\u901A\u653B\u51FB" }
   };
   var FORBIDDEN_KEYWORD_COMBOS = [
     ["jia_dun", "qi_xi"]
@@ -546,7 +547,15 @@ var Core = (() => {
       numeric: false,
       duration: "permanent",
       caps: ["future_summon"],
-      note: "\u540E\u7EED\u53EC\u5524\u7684\u5355\u4F4D\u83B7\u5F97\u5148\u653B\u4F46\u653B\u8840\u5404\u964D\u4F4E2"
+      note: "\u540E\u7EED\u53EC\u5524\u7684\u5355\u4F4D\u83B7\u5F97\u5148\u653B\u4F46\u653B\u8840\u5404\u964D\u4F4E1"
+    },
+    iron_lock: {
+      name: "\u94C1\u9501",
+      kind: "buff",
+      numeric: false,
+      duration: "permanent",
+      caps: ["immune_all_damage", "break_on_fire"],
+      note: "\u514D\u75AB\u4F24\u5BB3\uFF1B\u53D7\u5230\u706B\u653B\u65F6\u5931\u6548"
     },
     die_at_turn_end: {
       name: "\u65AD\u540E",
@@ -744,6 +753,8 @@ var Core = (() => {
     // 弃掉目标方牌库的 N 张牌（ADR-074，司马懿「谋定后动」②）
     "discover",
     // 从牌库随机展示候选牌并由玩家选择（曹丕）
+    "draw_random",
+    // 从牌库随机取一张符合条件的牌加入手牌
     "discover_tactic_pair",
     // 弃置一张战法后按其费用随机获得两张指定阵营可构筑战法（曹冲）
     "send_hand_to_deck",
@@ -790,7 +801,7 @@ var Core = (() => {
   ];
   var NON_DECK_TYPES = ["elite", "lord", "token", "status", "special"];
 
-  // core/src/state.ts
+  // src/state.ts
   function rollFirstSide(rng) {
     for (let i = 0; i < 100; i++) {
       const own = rng.int(6) + 1;
@@ -999,7 +1010,7 @@ var Core = (() => {
     return state.uidSeq;
   }
 
-  // core/src/rules.ts
+  // src/rules.ts
   var isMelee = (u) => u.type !== "strategist" && !hasTrait(u, "shen_she");
   function needsHandPick(skill) {
     const scan = (effs) => (effs ?? []).some((e) => e.action === "discard" && e.mode === "choose" || e.action === "cycle_to_deck");
@@ -1050,7 +1061,9 @@ var Core = (() => {
     const u = getUnit(state, side, row, col);
     if (!u) return { ok: false, reason: "\u8BE5\u683C\u6CA1\u6709\u4EBA\u7269\u5361" };
     if (u.cardId === "neutral_archer") return { ok: false, reason: "\u5F13\u5175\u53EA\u80FD\u653E\u7BAD\uFF0C\u4E0D\u80FD\u666E\u901A\u653B\u51FB" };
-    if (u.type === "machine") return { ok: false, reason: "\u519B\u68B0\u65E0\u6CD5\u666E\u901A\u653B\u51FB\uFF08\u653B\u51FB\u529B\u53EA\u7528\u4E8E\u53CD\u51FB\uFF09" };
+    if (u.type === "machine" && !u.tags.includes("machine_attackable")) {
+      return { ok: false, reason: "\u519B\u68B0\u65E0\u6CD5\u666E\u901A\u653B\u51FB\uFF08\u653B\u51FB\u529B\u53EA\u7528\u4E8E\u53CD\u51FB\uFF09" };
+    }
     if (effectiveAttack(state, side, row, col) <= 0) {
       return { ok: false, reason: "\u653B\u51FB\u529B\u4E3A 0\uFF0C\u65E0\u6CD5\u666E\u901A\u653B\u51FB" };
     }
@@ -1140,7 +1153,7 @@ var Core = (() => {
   }
   var handOverflow = (state, side) => Math.max(0, state.sides[side].hand.length - DECK.HAND_LIMIT);
 
-  // core/src/mutate.ts
+  // src/mutate.ts
   var unitRef = (side, row, col) => ({ kind: "unit", side, row, col });
   var lordRef = (side) => ({ kind: "lord", side });
   var handRef = (side, index) => ({ kind: "hand", side, index });
@@ -1394,6 +1407,10 @@ var Core = (() => {
         reflected,
         deathSource
       );
+    }
+    if (damageType === "fire" && hasCap(u, "break_on_fire")) {
+      killUnit(state, cards, { side: ref.side, row: ref.row, col: ref.col, unit: u }, events, deathSource ?? killerRef);
+      return 0;
     }
     const shieldStatus = Object.keys(u.statuses).find((k) => STATUSES[k]?.caps?.includes("immune_damage"));
     if (hasCap(u, "immune_all_damage")) return 0;
@@ -1659,7 +1676,7 @@ var Core = (() => {
     if (dingfengEligible && allUnits(state, side).some((ref) => ref.unit.uid !== u.uid && hasCap(ref.unit, "future_summon"))) {
       u.kw = [.../* @__PURE__ */ new Set([...u.kw, "xian_gong"])];
       u.statuses.xian_gong_status = { stacks: 1 };
-      u.mods.push({ id: `dingfeng#${u.uid}`, kind: "permanent", attack: -2, health: -2 });
+      u.mods.push({ id: `dingfeng#${u.uid}`, kind: "permanent", attack: -1, health: -1 });
       applyMods(u);
     }
     events.push({ type: "UNIT_SUMMONED", side, row, col, unit: u });
@@ -1862,7 +1879,7 @@ var Core = (() => {
     return dropped;
   }
 
-  // core/src/deck.ts
+  // src/deck.ts
   var BASIC_TROOP_COPIES = 3;
   var UNIQUE_COPIES = 1;
   function maxCopiesOf(card) {
@@ -2002,7 +2019,7 @@ var Core = (() => {
     return deck.slice(0, DECK.SIZE);
   }
 
-  // core/src/effects.ts
+  // src/effects.ts
   var ELEMENTAL_DOT = {
     fire: "zhuo_shao",
     // 灼烧：回合开始受 N 点火伤，层数可叠加、不封顶
@@ -3099,6 +3116,17 @@ var Core = (() => {
           });
           break;
         }
+        case "draw_random": {
+          const filter = eff.target?.filter;
+          const deck = state.sides[ctx.side].deck;
+          const candidates = deck.map((id, index) => ({ id, index, card: cards.get(id) })).filter(({ card }) => !!card && (!filter?.type || (filter.type === "character" ? isCharacterType(card.type) : card.type === filter.type)) && (!filter?.faction || card.faction === filter.faction) && (!filter?.factions || filter.factions.includes(card.faction)) && (!filter?.tag || (card.tags ?? []).includes(filter.tag)));
+          const picked = candidates.length ? candidates[rng.int(candidates.length)] : void 0;
+          if (!picked?.card) break;
+          deck.splice(picked.index, 1);
+          state.sides[ctx.side].hand.push({ card: picked.card, mods: [] });
+          events.push({ type: "CARD_DRAWN", side: ctx.side, card: picked.card, deckLeft: deck.length });
+          break;
+        }
         case "discover_tactic_pair": {
           const hand = state.sides[ctx.side].hand;
           const pick = ctx.handIndex;
@@ -4075,7 +4103,7 @@ var Core = (() => {
     }
   }
 
-  // core/src/engine.ts
+  // src/engine.ts
   function useLordSkill(state, ctx, action, events, rng) {
     const side = state.active;
     const lord = state.sides[side].lord;
@@ -4814,7 +4842,7 @@ var Core = (() => {
     return true;
   }
 
-  // core/src/result.ts
+  // src/result.ts
   function summarize(state, side) {
     const s = state.sides[side];
     const units = allUnits(state, side);
@@ -4852,7 +4880,7 @@ var Core = (() => {
     ].join("\n");
   }
 
-  // core/src/setup.ts
+  // src/setup.ts
   function mulligan(state, side, indices, cards) {
     const s = state.sides[side];
     if (s.mulliganDone) {
@@ -4922,7 +4950,7 @@ var Core = (() => {
     return { state, log };
   }
 
-  // core/src/loader.ts
+  // src/loader.ts
   function loadData(bundle, lordIds) {
     const cards = /* @__PURE__ */ new Map();
     const byFaction = /* @__PURE__ */ new Map();
@@ -4947,7 +4975,7 @@ var Core = (() => {
     };
   }
 
-  // core/src/ai/cards.ts
+  // src/ai/cards.ts
   var CHARACTER_TYPES2 = ["troop", "general", "strategist", "machine"];
   var isCharacterCard = (c) => CHARACTER_TYPES2.includes(c.type);
   function skillEffects(sk) {
@@ -5016,7 +5044,7 @@ var Core = (() => {
     return allEffects(card).some((e) => OFFENSIVE.has(e.action) && (e.target?.lord === true || e.target?.side === "enemy" || e.target?.filter?.include_lord === true || e.action === "damage" && e.target === void 0));
   }
 
-  // core/src/ai/eval.ts
+  // src/ai/eval.ts
   var WIN = 1e6;
   var finisherScale = (foeEff) => 1 + Math.max(0, 20 - foeEff) / 20;
   function evaluate(state, side, w) {
@@ -5058,7 +5086,7 @@ var Core = (() => {
     return score;
   }
 
-  // core/src/ai/options.ts
+  // src/ai/options.ts
   var CAP = { attack: 32, play: 28, skill: 24, lord: 6 };
   var PICK1_CAP = 4;
   var PICK2_CAP = 3;
@@ -5330,7 +5358,7 @@ var Core = (() => {
     return [...attacks, ...plays, ...skills, ...lords].sort((a, b) => b.quick - a.quick);
   }
 
-  // core/src/ai/profile.ts
+  // src/ai/profile.ts
   var STYLE_WEIGHTS = {
     // 速攻：打脸优先，场面价值打折，手牌不值钱（抢的是回合数，不是卡差）
     aggro: { face: 0.7, board: 0.85, ready: 0.35, width: 0.3, hand: 0.4, mana: 0.06, threat: 0.5, fatigue: 0.8 },
@@ -5380,7 +5408,7 @@ var Core = (() => {
     return profileCards(fullDeckOf(state, side, ctx));
   }
 
-  // core/src/ai/index.ts
+  // src/ai/index.ts
   var SIM_BUDGET = 160;
   var PASS_EPS = 0.01;
   function decide(state, ctx) {
@@ -5495,7 +5523,7 @@ var Core = (() => {
     return out;
   }
 
-  // core/src/index.ts
+  // src/index.ts
   function newMatch(opts) {
     const state = createMatch(opts);
     const ctx = { cards: opts.cards, lords: opts.lords };

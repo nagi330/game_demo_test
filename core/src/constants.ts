@@ -113,6 +113,7 @@ export const TAGS: Record<string, { name: string; note: string }> = {
   yuan_shi:  { name: '袁氏', note: '袁绍体系：袁绍、士族兵（袁术待入库）' },
   cao_clan:  { name: '曹氏宗亲', note: '曹操宗族人物：曹昂、曹休、曹彰、曹仁、曹丕等' },
   sun_clan:  { name: '孙氏宗亲', note: '孙氏宗亲人物：孙坚、孙策、孙尚香、孙翊及其后继者' },
+  machine_attackable: { name: '可攻击军械', note: '允许指定军械进行普通攻击' },
 };
 
 export const FORBIDDEN_KEYWORD_COMBOS: string[][] = [
@@ -135,6 +136,7 @@ export type StatusCap =
   | 'immune_control'    // 免疫震慑、禁锢、无法攻击等行动控制
   | 'immune_damage'     // 免疫伤害（一次性，触发后消耗）
   | 'immune_all_damage' // 当前回合免疫所有伤害，不消耗
+  | 'break_on_fire'     // 受到火攻时立即失效（如铁锁）
   | 'redirect_damage'   // 伤害重定向：伤害转由状态的 srcUid 承受（ADR-039）
   | 'block_lord_skill'  // 该方主帅不能使用主公技（ADR-040）
   | 'extra_lord_skill'   // 该方主帅每回合主公技次数 +stacks（ADR-040）
@@ -284,7 +286,9 @@ export const STATUSES: Record<string, StatusDef> = {
   water_convert: { name: '水军转攻', kind: 'buff', numeric: false, duration: 'permanent',
                 caps: ['water_convert'], note: '来源的物理/无属性伤害改为水攻' },
   dingfeng_aura: { name: '雪中突袭', kind: 'buff', numeric: false, duration: 'permanent',
-                caps: ['future_summon'], note: '后续召唤的单位获得先攻但攻血各降低2' },
+                caps: ['future_summon'], note: '后续召唤的单位获得先攻但攻血各降低1' },
+  iron_lock: { name: '铁锁', kind: 'buff', numeric: false, duration: 'permanent',
+                caps: ['immune_all_damage', 'break_on_fire'], note: '免疫伤害；受到火攻时失效' },
   die_at_turn_end: { name: '断后', kind: 'debuff', numeric: false, duration: 'this_turn',
                 caps: ['die_at_turn_end'], note: '本回合结束时阵亡' },
   shui_gong_bonus: { name: '水攻强化', kind: 'buff', numeric: true, duration: 'permanent',
@@ -365,6 +369,7 @@ export const ACTIONS = [
   'roll',          // 生成可供后续 condition.roll 读取的确定性概率结果
   'mill',          // 弃掉目标方牌库的 N 张牌（ADR-074，司马懿「谋定后动」②）
   'discover',      // 从牌库随机展示候选牌并由玩家选择（曹丕）
+  'draw_random',   // 从牌库随机取一张符合条件的牌加入手牌
   'discover_tactic_pair', // 弃置一张战法后按其费用随机获得两张指定阵营可构筑战法（曹冲）
   'send_hand_to_deck', // 把一张手牌放回牌库顶/底/随机位置，**不抽牌**（ADR-139，杨仪「筹度粮谷」）
   'self_to_hand',      // 阵亡后把手牌重建出来（ADR-141，孟获「蛮王」——亡语作用于**阵亡单位自身**）

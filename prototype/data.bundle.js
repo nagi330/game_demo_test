@@ -3306,7 +3306,7 @@ window.GameData = {
           "id": "xue_zhong_fen_duan_bing",
           "name": "雪中奋短兵",
           "kind": "aura",
-          "text": "光环：后续召唤的武将、谋臣或兵种获得先攻，但攻击力和生命上限各-2，最低1。",
+          "text": "光环：后续召唤的武将、谋臣或兵种获得先攻，但攻击力和生命上限各-1，最低1。",
           "effects": [
             {
               "action": "apply_status",
@@ -7697,26 +7697,14 @@ window.GameData = {
       "cost": 3,
       "attack": 1,
       "health": 3,
+      "tags": [
+        "machine_attackable"
+      ],
       "keywords": [
         "zhan_ji"
       ],
       "memo": "战技造成1点水攻；亡语对击杀者造成2点火攻并施加灼烧，对其左右相邻单位各造成1点火攻并施加灼烧",
       "skills": [
-        {
-          "id": "mengchong_che_zhen",
-          "name": "船阵",
-          "kind": "aura",
-          "effects": [
-            {
-              "action": "apply_status",
-              "status": "jin_gong",
-              "target": {
-                "source": true
-              }
-            }
-          ],
-          "text": "无法普通攻击。"
-        },
         {
           "id": "mengchong_huo",
           "name": "蒙冲",
@@ -11600,6 +11588,629 @@ window.GameData = {
         }
       ],
       "flavor": "博学直言，敢于进谏，最终因触怒孙权被流放交州。"
+    },
+    {
+      "id": "token_tiesuo",
+      "name": "铁锁",
+      "faction": "wu",
+      "type": "token",
+      "cost": 0,
+      "attack": 0,
+      "health": 1,
+      "memo": "免疫伤害并阻止敌方单位攻击，遇火或敌方回合结束失效",
+      "gender": "unknown",
+      "keywords": [],
+      "skills": [
+        {
+          "id": "tiesuo_init",
+          "name": "铁锁",
+          "kind": "trigger",
+          "trigger": "on_play",
+          "effects": [
+            {
+              "action": "apply_status",
+              "status": "iron_lock",
+              "target": {
+                "source": true
+              }
+            }
+          ]
+        },
+        {
+          "id": "tiesuo_block",
+          "name": "横江",
+          "kind": "aura",
+          "text": "光环：敌方所有单位无法普通攻击。",
+          "effects": [
+            {
+              "action": "apply_status",
+              "status": "jin_gong",
+              "target": {
+                "side": "enemy",
+                "filter": {
+                  "type": "character"
+                },
+                "count": "all"
+              }
+            }
+          ]
+        },
+        {
+          "id": "tiesuo_expire",
+          "name": "解锁",
+          "kind": "trigger",
+          "trigger": "enemy_turn_end",
+          "effects": [
+            {
+              "action": "sacrifice",
+              "target": {
+                "source": true
+              }
+            }
+          ]
+        }
+      ],
+      "flavor": "铁锁横江，火攻即解。"
+    },
+    {
+      "id": "wu_huoshaochibi",
+      "name": "火烧赤壁",
+      "faction": "wu",
+      "type": "tactic",
+      "cost": 5,
+      "memo": "召唤蒙冲斗舰并对敌方全体造成1点火攻伤害",
+      "gender": "unknown",
+      "keywords": [],
+      "skills": [
+        {
+          "id": "huo_shao_chi_bi",
+          "name": "火烧赤壁",
+          "kind": "trigger",
+          "trigger": "on_play",
+          "text": "召唤1艘蒙冲斗舰，并对所有敌方人物造成1点火攻伤害。"
+        }
+      ],
+      "effects": [
+        {
+          "action": "summon",
+          "unit": "wu_mengchongdoujian"
+        },
+        {
+          "action": "damage",
+          "value": 1,
+          "damage_type": "fire",
+          "target": {
+            "side": "enemy",
+            "filter": {
+              "type": "character",
+              "include_lord": true
+            },
+            "count": "all"
+          }
+        }
+      ],
+      "flavor": "赤壁火攻，水陆并进。"
+    },
+    {
+      "id": "wu_shuijun_tuxi",
+      "name": "水军突袭",
+      "faction": "wu",
+      "type": "tactic",
+      "cost": 7,
+      "memo": "召唤两个获得先攻的敢死营",
+      "gender": "unknown",
+      "keywords": [],
+      "skills": [
+        {
+          "id": "shui_jun_tu_xi",
+          "name": "水军突袭",
+          "kind": "trigger",
+          "trigger": "on_play",
+          "text": "召唤2个敢死营，并使其获得先攻。"
+        }
+      ],
+      "effects": [
+        {
+          "action": "summon",
+          "unit": "wu_gansiying",
+          "count": 2,
+          "status": "xian_gong_status"
+        }
+      ],
+      "flavor": "水军突袭，敢死先登。"
+    },
+    {
+      "id": "wu_lianmeng_kangcao",
+      "name": "联盟抗曹",
+      "faction": "wu",
+      "type": "tactic",
+      "cost": 4,
+      "memo": "按敌方阵营获得吴蜀联盟收益",
+      "gender": "unknown",
+      "keywords": [],
+      "skills": [
+        {
+          "id": "lian_meng_kang_cao",
+          "name": "联盟抗曹",
+          "kind": "trigger",
+          "trigger": "on_play",
+          "text": "敌方为蜀国时，双方各抽1张牌，之后自己再抽1张；敌方为魏国时，从吴国或蜀国战法中发现3张并选择1张加入手牌。"
+        }
+      ],
+      "effects": [
+        {
+          "action": "draw",
+          "value": 1,
+          "condition": {
+            "exists": {
+              "side": "enemy",
+              "lord": true,
+              "filter": {
+                "faction": "shu"
+              }
+            }
+          }
+        },
+        {
+          "action": "draw",
+          "value": 1,
+          "target": {
+            "side": "enemy"
+          },
+          "condition": {
+            "exists": {
+              "side": "enemy",
+              "lord": true,
+              "filter": {
+                "faction": "shu"
+              }
+            }
+          }
+        },
+        {
+          "action": "draw",
+          "value": 1,
+          "condition": {
+            "exists": {
+              "side": "enemy",
+              "lord": true,
+              "filter": {
+                "faction": "shu"
+              }
+            }
+          }
+        },
+        {
+          "action": "discover",
+          "discover_from": "pool",
+          "count": 3,
+          "target": {
+            "side": "self",
+            "filter": {
+              "type": "tactic",
+              "factions": [
+                "wu",
+                "shu"
+              ]
+            }
+          },
+          "condition": {
+            "exists": {
+              "side": "enemy",
+              "lord": true,
+              "filter": {
+                "faction": "wei"
+              }
+            }
+          }
+        }
+      ],
+      "flavor": "联蜀抗魏，借盟友之力破敌。"
+    },
+    {
+      "id": "wu_tiesuo_hengjiang",
+      "name": "铁锁横江",
+      "faction": "wu",
+      "type": "tactic",
+      "cost": 6,
+      "memo": "召唤免伤铁锁，阻止敌方单位攻击至敌方回合结束或遇火",
+      "gender": "unknown",
+      "keywords": [],
+      "skills": [
+        {
+          "id": "tie_suo_heng_jiang",
+          "name": "铁锁横江",
+          "kind": "trigger",
+          "trigger": "on_play",
+          "text": "召唤一个0/1铁锁；铁锁免疫所有伤害。铁锁存在时敌方所有单位无法攻击，至下个敌方回合结束或受到火攻伤害时失效。"
+        }
+      ],
+      "effects": [
+        {
+          "action": "summon",
+          "unit": "token_tiesuo"
+        }
+      ],
+      "flavor": "铁索连江，火攻破阵。"
+    },
+    {
+      "id": "wu_huoshao_lianying",
+      "name": "火烧连营",
+      "faction": "wu",
+      "type": "tactic",
+      "cost": 4,
+      "memo": "以起火点向连续相邻敌人传播2点火攻",
+      "gender": "unknown",
+      "keywords": [],
+      "skills": [
+        {
+          "id": "tactic_huoshao_lianying",
+          "name": "火烧连营",
+          "text": "战法：选择一名敌方单位作为起火点；对所有通过相邻站位与起火点连续相连的其他敌方单位各造成2点火攻伤害，每个单位每次只受到一次伤害。"
+        }
+      ],
+      "effects": [
+        {
+          "action": "chain_damage",
+          "value": 2,
+          "damage_type": "fire",
+          "target": {
+            "side": "enemy",
+            "filter": {
+              "type": "character",
+              "include_lord": false
+            },
+            "count": 1,
+            "mode": "choose"
+          }
+        }
+      ],
+      "flavor": "以火势连营，焚毁敌阵。"
+    },
+    {
+      "id": "wei_wangmeizhike",
+      "name": "望梅止渴",
+      "faction": "wei",
+      "type": "tactic",
+      "cost": 2,
+      "memo": "己方所有兵种本回合攻击力+2",
+      "gender": "unknown",
+      "keywords": [],
+      "skills": [
+        {
+          "id": "wang_mei_zhi_ke",
+          "name": "望梅止渴",
+          "kind": "trigger",
+          "trigger": "on_play",
+          "text": "己方所有兵种攻击力+2，持续至本回合结束。"
+        }
+      ],
+      "effects": [
+        {
+          "action": "modify",
+          "attack": 2,
+          "duration": "this_turn",
+          "target": {
+            "side": "self",
+            "filter": {
+              "type": "troop"
+            },
+            "count": "all"
+          }
+        }
+      ],
+      "flavor": "望梅止渴，振奋行军。"
+    },
+    {
+      "id": "wei_gefa_daishou",
+      "name": "割发代首",
+      "faction": "wei",
+      "type": "tactic",
+      "cost": 3,
+      "memo": "弃一张手牌，使己方武将获得+3/+2",
+      "gender": "unknown",
+      "keywords": [],
+      "skills": [
+        {
+          "id": "ge_fa_dai_shou",
+          "name": "割发代首",
+          "kind": "trigger",
+          "trigger": "on_play",
+          "target": {
+            "side": "self",
+            "filter": {
+              "type": "general"
+            },
+            "count": 1,
+            "mode": "choose"
+          },
+          "text": "选择场上一个武将，随机丢弃一张手牌，使其获得+3/+2。"
+        }
+      ],
+      "effects": [
+        {
+          "action": "discard",
+          "mode": "random",
+          "target": {
+            "side": "self",
+            "zone": "hand",
+            "count": 1
+          }
+        },
+        {
+          "action": "modify",
+          "attack": 3,
+          "health": 2,
+          "target": {
+            "pick": 1
+          }
+        }
+      ],
+      "flavor": "割发代首，以身作则。"
+    },
+    {
+      "id": "wei_tuntian_mubing",
+      "name": "屯田募兵",
+      "faction": "wei",
+      "type": "tactic",
+      "cost": 3,
+      "memo": "发现一张兵种牌后再抽一张牌",
+      "gender": "unknown",
+      "keywords": [],
+      "skills": [
+        {
+          "id": "tun_tian_mu_bing",
+          "name": "屯田募兵",
+          "kind": "trigger",
+          "trigger": "on_play",
+          "text": "从己方牌库发现一张兵种牌，之后抽一张牌。"
+        }
+      ],
+      "effects": [
+        {
+          "action": "discover",
+          "count": 1,
+          "target": {
+            "side": "self",
+            "filter": {
+              "type": "troop"
+            }
+          }
+        },
+        {
+          "action": "draw",
+          "value": 1
+        }
+      ],
+      "flavor": "屯田积谷，募兵备战。"
+    },
+    {
+      "id": "wei_hubao_tuxi",
+      "name": "虎豹突袭",
+      "faction": "wei",
+      "type": "tactic",
+      "cost": 8,
+      "memo": "同时召唤虎骑营与豹骑营",
+      "gender": "unknown",
+      "keywords": [],
+      "skills": [
+        {
+          "id": "hu_bao_tu_xi",
+          "name": "虎豹突袭",
+          "kind": "trigger",
+          "trigger": "on_play",
+          "text": "召唤一个虎骑营和一个豹骑营。"
+        }
+      ],
+      "effects": [
+        {
+          "action": "summon",
+          "unit": "wei_hubaoki_hu"
+        },
+        {
+          "action": "summon",
+          "unit": "wei_hubaoki_bao"
+        }
+      ],
+      "flavor": "虎豹骑并出，突袭破阵。"
+    },
+    {
+      "id": "wei_weicai_shiju",
+      "name": "唯才是举",
+      "faction": "wei",
+      "type": "tactic",
+      "cost": 3,
+      "memo": "从牌库随机获得一名武将和一名谋臣",
+      "gender": "unknown",
+      "keywords": [],
+      "skills": [
+        {
+          "id": "wei_cai_shi_ju",
+          "name": "唯才是举",
+          "kind": "trigger",
+          "trigger": "on_play",
+          "text": "随机从牌库将武将和谋臣各一张加入手牌。"
+        }
+      ],
+      "effects": [
+        {
+          "action": "draw_random",
+          "target": {
+            "side": "self",
+            "filter": {
+              "type": "general"
+            }
+          }
+        },
+        {
+          "action": "draw_random",
+          "target": {
+            "side": "self",
+            "filter": {
+              "type": "strategist"
+            }
+          }
+        }
+      ],
+      "flavor": "唯才是举，广纳贤能。"
+    },
+    {
+      "id": "wei_ningwofuren",
+      "name": "宁我负人",
+      "faction": "wei",
+      "type": "tactic",
+      "cost": 3,
+      "memo": "牺牲一个单位，主公回血并抽两张牌",
+      "gender": "unknown",
+      "keywords": [],
+      "skills": [
+        {
+          "id": "ning_wo_fu_ren",
+          "name": "宁我负人",
+          "kind": "trigger",
+          "trigger": "on_play",
+          "target": {
+            "side": "both",
+            "filter": {
+              "type": "character",
+              "include_lord": false
+            },
+            "count": 1,
+            "mode": "choose"
+          },
+          "text": "选择场上一个单位使其阵亡，之后己方主公恢复3点生命，并抽两张牌。"
+        }
+      ],
+      "effects": [
+        {
+          "action": "sacrifice",
+          "target": {
+            "pick": 1
+          }
+        },
+        {
+          "action": "heal",
+          "value": 3,
+          "target": {
+            "side": "self",
+            "lord": true
+          }
+        },
+        {
+          "action": "draw",
+          "value": 2
+        }
+      ],
+      "flavor": "宁我负人，先定军心。"
+    },
+    {
+      "id": "wei_shimianmaifu",
+      "name": "十面埋伏",
+      "faction": "wei",
+      "type": "tactic",
+      "cost": 3,
+      "memo": "对所有受伤单位造成2点伤害",
+      "gender": "unknown",
+      "keywords": [],
+      "skills": [
+        {
+          "id": "shi_mian_mai_fu",
+          "name": "十面埋伏",
+          "kind": "trigger",
+          "trigger": "on_play",
+          "text": "对场上所有受伤的单位造成2点伤害。"
+        }
+      ],
+      "effects": [
+        {
+          "action": "damage",
+          "value": 2,
+          "target": {
+            "side": "both",
+            "filter": {
+              "type": "character",
+              "damaged": true,
+              "include_lord": false
+            },
+            "count": "all"
+          }
+        }
+      ],
+      "flavor": "十面埋伏，乘隙追击。"
+    },
+    {
+      "id": "wei_fenshu_anzhong",
+      "name": "焚书安众",
+      "faction": "wei",
+      "type": "tactic",
+      "cost": 3,
+      "memo": "清除己方混乱并提高生命上限",
+      "gender": "unknown",
+      "keywords": [],
+      "skills": [
+        {
+          "id": "fen_shu_an_zhong",
+          "name": "焚书安众",
+          "kind": "trigger",
+          "trigger": "on_play",
+          "text": "解除场上所有己方单位混乱状态，并提升1点生命上限。"
+        }
+      ],
+      "effects": [
+        {
+          "action": "remove_status",
+          "status": "hun_luan",
+          "target": {
+            "side": "self",
+            "filter": {
+              "type": "character"
+            },
+            "count": "all"
+          }
+        },
+        {
+          "action": "modify",
+          "health": 1,
+          "target": {
+            "side": "self",
+            "filter": {
+              "type": "character"
+            },
+            "count": "all"
+          }
+        }
+      ],
+      "flavor": "焚去乱象，安定众心。"
+    },
+    {
+      "id": "wei_wuchaofenliang",
+      "name": "乌巢焚粮",
+      "faction": "wei",
+      "type": "tactic",
+      "cost": 2,
+      "memo": "移除敌方牌库顶的一张牌",
+      "gender": "unknown",
+      "keywords": [],
+      "skills": [
+        {
+          "id": "wu_chao_fen_liang",
+          "name": "乌巢焚粮",
+          "kind": "trigger",
+          "trigger": "on_play",
+          "text": "移除敌方牌库顶的一张牌。"
+        }
+      ],
+      "effects": [
+        {
+          "action": "mill",
+          "count": 1,
+          "from_deck": "top",
+          "target": {
+            "side": "enemy"
+          }
+        }
+      ],
+      "flavor": "火烧乌巢，断其粮道。"
     }
   ],
   "heroes": [
@@ -12050,6 +12661,20 @@ window.GameData = {
         "block_attack"
       ],
       "memo": "本回合不能普通攻击"
+    },
+    {
+      "id": "iron_lock",
+      "name": "铁锁",
+      "kind": "buff",
+      "numeric": false,
+      "scope": "character",
+      "timing": 8,
+      "duration": "permanent",
+      "caps": [
+        "immune_all_damage",
+        "break_on_fire"
+      ],
+      "memo": "免疫所有伤害；受到火攻时立即失效"
     },
     {
       "id": "zhuran_skill_lock",

@@ -1315,7 +1315,7 @@ export const IMPLEMENTED_ACTIONS: ReadonlySet<string> = new Set([
   'extra_attack', 'take_control', 'copy_skill', 'force_attack', 'duel',
   'add_to_deck', 'send_to_deck', 'cycle_to_deck',
   'sacrifice', 'attack_each', 'draw_until', 'mill',
-  'discover', 'discover_tactic_pair',
+  'discover', 'discover_tactic_pair', 'draw_random',
   'move',
   'grant_hand', 'replace_lord',
   'defect_to_deck',
@@ -1703,6 +1703,22 @@ export function runEffects(
           type: 'DISCOVER_OPTIONS', side: ctx.side,
           cards: shown.map((id) => cards.get(id)!).filter(Boolean),
         });
+        break;
+      }
+      case 'draw_random': {
+        const filter = eff.target?.filter;
+        const deck = state.sides[ctx.side].deck;
+        const candidates = deck.map((id, index) => ({ id, index, card: cards.get(id) }))
+          .filter(({ card }) => !!card && (!filter?.type || (filter.type === 'character'
+            ? isCharacterType(card!.type) : card!.type === filter.type))
+            && (!filter?.faction || card!.faction === filter.faction)
+            && (!filter?.factions || filter.factions.includes(card!.faction))
+            && (!filter?.tag || (card!.tags ?? []).includes(filter.tag)));
+        const picked = candidates.length ? candidates[rng.int(candidates.length)] : undefined;
+        if (!picked?.card) break;
+        deck.splice(picked.index, 1);
+        state.sides[ctx.side].hand.push({ card: picked.card, mods: [] });
+        events.push({ type: 'CARD_DRAWN', side: ctx.side, card: picked.card, deckLeft: deck.length });
         break;
       }
       case 'discover_tactic_pair': {

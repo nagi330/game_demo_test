@@ -56,6 +56,12 @@ tags:
     memo: "孙氏宗亲人物：孙坚、孙策、孙尚香、孙翊及其后继者"
     used_by: [wu_sunjian, wu_sunce, wu_sunshangxiang, wu_sunyi, wu_sunhuan, wu_sunshao, wu_sunhao]
 
+  - id: machine_attackable
+    name: 可攻击军械
+    value: 0
+    memo: "允许该军械进行普通攻击的规则标签"
+    used_by: [wu_mengchongdoujian]
+
 # ------------------------------------------------------------
 # 待确认
 # ------------------------------------------------------------
