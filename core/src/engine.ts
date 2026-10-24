@@ -917,15 +917,19 @@ function playCard(
     runCardPlayedTriggers(state, ctx.cards, card, rng, events, side, playedRightmost);   // ADR-041
     recomputeAuras(state, ctx.cards, rng, events);
   } else {
-    // 非人物卡：直接执行效果
-    runEffects(state, ctx.cards, card.effects, {
-      side,
-      chosen: action.target
-        ? action.target.row !== undefined
-          ? unitRef(action.target.side, action.target.row, action.target.col as number)
-          : lordRef(action.target.side)
-        : undefined,
-    }, rng, events);
+    // 非人物卡：通常执行卡牌级 effects；带 modes 的 on_play 技能则按出牌时
+    // 的 modeIndex 执行所选分支（战法「虎豹突袭」等抉择战法）。
+    const chosen: TargetRef | undefined = action.target
+      ? action.target.row !== undefined
+        ? unitRef(action.target.side, action.target.row, action.target.col as number)
+        : lordRef(action.target.side)
+      : undefined;
+    const modeSkills = (card.skills ?? []).filter((sk) => sk.trigger === 'on_play' && sk.modes?.length);
+    for (const sk of modeSkills) {
+      runEffects(state, ctx.cards, effectsOf(sk, action.modeIndex),
+        { side, chosen, modeIndex: action.modeIndex }, rng, events);
+    }
+    runEffects(state, ctx.cards, card.effects, { side, chosen }, rng, events);
     s.discard.push(card);
     runCardPlayedTriggers(state, ctx.cards, card, rng, events, side, playedRightmost);   // ADR-041
     recomputeAuras(state, ctx.cards, rng, events);

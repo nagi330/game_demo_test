@@ -429,6 +429,13 @@ export function dealDamage(
                       amount, events, source, depth + 1, killerRef, sourceUnit, damageType, reflected, deathSource);
   }
 
+  // 铁锁横江：铁锁免疫普通伤害，但遇到火攻会立即失效并离场。
+  // 这一能力由状态 cap 驱动，避免把具体卡牌 id 写进伤害管线。
+  if (damageType === 'fire' && hasCap(u, 'break_on_fire')) {
+    killUnit(state, cards, { side: ref.side, row: ref.row, col: ref.col, unit: u }, events, deathSource ?? killerRef);
+    return 0;
+  }
+
   // 免疫伤害（圣盾）：既支持效果施加的 sheng_dun_status，也支持卡牌固有的
   // sheng_dun 关键词。两种载体都只消耗一次，且都产生同样的过期事件。
   const shieldStatus = Object.keys(u.statuses).find((k) => STATUSES[k]?.caps?.includes('immune_damage'));
@@ -840,7 +847,7 @@ export function summonUnit(
   if (dingfengEligible && allUnits(state, side).some((ref) => ref.unit.uid !== u.uid && hasCap(ref.unit, 'future_summon'))) {
     u.kw = [...new Set([...u.kw, 'xian_gong'])];
     u.statuses.xian_gong_status = { stacks: 1 };
-    u.mods.push({ id: `dingfeng#${u.uid}`, kind: 'permanent', attack: -2, health: -2 });
+    u.mods.push({ id: `dingfeng#${u.uid}`, kind: 'permanent', attack: -1, health: -1 });
     applyMods(u);
   }
   events.push({ type: 'UNIT_SUMMONED', side, row, col, unit: u });

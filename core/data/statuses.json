@@ -349,6 +349,20 @@
     "memo": "本回合不能普通攻击"
   },
   {
+    "id": "iron_lock",
+    "name": "铁锁",
+    "kind": "buff",
+    "numeric": false,
+    "scope": "character",
+    "timing": 8,
+    "duration": "permanent",
+    "caps": [
+      "immune_all_damage",
+      "break_on_fire"
+    ],
+    "memo": "免疫所有伤害；受到火攻时立即失效"
+  },
+  {
     "id": "zhuran_skill_lock",
     "name": "截江封技",
     "kind": "debuff",
@@ -611,7 +625,10 @@
     "scope": "character",
     "timing": 8,
     "duration": "until_consumed",
-    "memo": "下一次直接火攻伤害增加3点"
+    "caps": [
+      "fire_damage_ready"
+    ],
+    "memo": "下一次直接火攻伤害增加N点（N为层数）"
   },
   {
     "id": "yi_dao_qian_zhi",

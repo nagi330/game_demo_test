@@ -128,10 +128,11 @@ export function canAttack(state: MatchState, side: Side, row: Row, col: number):
   // 反击取 `effectiveAttack`，**不看 `block_attack`**，故此规则不影响军械反击）。
   //
   // 为什么写在这里而不是只靠每张卡挂 `jin_gong` 光环：那条路已经漏过一次 ——
-  // ADR-119 宣布三张军械都不能普攻，实际只有霹雳车写了光环，楼船军/蒙冲斗舰**静默地**仍能普攻。
-  // 卡面光环仍然保留（提供「无法攻击」徽章给玩家看），此处是**兜底与唯一真源**：
-  // 新增军械卡即使忘了写光环，也不会意外获得攻击能力。
-  if (u.type === 'machine') return { ok: false, reason: '军械无法普通攻击（攻击力只用于反击）' };
+  // 军械默认不能普通攻击；带 `machine_attackable` 标签的军械（当前为蒙冲斗舰）例外。
+  // 这里是**兜底与唯一真源**：新增军械若未显式标记，仍不会意外获得攻击能力。
+  if (u.type === 'machine' && !u.tags.includes('machine_attackable')) {
+    return { ok: false, reason: '军械无法普通攻击（攻击力只用于反击）' };
+  }
   // 0 攻不能普攻（ADR-154，设计者口径）：「0 攻击力的……都无法进行普通攻击」。
   //
   // 为什么值得写成规则、而不是留给玩家自觉：0 攻单位打出去**恒为 0 伤害**（目标掉 0 血），

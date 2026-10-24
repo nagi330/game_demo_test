@@ -99,6 +99,15 @@
         "wu_sunshao",
         "wu_sunhao"
       ]
+    },
+    {
+      "id": "machine_attackable",
+      "name": "可攻击军械",
+      "value": 0,
+      "memo": "允许该军械进行普通攻击的规则标签",
+      "used_by": [
+        "wu_mengchongdoujian"
+      ]
     }
   ]
 }
