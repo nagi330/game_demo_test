@@ -142,6 +142,9 @@ export type StatusCap =
   | 'redirect_damage'   // 伤害重定向：伤害转由状态的 srcUid 承受（ADR-039）
   | 'block_lord_skill'  // 该方主帅不能使用主公技（ADR-040）
   | 'extra_lord_skill'   // 该方主帅每回合主公技次数 +stacks（ADR-040）
+  | 'extra_skill'        // 本回合主动技额外使用次数（暗度陈仓）
+  | 'low_attack_bonus'   // 对攻击力低于 2 的敌方人物普攻时额外伤害
+  | 'breakout_extra'     // 突围击杀后获得一次不能攻击主公的额外普攻
   | 'block_draw'         // 该方不能抽牌（灾年，ADR-041）
   | 'duel_lock'          // 单挑锁定：不可被第三方选中（许褚，ADR-041）
   | 'mark_damage'        // 被标记：受到伤害时触发标记者的联动（法正，ADR-041）
@@ -176,7 +179,8 @@ export type StatusCap =
   | 'shrink_max_hp'      // 回合结束时**永久降低 N 点生命上限**（N = 层数，中毒；不造成伤害）
   | 'stage_up'           // 回合结束时**阶段 +1**（层数＝阶段；水困，用于 2^(阶段-1) 的行动税）
   | 'xu_mou'             // 蓄谋层数（司马懿）
-  | 'skip_turn';         // 该方整个回合被跳过（ADR-074，休养生息「下一回合不进行任何活动」）
+  | 'skip_turn'          // 该方整个回合被跳过（ADR-074，休养生息「下一回合不进行任何活动」）
+  | 'draw_on_attack_kill'; // 本回合普通攻击击杀后抽牌
 
 export interface StatusDef {
   name: string;
@@ -242,6 +246,12 @@ export const STATUSES: Record<string, StatusDef> = {
                 note: '该方主帅不能使用主公技' },
   can_mou:    { name: '参谋', kind: 'buff',   numeric: true,  duration: 'permanent', scope: 'lord',
                 caps: ['extra_lord_skill'], note: '该方主帅每回合主公技次数 +N' },
+  an_du_extra: { name: '暗度', kind: 'buff', numeric: true, duration: 'turns',
+                caps: ['extra_skill'], note: '下个己方回合主动技额外使用一次' },
+  bi_shi_jiu_xu: { name: '避实就虚', kind: 'buff', numeric: false, duration: 'this_turn', scope: 'lord',
+                caps: ['low_attack_bonus'], note: '普攻低攻击力敌方人物时额外造成2点伤害' },
+  tu_wei_extra: { name: '突围', kind: 'buff', numeric: true, duration: 'this_turn',
+                caps: ['breakout_extra'], note: '击杀后获得一次不能攻击主公的额外普攻' },
   shou_hu:    { name: '守护', kind: 'buff',   numeric: false, duration: 'permanent', caps: ['redirect_damage'],
                 guard_scope: 'any',
                 note: '受到的伤害转由守护者承受（援护/分担/护驾共用）' },
@@ -298,6 +308,12 @@ export const STATUSES: Record<string, StatusDef> = {
                 caps: ['water_damage'], note: '水攻伤害 +N' },
   fire_gong_bonus: { name: '火攻强化', kind: 'buff', numeric: true, duration: 'permanent',
                 caps: ['fire_damage'], note: '直接火攻伤害 +N' },
+  xian_fa_reward: { name: '先发奖励', kind: 'buff', numeric: false, duration: 'this_turn',
+                caps: ['draw_on_attack_kill'], note: '本回合普攻击杀后抽牌' },
+  yi_zhan_yang_zhan: { name: '以战养战', kind: 'debuff', numeric: false, duration: 'this_turn',
+                note: '本回合阵亡时为施法方主公回复并抽牌' },
+  qin_zei_qin_wang: { name: '擒王标记', kind: 'debuff', numeric: false, duration: 'this_turn',
+                note: '本回合阵亡时触发擒贼擒王奖励' },
   yin_huo:      { name: '引火', kind: 'debuff', numeric: false, duration: 'permanent',
                 note: '陆逊火烧连营的引火标记' },
   jiao_kuang:   { name: '骄狂', kind: 'buff', numeric: true, duration: 'permanent',
@@ -392,6 +408,15 @@ export const ACTIONS = [
   'summon_random',     // 从候选列表随机召唤一个单位
   'reveal_hand',       // 观察对手手牌中的指定费用牌（孙韶）
   'chain_damage',      // 从起火点沿相邻站位向外传播伤害（陆逊）
+  'cast_tactic',       // 直接释放指定战法，不支付统率
+  'dead_fight',        // 两名同军单位轮流普攻至一方阵亡
+  'temporary_remove',  // 暂时离场，稍后返回且不触发亡语
+  'opponent_choice',   // 在敌方回合开始时创建二选一待决策
+  'return_with_substitute', // 原位回手并召唤替身
+  'reveal_hand_choose', // 展示敌方手牌并选择一张
+  'army_strike',       // 对唯一最少军的正对单位造成伤害
+  'unit_duel_opposite',// 己方单位与正对敌方单位决斗
+  'rest_and_recover',  // 跨回合的休养生息状态
   'grant_hand',    // 强化一张手牌
   'replace_lord',  // 清除指定标签并替换主公
 ] as const;

@@ -84,12 +84,34 @@ export function decide(state: MatchState, ctx: EngineContext): AiDecision {
   // 结算中途的手牌选择（ADR-144）：同理，此刻唯一的合法动作是 CHOOSE_HAND。
   if (state.pendingHandChoice) {
     const pending = state.pendingHandChoice;
-    const hand = state.sides[pending.side].hand;
+    const hand = state.sides[pending.handSide ?? pending.side].hand;
     const idx = (pending.indices ?? hand.map((_, i) => i))
       .filter((i) => i >= 0 && i < hand.length)
       .sort((a, b) => (hand[a]!.card.cost - hand[b]!.card.cost) || (a - b));   // 先放回最便宜的那张
     return idx.length
       ? { ...empty, action: { type: 'CHOOSE_HAND', handIndex: idx[0]! }, candidates: idx.length }
+      : empty;
+  }
+
+  // 敌方抉择是战法结算中的暂停点。引擎在这里暂时保留施法方的
+  // `active`，因此不能依赖回合方判断；直接比较两个分支对被迫作出
+  // 选择的一方的局面收益，提交该方更有利的选项，避免 AI 对局卡死。
+  if (state.pendingOpponentChoice) {
+    const pendingSide = state.pendingOpponentChoice.side;
+    const pendingProfile = profileFor(state, pendingSide, ctx);
+    const pendingWeights = pendingProfile.weights;
+    const choices: Array<{ option: 0 | 1; score: number }> = [];
+    for (const option of [0, 1] as const) {
+      try {
+        const result = applyAction(state, ctx, { type: 'CHOOSE_OPPONENT', option });
+        if (result.ok) choices.push({ option, score: evaluate(result.state, pendingSide, pendingWeights) });
+      } catch {
+        // 一个分支无法结算时跳过；引擎仍会验证最终提交的动作。
+      }
+    }
+    const chosen = choices.sort((a, b) => b.score - a.score)[0];
+    return chosen
+      ? { ...empty, action: { type: 'CHOOSE_OPPONENT', option: chosen.option }, candidates: choices.length }
       : empty;
   }
 

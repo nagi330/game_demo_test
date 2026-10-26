@@ -4152,9 +4152,8 @@ window.GameData = {
           },
           "effects": [
             {
-              "action": "chain_damage",
-              "value": 2,
-              "damage_type": "fire",
+              "action": "cast_tactic",
+              "cast_tactic": "wu_huoshao_lianying",
               "target": {
                 "pick": 1
               }
@@ -12092,6 +12091,7 @@ window.GameData = {
           "action": "chain_damage",
           "value": 2,
           "damage_type": "fire",
+          "include_origin": true,
           "target": {
             "side": "enemy",
             "filter": {
@@ -14224,6 +14224,873 @@ window.GameData = {
       ],
       "note": "**7 费 1/6 谋臣（`elite`）**：身体 7，基准 15，**−8**，换 4 点主公护甲 + 全场友军 +2 生命/架盾 + 受击反击（敌方主公与随机 1 名敌方人物各 3）。定位是\"河北的城墙\"：越拖越难拆。 **引擎**：`gain_armor`（走 `ctx.side`，天然是本方主公）/ `kind: aura`＋`modify health`＋`apply_status: jia_dun_status` （向宠「行阵和睦」同款） / `damage`（含 `lord: true` 与 `mode: random`）全部现成； 光环补架盾的目标加了新过滤 `without_status: jia_dun_status`（ADR-192）， **只给还没有架盾的人补**——否则 `applyStatus` 会给原生架盾条目标上 `auraId`，审配一死就把别人的架盾一起清掉。 ⚠️ **口径**：「受到伤害」沿用引擎既有定义 = **受伤且未阵亡**（与黄祖「顽强」、臧霸「泰山磐石」同）， 致命伤害不触发反击。 **史料（A/B）**：《三国志·魏书六·袁绍传》：审配字正南，魏郡人，**河北派**；守邺城至城破， 「配意氣壯烈，終無撓辭，見者莫不嘆息。遂斬之」；与许攸有隙（许攸叛）；杀辛毗家眷（《辛毗传》，B）。 **不得写**：审配是袁绍的义子或主公、审配献计火烧乌巢、审配降曹、审配守的是官渡（他守**邺城**）、 审配是颍川派（他是**河北派**）。\n",
       "flavor": "配意氣壯烈，終無撓辭，見者莫不嘆息。"
+    },
+    {
+      "id": "wu_shuijun_diaoqian",
+      "name": "水军调遣",
+      "faction": "wu",
+      "type": "tactic",
+      "cost": 3,
+      "gender": "unknown",
+      "keywords": [],
+      "memo": "从牌库随机获得两张含水攻描述的牌",
+      "skills": [
+        {
+          "id": "shui_jun_diao_qian",
+          "name": "水军调遣",
+          "kind": "trigger",
+          "trigger": "on_play",
+          "text": "从己方牌库随机将两张描述中含有「水攻」的牌加入手牌。"
+        }
+      ],
+      "effects": [
+        {
+          "action": "draw_random",
+          "count": 2,
+          "target": {
+            "side": "self",
+            "filter": {
+              "damage_type": "water"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "wu_chengliu_zhuiji",
+      "name": "乘流追击",
+      "faction": "wu",
+      "type": "tactic",
+      "cost": 3,
+      "gender": "unknown",
+      "keywords": [],
+      "memo": "追击水困目标并抽牌",
+      "skills": [
+        {
+          "id": "cheng_liu_zhui_ji",
+          "name": "乘流追击",
+          "kind": "trigger",
+          "trigger": "on_play",
+          "text": "选择一名具有「水困」的敌方单位，对其造成3点水攻伤害，随后抽1张牌。",
+          "target": {
+            "side": "enemy",
+            "filter": {
+              "type": "character",
+              "include_lord": false,
+              "has_status": "shui_kun"
+            },
+            "count": 1,
+            "mode": "choose"
+          }
+        }
+      ],
+      "effects": [
+        {
+          "action": "damage",
+          "value": 3,
+          "damage_type": "water",
+          "target": {
+            "pick": 1
+          }
+        },
+        {
+          "action": "draw",
+          "value": 1
+        }
+      ]
+    },
+    {
+      "id": "wu_huochuan_pozhen",
+      "name": "火船破阵",
+      "faction": "wu",
+      "type": "tactic",
+      "cost": 5,
+      "gender": "unknown",
+      "keywords": [],
+      "memo": "牺牲军械后对所有敌人造成3点伤害",
+      "skills": [
+        {
+          "id": "huo_chuan_po_zhen",
+          "name": "火船破阵",
+          "kind": "trigger",
+          "trigger": "on_play",
+          "text": "牺牲一名己方场上的军械；成功牺牲后，对所有敌人各造成3点伤害。",
+          "target": {
+            "side": "self",
+            "filter": {
+              "type": "machine"
+            },
+            "count": 1,
+            "mode": "choose"
+          }
+        }
+      ],
+      "effects": [
+        {
+          "action": "sacrifice",
+          "target": {
+            "pick": 1
+          }
+        },
+        {
+          "action": "damage",
+          "value": 3,
+          "condition": {
+            "event": "sacrificed"
+          },
+          "target": {
+            "side": "enemy",
+            "filter": {
+              "type": "character",
+              "include_lord": true
+            },
+            "count": "all"
+          }
+        }
+      ]
+    },
+    {
+      "id": "qun_chizhong_yangrui",
+      "name": "持重养锐",
+      "faction": "qun",
+      "type": "tactic",
+      "cost": 2,
+      "gender": "unknown",
+      "keywords": [],
+      "memo": "强化未行动武将并使其本回合停手",
+      "skills": [
+        {
+          "id": "chi_zhong_yang_rui",
+          "name": "持重养锐",
+          "kind": "trigger",
+          "trigger": "on_play",
+          "text": "选择一名本回合尚未行动的己方武将，使其永久获得+1/+3，并使其本回合无法普通攻击或使用战技。",
+          "target": {
+            "side": "self",
+            "filter": {
+              "type": "general",
+              "acted_this_turn": false
+            },
+            "count": 1,
+            "mode": "choose"
+          }
+        }
+      ],
+      "effects": [
+        {
+          "action": "modify",
+          "attack": 1,
+          "health": 3,
+          "target": {
+            "pick": 1
+          }
+        },
+        {
+          "action": "apply_status",
+          "status": "zhen_she",
+          "duration": "this_turn",
+          "target": {
+            "pick": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "qun_andu_chencang_v2",
+      "name": "暗度陈仓",
+      "faction": "qun",
+      "type": "tactic",
+      "cost": 2,
+      "gender": "unknown",
+      "keywords": [],
+      "memo": "以攻击力换取下回合额外一次战技",
+      "skills": [
+        {
+          "id": "an_du_chen_cang_v2",
+          "name": "暗度陈仓",
+          "kind": "trigger",
+          "trigger": "on_play",
+          "text": "选择一名具有战技的己方人物，使其攻击力降低2点，持续至下个己方回合结束；下个己方回合该人物可以使用两次战技。",
+          "target": {
+            "side": "self",
+            "filter": {
+              "type": "character",
+              "has_active_skill": true
+            },
+            "count": 1,
+            "mode": "choose"
+          }
+        }
+      ],
+      "effects": [
+        {
+          "action": "modify",
+          "attack": -2,
+          "duration": 2,
+          "target": {
+            "pick": 1
+          }
+        },
+        {
+          "action": "apply_status",
+          "status": "an_du_extra",
+          "stacks": 1,
+          "duration": 2,
+          "target": {
+            "pick": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "qun_tuwei",
+      "name": "突围",
+      "faction": "qun",
+      "type": "tactic",
+      "cost": 3,
+      "gender": "unknown",
+      "keywords": [],
+      "memo": "强化武将并奖励本回合击杀",
+      "skills": [
+        {
+          "id": "tu_wei",
+          "name": "突围",
+          "kind": "trigger",
+          "trigger": "on_play",
+          "text": "选择一名己方武将，使其攻击力+2；本回合内若其消灭敌方人物，获得一次不能攻击主公的额外普通攻击。",
+          "target": {
+            "side": "self",
+            "filter": {
+              "type": "general"
+            },
+            "count": 1,
+            "mode": "choose"
+          }
+        }
+      ],
+      "effects": [
+        {
+          "action": "modify",
+          "attack": 2,
+          "duration": "this_turn",
+          "target": {
+            "pick": 1
+          }
+        },
+        {
+          "action": "apply_status",
+          "status": "tu_wei_extra",
+          "stacks": 1,
+          "duration": "this_turn",
+          "target": {
+            "pick": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "qun_bishi_jiuxu",
+      "name": "避实就虚",
+      "faction": "qun",
+      "type": "tactic",
+      "cost": 2,
+      "gender": "unknown",
+      "keywords": [],
+      "memo": "本回合攻击低攻敌人时额外造成伤害",
+      "skills": [
+        {
+          "id": "bi_shi_jiu_xu",
+          "name": "避实就虚",
+          "kind": "trigger",
+          "trigger": "on_play",
+          "text": "本回合内，己方单位对攻击力低于2的敌方人物进行普通攻击时，额外造成2点伤害。"
+        }
+      ],
+      "effects": [
+        {
+          "action": "apply_status",
+          "status": "bi_shi_jiu_xu",
+          "stacks": 1,
+          "duration": "this_turn",
+          "target": {
+            "side": "self",
+            "lord": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "qun_lijian_siwang",
+      "name": "离间计",
+      "faction": "qun",
+      "type": "tactic",
+      "cost": 5,
+      "gender": "unknown",
+      "keywords": [],
+      "memo": "使同军敌人进行死斗",
+      "skills": [
+        {
+          "id": "li_jian_si_wang",
+          "name": "离间计",
+          "kind": "trigger",
+          "trigger": "on_play",
+          "text": "选择一名敌方单位，使其与同一军中随机另一名单位进行死斗。",
+          "target": {
+            "side": "enemy",
+            "filter": {
+              "type": "character",
+              "include_lord": false
+            },
+            "count": 1,
+            "mode": "choose"
+          }
+        }
+      ],
+      "effects": [
+        {
+          "action": "dead_fight",
+          "target": {
+            "pick": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "qun_kurou",
+      "name": "苦肉计",
+      "faction": "qun",
+      "type": "tactic",
+      "cost": 0,
+      "gender": "unknown",
+      "keywords": [],
+      "memo": "牺牲生命换取手牌",
+      "skills": [
+        {
+          "id": "ku_rou",
+          "name": "苦肉计",
+          "kind": "trigger",
+          "trigger": "on_play",
+          "text": "选择一名己方人物，对其造成3点伤害，随后抽1张牌。",
+          "target": {
+            "side": "self",
+            "filter": {
+              "type": "character",
+              "include_lord": false
+            },
+            "count": 1,
+            "mode": "choose"
+          }
+        }
+      ],
+      "effects": [
+        {
+          "action": "damage",
+          "value": 3,
+          "target": {
+            "pick": 1
+          }
+        },
+        {
+          "action": "draw",
+          "value": 1
+        }
+      ]
+    },
+    {
+      "id": "qun_diaohu_lishan",
+      "name": "调虎离山",
+      "faction": "qun",
+      "type": "tactic",
+      "cost": 2,
+      "gender": "unknown",
+      "keywords": [],
+      "memo": "暂时移除敌方武将",
+      "skills": [
+        {
+          "id": "diao_hu_li_shan",
+          "name": "调虎离山",
+          "kind": "trigger",
+          "trigger": "on_play",
+          "text": "选择一名敌方武将，使其暂时离场且不触发亡语；在下个敌方回合结束时返回战场。",
+          "target": {
+            "side": "enemy",
+            "filter": {
+              "type": "general"
+            },
+            "count": 1,
+            "mode": "choose"
+          }
+        }
+      ],
+      "effects": [
+        {
+          "action": "temporary_remove",
+          "target": {
+            "pick": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "qun_weijiuzhao",
+      "name": "围魏救赵",
+      "faction": "qun",
+      "type": "tactic",
+      "cost": 3,
+      "gender": "unknown",
+      "keywords": [],
+      "memo": "迫使敌方在主公受伤和人物停手间抉择",
+      "skills": [
+        {
+          "id": "wei_wei_jiu_zhao",
+          "name": "围魏救赵",
+          "kind": "trigger",
+          "trigger": "on_play",
+          "text": "选择一名敌方人物；下个敌方回合开始时敌方抉择：主公受到5点伤害，或该人物该回合无法普通攻击或使用战技。",
+          "target": {
+            "side": "enemy",
+            "filter": {
+              "type": "character",
+              "include_lord": false
+            },
+            "count": 1,
+            "mode": "choose"
+          }
+        }
+      ],
+      "effects": [
+        {
+          "action": "opponent_choice",
+          "target": {
+            "pick": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "qun_shengdong_jixi",
+      "name": "声东击西",
+      "faction": "qun",
+      "type": "tactic",
+      "cost": 5,
+      "gender": "unknown",
+      "keywords": [],
+      "memo": "打击唯一最少军的正对单位",
+      "skills": [
+        {
+          "id": "sheng_dong_ji_xi",
+          "name": "声东击西",
+          "kind": "trigger",
+          "trigger": "on_play",
+          "text": "若己方至少有两军且单位数量最少的一军唯一，对该军每名单位正对面的敌方单位各造成4点伤害。"
+        }
+      ],
+      "effects": [
+        {
+          "action": "army_strike",
+          "value": 4
+        }
+      ]
+    },
+    {
+      "id": "qun_doujiang",
+      "name": "斗将",
+      "faction": "qun",
+      "type": "tactic",
+      "cost": 2,
+      "gender": "unknown",
+      "keywords": [],
+      "memo": "让己方武将与正对敌人决斗",
+      "skills": [
+        {
+          "id": "dou_jiang",
+          "name": "斗将",
+          "kind": "trigger",
+          "trigger": "on_play",
+          "text": "选择一名己方武将，使其与正对面的敌方单位进行一次决斗。",
+          "target": {
+            "side": "self",
+            "filter": {
+              "type": "general"
+            },
+            "count": 1,
+            "mode": "choose"
+          }
+        }
+      ],
+      "effects": [
+        {
+          "action": "unit_duel_opposite",
+          "target": {
+            "pick": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "qun_xiuyang_yangxi",
+      "name": "休养生息",
+      "faction": "qun",
+      "type": "tactic",
+      "cost": 3,
+      "gender": "unknown",
+      "keywords": [],
+      "memo": "跨回合奖励未行动单位",
+      "skills": [
+        {
+          "id": "xiu_yang_yang_xi",
+          "name": "休养生息",
+          "kind": "trigger",
+          "trigger": "on_play",
+          "text": "从当前回合开始持续至下个己方回合结束；期间回合结束时，未行动武将和兵种获得+1攻击，满足条件的谋臣各抽1张牌。"
+        }
+      ],
+      "effects": [
+        {
+          "action": "rest_and_recover"
+        }
+      ]
+    },
+    {
+      "id": "token_tishen",
+      "name": "替身",
+      "faction": "neutral",
+      "type": "token",
+      "cost": 0,
+      "attack": 0,
+      "health": 1,
+      "gender": "unknown",
+      "keywords": [
+        "jia_dun"
+      ],
+      "memo": "金蝉脱壳召唤的0/1架盾替身",
+      "flavor": "以身为饵，金蝉脱壳。"
+    },
+    {
+      "id": "qun_weishi_bique",
+      "name": "围师必阙",
+      "faction": "qun",
+      "type": "tactic",
+      "cost": 2,
+      "gender": "unknown",
+      "keywords": [],
+      "memo": "逼敌在回手与受伤之间抉择",
+      "skills": [
+        {
+          "id": "wei_shi_bi_que",
+          "name": "围师必阙",
+          "kind": "trigger",
+          "trigger": "on_play",
+          "text": "选择一名敌方单位，敌方选择将其返回手牌或对其造成4点伤害。",
+          "target": {
+            "side": "enemy",
+            "filter": {
+              "type": "character",
+              "include_lord": false
+            },
+            "count": 1,
+            "mode": "choose"
+          }
+        }
+      ],
+      "effects": [
+        {
+          "action": "opponent_choice",
+          "target": {
+            "pick": 1
+          },
+          "opponent_options": [
+            {
+              "label": "返回手牌",
+              "effects": [
+                {
+                  "action": "return_to_hand",
+                  "target": {
+                    "pick": 1
+                  }
+                }
+              ]
+            },
+            {
+              "label": "承受4点伤害",
+              "effects": [
+                {
+                  "action": "damage",
+                  "value": 4,
+                  "target": {
+                    "pick": 1
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "flavor": "围三阙一，诱敌自择。"
+    },
+    {
+      "id": "qun_yizhan_yangzhan",
+      "name": "以战养战",
+      "faction": "qun",
+      "type": "tactic",
+      "cost": 4,
+      "gender": "unknown",
+      "keywords": [],
+      "memo": "本回合击杀敌方人物后回血抽牌",
+      "skills": [
+        {
+          "id": "yi_zhan_yang_zhan",
+          "name": "以战养战",
+          "kind": "trigger",
+          "trigger": "on_play",
+          "text": "本回合己方单位每消灭一个敌方人物，己方主公恢复1点生命并抽1张牌。"
+        }
+      ],
+      "effects": [
+        {
+          "action": "apply_status",
+          "status": "yi_zhan_yang_zhan",
+          "duration": "this_turn",
+          "status_source": "self",
+          "target": {
+            "side": "enemy",
+            "filter": {
+              "type": "character",
+              "include_lord": false
+            },
+            "count": "all"
+          },
+          "on_death": [
+            {
+              "action": "heal",
+              "value": 1,
+              "target": {
+                "side": "self",
+                "lord": true
+              }
+            },
+            {
+              "action": "draw",
+              "value": 1
+            }
+          ]
+        }
+      ],
+      "flavor": "以战养战，因胜续力。"
+    },
+    {
+      "id": "qun_xianfazhiren",
+      "name": "先发制人",
+      "faction": "qun",
+      "type": "tactic",
+      "cost": 4,
+      "gender": "unknown",
+      "keywords": [],
+      "memo": "强化武将或兵种并奖励普攻击杀",
+      "skills": [
+        {
+          "id": "xian_fa_zhi_ren",
+          "name": "先发制人",
+          "kind": "trigger",
+          "trigger": "on_play",
+          "text": "选择一名己方武将或兵种，使其获得先攻和+2攻击，持续至本回合结束；本回合普攻击杀敌方单位后抽1张牌。",
+          "target": {
+            "side": "self",
+            "filter": {
+              "any_of": [
+                {
+                  "type": "general"
+                },
+                {
+                  "type": "troop"
+                }
+              ]
+            },
+            "count": 1,
+            "mode": "choose"
+          }
+        }
+      ],
+      "effects": [
+        {
+          "action": "apply_status",
+          "status": "xian_gong_status",
+          "duration": "this_turn",
+          "target": {
+            "pick": 1
+          }
+        },
+        {
+          "action": "modify",
+          "attack": 2,
+          "duration": "this_turn",
+          "target": {
+            "pick": 1
+          }
+        },
+        {
+          "action": "apply_status",
+          "status": "xian_fa_reward",
+          "duration": "this_turn",
+          "target": {
+            "pick": 1
+          }
+        }
+      ],
+      "flavor": "先发制人，夺其战机。"
+    },
+    {
+      "id": "qun_jinchantuoqiao",
+      "name": "金蝉脱壳",
+      "faction": "qun",
+      "type": "tactic",
+      "cost": 3,
+      "gender": "unknown",
+      "keywords": [],
+      "memo": "己方单位原位回手并留下架盾替身",
+      "skills": [
+        {
+          "id": "jin_chan_tuo_qiao",
+          "name": "金蝉脱壳",
+          "kind": "trigger",
+          "trigger": "on_play",
+          "text": "选择一个己方单位，使其返回手牌，并在原位置召唤一个0/1架盾替身，之后抽1张牌。",
+          "target": {
+            "side": "self",
+            "filter": {
+              "type": "character",
+              "include_lord": false
+            },
+            "count": 1,
+            "mode": "choose"
+          }
+        }
+      ],
+      "effects": [
+        {
+          "action": "return_with_substitute",
+          "replacement_unit": "token_tishen",
+          "target": {
+            "pick": 1
+          }
+        },
+        {
+          "action": "draw",
+          "value": 1
+        }
+      ],
+      "flavor": "金蝉脱壳，留形惑敌。"
+    },
+    {
+      "id": "qun_zhijizhibi",
+      "name": "知己知彼",
+      "faction": "qun",
+      "type": "tactic",
+      "cost": 2,
+      "gender": "unknown",
+      "keywords": [],
+      "memo": "展示敌方手牌并临时提高一张牌费用",
+      "skills": [
+        {
+          "id": "zhi_ji_zhi_bi",
+          "name": "知己知彼",
+          "kind": "trigger",
+          "trigger": "on_play",
+          "text": "展示敌方手牌，选择其中一张牌使其统率消耗+2，持续至下个敌方回合结束，然后抽1张牌。"
+        }
+      ],
+      "effects": [
+        {
+          "action": "reveal_hand_choose"
+        }
+      ],
+      "flavor": "知彼知己，百战不殆。"
+    },
+    {
+      "id": "qun_qinzeiqinwang",
+      "name": "擒贼擒王",
+      "faction": "qun",
+      "type": "tactic",
+      "cost": 4,
+      "gender": "unknown",
+      "keywords": [],
+      "memo": "标记敌方最高攻击单位，击杀后全军得利",
+      "skills": [
+        {
+          "id": "qin_zei_qin_wang",
+          "name": "擒贼擒王",
+          "kind": "trigger",
+          "trigger": "on_play",
+          "text": "随机选择打出时场上攻击力最高的敌方单位；其本回合阵亡时，己方抽2张牌，所有己方单位+1攻击。"
+        }
+      ],
+      "effects": [
+        {
+          "action": "apply_status",
+          "status": "qin_zei_qin_wang",
+          "duration": "this_turn",
+          "target": {
+            "side": "enemy",
+            "filter": {
+              "type": "character",
+              "include_lord": false
+            },
+            "count": 1,
+            "mode": "highest_attack"
+          },
+          "on_death": [
+            {
+              "action": "draw",
+              "value": 2
+            },
+            {
+              "action": "modify",
+              "attack": 1,
+              "target": {
+                "side": "self",
+                "filter": {
+                  "type": "character"
+                },
+                "count": "all"
+              }
+            }
+          ]
+        }
+      ],
+      "flavor": "擒贼先擒王，破敌先夺势。"
+    },
+    {
+      "id": "qun_wuzhongshengyou",
+      "name": "无中生有",
+      "faction": "qun",
+      "type": "tactic",
+      "cost": 3,
+      "gender": "unknown",
+      "keywords": [],
+      "memo": "从本阵营可构筑战法池随机获得两张战法",
+      "skills": [
+        {
+          "id": "wu_zhong_sheng_you",
+          "name": "无中生有",
+          "kind": "trigger",
+          "trigger": "on_play",
+          "text": "从本国所有战法牌中随机获得两张战法。"
+        }
+      ],
+      "effects": [
+        {
+          "action": "draw_random",
+          "count": 2,
+          "from_pool": true,
+          "target": {
+            "side": "self",
+            "filter": {
+              "type": "tactic"
+            }
+          }
+        }
+      ],
+      "flavor": "无中生有，虚实相生。"
     }
   ],
   "heroes": [
@@ -14491,6 +15358,39 @@ window.GameData = {
       "scope": "lord",
       "duration": "permanent",
       "memo": "黄祖布下的公开暗箭：敌方下一个打出的「人物」落地后受 3 点伤害，随即消失；黄祖阵亡也消失（ADR-200）"
+    },
+    {
+      "id": "xian_fa_reward",
+      "name": "先发奖励",
+      "kind": "buff",
+      "numeric": false,
+      "scope": "character",
+      "timing": 20,
+      "duration": "this_turn",
+      "caps": [
+        "draw_on_attack_kill"
+      ],
+      "memo": "本回合通过普通攻击击杀敌方单位后抽1张牌"
+    },
+    {
+      "id": "yi_zhan_yang_zhan",
+      "name": "以战养战",
+      "kind": "debuff",
+      "numeric": false,
+      "scope": "character",
+      "timing": 20,
+      "duration": "this_turn",
+      "memo": "本回合阵亡时为施法方主公恢复1点生命并抽1张牌"
+    },
+    {
+      "id": "qin_zei_qin_wang",
+      "name": "擒王标记",
+      "kind": "debuff",
+      "numeric": false,
+      "scope": "character",
+      "timing": 20,
+      "duration": "this_turn",
+      "memo": "本回合阵亡时触发擒贼擒王奖励"
     },
     {
       "id": "jin_yong",

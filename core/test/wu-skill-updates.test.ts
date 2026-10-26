@@ -46,7 +46,7 @@ test('陆逊「火烧连营」：新版技能只有一个起火点目标模式',
     skills: [{
       id: 'huo_shao_lian_ying', name: '火烧连营', kind: 'active', cost: 0, frequency: 'once_per_turn',
       target: { side: 'enemy', filter: { type: 'character', include_lord: false }, count: 1, mode: 'choose' },
-      effects: [{ action: 'chain_damage', value: 2, damage_type: 'fire', target: { pick: 1 } }],
+      effects: [{ action: 'chain_damage', value: 2, damage_type: 'fire', include_origin: true, target: { pick: 1 } }],
     }],
   });
   const skill = card.skills?.find((x) => x.name === '火烧连营');
@@ -64,7 +64,7 @@ test('陆逊新版「火烧连营」：从起火点沿连续相邻站位传播�
     skills: [{
       id: 'huo_shao_lian_ying', name: '火烧连营', kind: 'active', cost: 0, frequency: 'once_per_turn',
       target: { side: 'enemy', filter: { type: 'character', include_lord: false }, count: 1, mode: 'choose' },
-      effects: [{ action: 'chain_damage', value: 2, damage_type: 'fire', target: { pick: 1 } }],
+      effects: [{ action: 'chain_damage', value: 2, damage_type: 'fire', include_origin: true, target: { pick: 1 } }],
     }],
   });
   const { state, ctx } = scenario({ ownHand: [luxun.id] });
@@ -80,7 +80,7 @@ test('陆逊新版「火烧连营」：从起火点沿连续相邻站位传播�
   });
   assert.equal(result.ok, true, result.error ?? '');
   assert.equal(getUnit(result.state, 'enemy', 'front', 0)?.hp, 3);
-  assert.equal(getUnit(result.state, 'enemy', 'front', 1)?.hp, 5, '起火点不应承受传播伤害');
+  assert.equal(getUnit(result.state, 'enemy', 'front', 1)?.hp, 3, '起火点也应承受2点火攻');
   assert.equal(getUnit(result.state, 'enemy', 'front', 2)?.hp, 3);
 });
 

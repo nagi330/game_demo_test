@@ -632,6 +632,9 @@ test('真实卡数据：火卡的直伤仍是 fire 属性（陆逊的焚烧分�
     const fireHits = (card.skills ?? []).flatMap((s) => [
       ...(s.effects ?? []),
       ...((s.modes ?? []).flatMap((m) => m.effects ?? [])),
+      ...(cardId === 'wu_luxun'
+        ? REAL_CARDS.find((c) => c.id === 'wu_huoshao_lianying')?.effects ?? []
+        : []),
     ]).filter((e) => (e.action === 'damage' || e.action === 'chain_damage') && e.damage_type === 'fire');
     assert.ok(fireHits.length > 0, `${card.name} 的直伤应标 damage_type: fire`);
   }

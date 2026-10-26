@@ -255,6 +255,11 @@ test('ADR-073：真实卡池里不存在「文案提到关键词但卡上没实�
     // 关键词挂在 token / elite 卡上，不该要求本卡也有。
     if (effs.some((e) => e.action === 'summon' || e.action === 'transform')) continue;
     const kws = new Set(c.keywords ?? []);
+    // `return_with_substitute` 的关键词属于原位召唤的替身卡，而不是战法本身
+    // （例如「金蝉脱壳」召唤具有架盾的替身）。
+    const replacementKws = new Set(effs
+      .filter((e) => e.action === 'return_with_substitute' && e.replacement_unit)
+      .flatMap((e) => cards.find((x) => x.id === e.replacement_unit)?.keywords ?? []));
     const applied = new Set(effs.filter((e) => e.action === 'apply_status').map((e) => e.status));
     for (const [cn, kw] of Object.entries(KW_CN)) {
       if (!text.includes(cn)) continue;
@@ -264,7 +269,7 @@ test('ADR-073：真实卡池里不存在「文案提到关键词但卡上没实�
         || e.grant_keyword === kw
         // 丁奉的先攻不是给自身，而是由雪中奋短兵光环授予后续召唤单位。
         || (kw === 'xian_gong' && e.action === 'apply_status' && e.status === 'dingfeng_aura'));
-      if (kws.has(kw) || applied.has(`${kw}_status`) || applied.has(kw) || referenced) continue;
+      if (kws.has(kw) || replacementKws.has(kw) || applied.has(`${kw}_status`) || applied.has(kw) || referenced) continue;
       offenders.push(`${c.id}（${c.name}）文案提到「${cn}」`);
     }
   }

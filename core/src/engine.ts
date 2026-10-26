@@ -99,10 +99,14 @@ export function applyAction(state: MatchState, ctx: EngineContext, action: Actio
     if (next.pendingHandChoice && action.type !== 'CHOOSE_HAND') {
       throw new Error('请先选择一张手牌');
     }
+    if (next.pendingOpponentChoice && action.type !== 'CHOOSE_OPPONENT') {
+      throw new Error('请先完成敌方抉择');
+    }
     switch (action.type) {
       case 'PLAY_CARD': ok = playCard(next, ctx, action, events, rng); break;
       case 'CHOOSE_DISCOVER': ok = chooseDiscover(next, ctx, action, events, rng); break;
       case 'CHOOSE_HAND': ok = chooseHand(next, ctx, action, events, rng); break;
+      case 'CHOOSE_OPPONENT': ok = chooseOpponent(next, ctx, action, events, rng); break;
       case 'UPGRADE_UNIT': ok = upgradeUnit(next, ctx, action, events, rng); break;
       case 'ATTACK': ok = attack(next, ctx, action, events, rng); break;
       case 'LORD_ATTACK': {
@@ -162,7 +166,8 @@ function chooseHand(
 ): boolean {
   const pending = state.pendingHandChoice;
   if (!pending || state.active !== pending.side) return false;
-  const hand = state.sides[pending.side].hand;
+  const handSide = pending.handSide ?? pending.side;
+  const hand = state.sides[handSide].hand;
   const i = action.handIndex;
   if (!(Number.isInteger(i) && i >= 0 && i < hand.length)) return false;
   if (pending.indices && !pending.indices.includes(i)) return false;
@@ -173,12 +178,20 @@ function chooseHand(
     delete state.pendingHandChoice;
     runEffects(state, ctx.cards, pending.choiceEffect ? [pending.choiceEffect] : [],
       { side: pending.side, source, handIndex: i }, rng, events);
+  } else if (pending.kind === 'modify_cost') {
+    delete state.pendingHandChoice;
+    const chosen = hand[i];
+    if (!chosen) return false;
+    events.push({ type: 'HAND_CHOSEN', side: handSide, card: chosen.card, kind: pending.kind });
+    runEffects(state, ctx.cards, pending.continuation?.effects,
+      { side: pending.side, source, chosen: { kind: 'hand', side: handSide, index: i } }, rng, events);
+    return true;
   } else {
     const [chosen] = hand.splice(i, 1);
     if (!chosen) return false;
     delete state.pendingHandChoice;
 
-    const s = state.sides[pending.side];
+    const s = state.sides[handSide];
     if (pending.kind === 'deck_top') s.deck.push(chosen.card.id);          // 数组末尾 = 牌库顶
     else if (pending.kind === 'deck_bottom') s.deck.unshift(chosen.card.id); // 数组开头 = 牌库底
     else if (pending.kind === 'random') s.deck.splice(rng.int(s.deck.length + 1), 0, chosen.card.id);
@@ -188,6 +201,32 @@ function chooseHand(
   }
   runEffects(state, ctx.cards, pending.continuation?.effects,
     { side: pending.side, source }, rng, events);
+  return true;
+}
+
+function chooseOpponent(
+  state: MatchState, ctx: EngineContext,
+  action: Extract<Action, { type: 'CHOOSE_OPPONENT' }>,
+  events: GameEvent[], rng: ReturnType<typeof createRng>,
+): boolean {
+  const pending = state.pendingOpponentChoice;
+  // 敌方抉择是当前战法结算中的暂停点，施法方回合尚未结束；不能要求
+  // `state.active` 已切换到对手，否则战法打出后会被自己的回合锁死。
+  if (!pending) return false;
+  delete state.pendingOpponentChoice;
+  if (pending.options?.length) {
+    const option = pending.options[action.option];
+    if (!option) return false;
+    runEffects(state, ctx.cards, option.effects,
+      { side: pending.sourceSide, chosen: pending.target }, rng, events);
+    return true;
+  }
+  if (action.option === 0) {
+    dealDamage(state, ctx.cards, lordRef(pending.side), 5, events, '围魏救赵');
+  } else {
+    runEffects(state, ctx.cards, [{ action: 'apply_status', status: 'zhen_she', duration: 'this_turn',
+      target: { pick: 1 } }], { side: pending.sourceSide, chosen: pending.target }, rng, events);
+  }
   return true;
 }
 
@@ -573,10 +612,16 @@ export function playTargetPlan(
   const onPlay = (card.skills ?? []).filter((sk) => sk.trigger === 'on_play');
   for (const sk of onPlay) {
     if (sk.modes?.length) plan.modes = sk.modes.map((m, i) => m.name || `选项 ${i + 1}`);
-  for (const eff of effectsOf(sk, modeIndex)) {
-    collect(eff);
-    if (eff.target2) collect(eff, eff.target2, 2);
-  }
+    const skillEffects = effectsOf(sk, modeIndex);
+    // 技能级 target 是战吼/战法声明的真实选择器，效果通常只用
+    // { pick: 1 } 引用该选择（如暗度陈仓、火船破阵）。目标计划必须
+    // 同时读取两层，否则 UI 不会要求选择，结算会静默退回第一个目标。
+    if (sk.target) collect({ action: skillEffects[0]?.action ?? 'target', target: sk.target });
+    if (sk.target2) collect({ action: skillEffects[0]?.action ?? 'target', target: sk.target2 }, sk.target2, 2);
+    for (const eff of skillEffects) {
+      collect(eff);
+      if (eff.target2) collect(eff, eff.target2, 2);
+    }
   }
   // 非人物卡的卡级效果同样可能带 mode:'choose'（如指定一方）
   if (!['troop', 'general', 'strategist', 'machine'].includes(card.type)) {
@@ -677,7 +722,18 @@ export function unitSkillTargetPlan(
   const sk = (u.skills ?? []).find((x) => x.kind === 'active' && (!skillId || x.id === skillId));
   if (!sk) return plan;
   if (sk.modes?.length) plan.modes = sk.modes.map((m, i) => m.name || `选项 ${i + 1}`);
-  for (const eff of effectsOf(sk, modeIndex)) {
+  const skillEffects = effectsOf(sk, modeIndex);
+  if (sk.target) {
+    const c = choiceOf(state, side, { action: skillEffects[0]?.action ?? 'target', target: sk.target },
+      { cost: u.cost, atk: u.atk });
+    if (c && !plan.choices.some((x) => x.pick === c.pick && x.zone === c.zone)) plan.choices.push(c);
+  }
+  if (sk.target2) {
+    const c = choiceOf(state, side, { action: skillEffects[0]?.action ?? 'target', target: sk.target2 },
+      { cost: u.cost, atk: u.atk }, sk.target2, 2);
+    if (c && !plan.choices.some((x) => x.pick === c.pick && x.zone === c.zone)) plan.choices.push(c);
+  }
+  for (const eff of skillEffects) {
     const c = choiceOf(state, side, eff, { cost: u.cost, atk: u.atk });
     // ⚠️ 去重要**连 zone 一起比**：华佗「青囊」的"弃手牌"与"回血目标"都是 pick 1，
     //    只看 pick 会把前者吞掉（ADR-146）。
@@ -802,6 +858,21 @@ function finishTurn(state: MatchState, ctx: EngineContext, events: GameEvent[], 
     }
   }
   resolvePendingUnplayed(state, ctx, events);                                 // ADR-194：田丰「举杖击地」
+  // 休养生息：在效果持续期间，每个回合结束奖励本回合未行动的己方单位。
+  for (const rest of state.restEffects ?? []) {
+    if (state.halfTurn > rest.untilHalfTurn) continue;
+    for (const ref of allUnits(state, rest.side)) {
+      if (ref.unit.hp <= 0 || ref.unit.actedThisTurn) continue;
+      if (ref.unit.type === 'general' || ref.unit.type === 'troop') {
+        ref.unit.mods.push({ id: `rest#${state.halfTurn}`, kind: 'permanent', attack: 1 });
+        applyMods(ref.unit);
+        events.push({ type: 'STAT_MODIFIED', side: rest.side, row: ref.row, col: ref.col, attack: 1 });
+      } else if (ref.unit.type === 'strategist') {
+        drawCard(state, ctx.cards, rest.side, events, rng);
+      }
+    }
+  }
+  state.restEffects = (state.restEffects ?? []).filter((x) => state.halfTurn < x.untilHalfTurn);
   // 盾兵在敌方回合结束时仍存活，记录一次独立升变进度。
   for (const ref of allUnits(state, other(side))) {
     if (ref.unit.troopKind === 'shield' && isBasicTroop(ref.unit) && ref.unit.hp > 0) {
@@ -818,6 +889,24 @@ function finishTurn(state: MatchState, ctx: EngineContext, events: GameEvent[], 
     delete lord.attackedThisTurn;
   }
   expireHandMods(state, side);                                                 // 第 21 步 手牌修正到期
+  // 调虎离山的单位在下个敌方回合结束返回，不触发战吼或亡语。
+  if (state.removedUnits?.length) {
+    const pending = [];
+    for (const removed of state.removedUnits) {
+      if (removed.returnHalfTurn > state.halfTurn || removed.side !== side) { pending.push(removed); continue; }
+      let row = removed.row;
+      let col = removed.col;
+      if (state.sides[removed.side].rows[row][col]) {
+        row = 'front';
+        col = state.sides[removed.side].rows.front.findIndex((u) => !u);
+        if (col < 0) col = state.sides[removed.side].rows.back.findIndex((u) => !u);
+        if (col < 0) { pending.push(removed); continue; }
+      }
+      state.sides[removed.side].rows[row][col] = removed.unit;
+      events.push({ type: 'UNIT_SUMMONED', side: removed.side, row, col, unit: removed.unit });
+    }
+    state.removedUnits = pending;
+  }
   recomputeAuras(state, ctx.cards, rng, events);                              // 第 21 步后重算
   const dropped = discardOverflow(state, side);
   dropped.forEach((c) => events.push({ type: 'CARD_PLAYED', side, card: c }));   // 弃牌也用同一事件，客户端可区分
@@ -1034,6 +1123,7 @@ function attack(
   const { from, to } = action;
   const attacker = getUnit(state, side, from.row, from.col);
   if (!attacker) return false;
+  if (to.kind === 'lord' && (attacker.extraAttacksNoLord ?? 0) > 0) return false;
 
   const legal = legalTargets(state, side, from.row, from.col);
   if (!legal.targets.length) return false;
@@ -1053,6 +1143,9 @@ function attack(
   resolveAttack(state, ctx.cards, side, from,
     target as { kind: 'unit'; row: Row; col: number } | { kind: 'lord' },
     events, rng, { consumeAttack: true });
+  if (target && target.kind === 'unit' && (attacker.extraAttacksNoLord ?? 0) > 0) {
+    attacker.extraAttacksNoLord = Math.max(0, (attacker.extraAttacksNoLord ?? 0) - 1);
+  }
   chargeWaterTax(state, ctx, side, from.row, from.col, events);   // 水困：行动税
   return true;
 }
@@ -1098,6 +1191,12 @@ function useUnitSkill(
 
   const key = skill.id || skill.name || '0';
   u.skillUsesThisTurn[key] = (u.skillUsesThisTurn[key] ?? 0) + 1;
+  // 「暗度陈仓」给一次性技能追加第二次使用机会；第二次实际使用时消耗一层。
+  if ((u.skillUsesThisTurn[key] ?? 0) >= 2 && capStacks(u.statuses, 'extra_skill') > 0) {
+    const bonus = Object.entries(u.statuses).find(([id, st]) =>
+      st.stacks > 0 && STATUSES[id]?.caps?.includes('extra_skill'));
+    if (bonus) bonus[1].stacks -= 1;
+  }
   u.actedThisTurn = true;                       // ADR-074：司马懿要判"本回合有没有行动"
   emitSkillTriggered(state, side, u, skill, 'active', events);
   if ((skill.frequency ?? 'once_per_turn') === 'once') u.skillsUsedOnce.push(key);

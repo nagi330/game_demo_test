@@ -8,6 +8,7 @@ import { dealDamage, summonUnit, unitRef } from '../src/mutate.ts';
 import { recomputeAuras } from '../src/effects.ts';
 import { createRng } from '../src/rng.ts';
 import { allUnits, getUnit, makeUnit, nextUidSeq, setUnit } from '../src/state.ts';
+import { chooseAction } from '../src/ai/index.ts';
 import { scenario } from './fixtures.ts';
 import type { CardDef, GameEvent } from '../src/types.ts';
 
@@ -82,12 +83,12 @@ test('铁锁横江：铁锁免疫普通伤害，遇火失效并解除敌方攻�
   assert.equal(getUnit(played.state, 'own', lockRef!.row, lockRef!.col), null, '火攻应使铁锁失效');
 });
 
-test('火烧连营战法：起火点本身不受伤害，只向连续相邻单位传播', () => {
+test('火烧连营战法：起火点与同军连续相邻单位各受一次2点火攻', () => {
   const s = setup();
   for (const col of [0, 1, 2]) place(s, 'wei_caoren', 'enemy', col);
   const result = playTactic(s, 'wu_huoshao_lianying', { side: 'enemy', row: 'front', col: 1 });
   assert.equal(getUnit(result.state, 'enemy', 'front', 0)?.hp, 6, '相邻目标应受到2点伤害');
-  assert.equal(getUnit(result.state, 'enemy', 'front', 1)?.hp, 8, '起火点不应受伤害');
+  assert.equal(getUnit(result.state, 'enemy', 'front', 1)?.hp, 6, '起火点也应受到2点伤害');
   assert.equal(getUnit(result.state, 'enemy', 'front', 2)?.hp, 6, '另一侧相邻目标应受到2点伤害');
 });
 
@@ -103,6 +104,39 @@ test('吴舰齐射：4费对任意场上单位造成6点水攻，旧卡已删除
     || card.id === 'wu_huoshaochibi' || card.id === 'wei_gefa_daishou'), false);
   const result = playTactic(s, 'wu_shuijun_tuxi', { side: 'enemy', row: 'front', col: 0 });
   assert.equal(getUnit(result.state, 'enemy', 'front', 0)?.hp, hpBefore - 6);
+});
+
+test('水军调遣：只从牌库随机取得带水攻效果的牌，最多两张', () => {
+  const s = setup();
+  s.state.sides.own.deck = [
+    'wu_chengliu_zhuiji', 'neutral_infantry', 'wu_huoshao_lianying',
+  ];
+  const result = playTactic(s, 'wu_shuijun_diaoqian');
+  const drawn = result.state.sides.own.hand.map((x) => x.card.id);
+  assert.ok(drawn.includes('wu_chengliu_zhuiji'), '应取得带水攻效果的战法');
+  assert.equal(drawn.includes('neutral_infantry'), false, '不应取得无水攻描述的牌');
+  assert.equal(result.state.sides.own.deck.includes('wu_chengliu_zhuiji'), false);
+});
+
+test('火船破阵：成功牺牲军械后对敌方单位和主公各造成3点无属性伤害', () => {
+  const s = setup();
+  const machine = place(s, 'wu_mengchongdoujian', 'own', 0);
+  const enemy = place(s, 'wei_caoren', 'enemy', 0);
+  const lordHp = s.state.sides.enemy.lord.hp;
+  const result = playTactic(s, 'wu_huochuan_pozhen', { side: 'own', row: 'front', col: 0 });
+  assert.equal(getUnit(result.state, 'own', 'front', 0), null, '军械应被牺牲');
+  assert.equal(getUnit(result.state, 'enemy', 'front', 0)?.hp, enemy.hp - 3);
+  assert.equal(result.state.sides.enemy.lord.hp, lordHp - 3);
+  assert.equal(machine.hp > 0, true, '测试前军械应存活');
+});
+
+test('暗度陈仓：目标池只包含拥有主动战技的人物', () => {
+  const s = setup();
+  place(s, 'neutral_infantry', 'own', 0);
+  place(s, 'wu_luxun', 'own', 1);
+  const plan = playTargetPlan(s.state, 'own', real('qun_andu_chencang_v2'));
+  assert.equal(plan.choices.length, 1);
+  assert.deepEqual(plan.choices[0]!.targets.map((t) => t.kind === 'unit' ? t.col : -1), [1]);
 });
 
 test('扎草为兵：5费召唤三个草兵，并封锁敌方下回合普攻', () => {
@@ -245,4 +279,115 @@ test('八门金锁阵：敌方施放时，震慑及正对强化仍按施法方�
   const nextEnemyTurn = applyAction(ownTurn.state, s.ctx, { type: 'END_TURN' });
   assert.equal(nextEnemyTurn.ok, true);
   assert.equal(getUnit(nextEnemyTurn.state, 'own', 'front', 6)?.statuses.zhen_she, undefined);
+});
+
+test('围师必阙：敌方可以选择回手或承受伤害', () => {
+  const bounce = setup();
+  place(bounce, 'wei_caoren', 'enemy', 0);
+  const cast = playTactic(bounce, 'qun_weishi_bique', { side: 'enemy', row: 'front', col: 0 });
+  assert.ok(cast.state.pendingOpponentChoice, '应暂停等待敌方抉择');
+  const chosen = applyAction(cast.state, bounce.ctx, { type: 'CHOOSE_OPPONENT', option: 0 });
+  assert.equal(chosen.ok, true, chosen.error ?? '敌方应能选择回手');
+  assert.equal(getUnit(chosen.state, 'enemy', 'front', 0), null);
+  assert.equal(chosen.state.sides.enemy.hand.at(-1)?.card.id, 'wei_caoren');
+
+  const damage = setup();
+  const target = place(damage, 'wei_caoren', 'enemy', 0);
+  const castDamage = playTactic(damage, 'qun_weishi_bique', { side: 'enemy', row: 'front', col: 0 });
+  const damaged = applyAction(castDamage.state, damage.ctx, { type: 'CHOOSE_OPPONENT', option: 1 });
+  assert.equal(damaged.ok, true, damaged.error ?? '敌方应能选择承伤');
+  assert.equal(getUnit(damaged.state, 'enemy', 'front', 0)?.hp, target.hp - 4);
+});
+
+test('AI 在敌方抉择挂起时提交 CHOOSE_OPPONENT，避免战法结算卡死', () => {
+  const s = setup();
+  place(s, 'wei_caoren', 'enemy', 0);
+  const cast = playTactic(s, 'qun_weishi_bique', { side: 'enemy', row: 'front', col: 0 });
+  assert.ok(cast.state.pendingOpponentChoice);
+  const action = chooseAction(cast.state, s.ctx);
+  assert.ok(action, 'AI 应提交敌方抉择');
+  assert.equal(action?.type, 'CHOOSE_OPPONENT');
+  const resolved = applyAction(cast.state, s.ctx, action!);
+  assert.equal(resolved.ok, true, resolved.error ?? 'AI 的敌方抉择应可结算');
+  assert.equal(resolved.state.pendingOpponentChoice, undefined);
+});
+
+test('以战养战：本回合每击杀一个敌方人物就回血并抽牌', () => {
+  const s = setup();
+  place(s, 'wei_caoren', 'own', 0);
+  place(s, 'neutral_archer', 'enemy', 0);
+  s.state.sides.own.deck = ['neutral_archer'];
+  s.state.sides.own.lord.hp = s.state.sides.own.lord.maxHp - 1;
+  const cast = playTactic(s, 'qun_yizhan_yangzhan');
+  const attack = applyAction(cast.state, s.ctx, {
+    type: 'ATTACK', from: { row: 'front', col: 0 }, to: { kind: 'unit', row: 'front', col: 0 },
+  });
+  assert.equal(attack.ok, true, attack.error ?? '应能完成击杀');
+  assert.equal(attack.state.sides.own.lord.hp, attack.state.sides.own.lord.maxHp);
+  assert.equal(attack.state.sides.own.hand.at(-1)?.card.id, 'neutral_archer');
+});
+
+test('先发制人：强化武将并在普攻击杀后抽牌', () => {
+  const s = setup();
+  const attacker = place(s, 'neutral_infantry', 'own', 0);
+  place(s, 'neutral_shieldman', 'enemy', 0);
+  s.state.sides.own.deck = ['neutral_archer'];
+  const cast = playTactic(s, 'qun_xianfazhiren', { side: 'own', row: 'front', col: 0 });
+  assert.equal(getUnit(cast.state, 'own', 'front', 0)?.atk, attacker.atk + 2);
+  assert.ok(getUnit(cast.state, 'own', 'front', 0)?.statuses.xian_gong_status);
+  const attack = applyAction(cast.state, s.ctx, {
+    type: 'ATTACK', from: { row: 'front', col: 0 }, to: { kind: 'unit', row: 'front', col: 0 },
+  });
+  assert.equal(attack.ok, true, attack.error ?? '先攻单位应能攻击');
+  assert.equal(attack.state.sides.own.hand.at(-1)?.card.id, 'neutral_archer');
+});
+
+test('金蝉脱壳：原位回手并留下架盾替身，再抽牌', () => {
+  const s = setup();
+  place(s, 'neutral_infantry', 'own', 2);
+  s.state.sides.own.deck = ['neutral_archer'];
+  const result = playTactic(s, 'qun_jinchantuoqiao', { side: 'own', row: 'front', col: 2 });
+  const replacement = getUnit(result.state, 'own', 'front', 2);
+  assert.equal(replacement?.cardId, 'token_tishen');
+  assert.ok(replacement?.statuses.jia_dun || replacement?.kw.includes('jia_dun'));
+  assert.equal(result.state.sides.own.hand.at(-2)?.card.id, 'neutral_infantry');
+  assert.equal(result.state.sides.own.hand.at(-1)?.card.id, 'neutral_archer');
+});
+
+test('知己知彼：展示敌方手牌并只提高所选手牌费用', () => {
+  const s = setup();
+  s.state.sides.enemy.hand = [
+    { card: real('neutral_infantry'), mods: [] },
+    { card: real('neutral_archer'), mods: [] },
+  ];
+  s.state.sides.own.deck = ['neutral_shieldman'];
+  const cast = playTactic(s, 'qun_zhijizhibi');
+  assert.ok(cast.state.pendingHandChoice, '应暂停选择敌方手牌');
+  const chosen = applyAction(cast.state, s.ctx, { type: 'CHOOSE_HAND', handIndex: 0 });
+  assert.equal(chosen.ok, true, chosen.error ?? '应能选择敌方手牌');
+  assert.equal(chosen.state.sides.enemy.hand[0]?.mods.some((m) => m.kind === 'cost' && m.value === 2), true);
+  assert.equal(chosen.state.sides.enemy.hand[1]?.mods.length, 0);
+  assert.equal(chosen.state.sides.own.hand.at(-1)?.card.id, 'neutral_shieldman');
+});
+
+test('擒贼擒王：锁定打出时最高攻击单位，击杀后触发抽牌和全军加攻', () => {
+  const s = setup();
+  const ally = place(s, 'neutral_infantry', 'own', 0);
+  place(s, 'wei_caoren', 'enemy', 0);
+  place(s, 'neutral_shieldman', 'enemy', 1);
+  s.state.sides.own.deck = ['neutral_archer', 'neutral_shieldman'];
+  const cast = playTactic(s, 'qun_qinzeiqinwang');
+  assert.ok(getUnit(cast.state, 'enemy', 'front', 0)?.statuses.qin_zei_qin_wang);
+  dealDamage(cast.state, s.ctx.cards, unitRef('enemy', 'front', 0), 99, [], '测试');
+  assert.equal(getUnit(cast.state, 'enemy', 'front', 0), null);
+  assert.equal(cast.state.sides.own.hand.length, 2);
+  assert.equal(getUnit(cast.state, 'own', 'front', 0)?.atk, ally.atk + 1);
+});
+
+test('无中生有：从本阵营可构筑战法池随机获得两张战法', () => {
+  const s = setup();
+  const result = playTactic(s, 'qun_wuzhongshengyou');
+  assert.equal(result.state.sides.own.hand.length, 2);
+  assert.ok(result.state.sides.own.hand.every((hc) => hc.card.type === 'tactic'));
+  assert.ok(result.state.sides.own.hand.every((hc) => hc.card.faction === 'shu' || hc.card.faction === 'qun' || hc.card.faction === 'neutral'));
 });

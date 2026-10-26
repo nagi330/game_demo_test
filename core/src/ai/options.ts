@@ -396,7 +396,7 @@ export function generateOptions(state: MatchState, w: EvalWeights, cards?: Map<s
   // 排序口径：**费用低的排前面**（"放回牌库底"是损失，先损失最不值钱的那张）。
   if (state.pendingHandChoice) {
     const pending = state.pendingHandChoice;
-    const hand = state.sides[pending.side].hand;
+    const hand = state.sides[pending.handSide ?? pending.side].hand;
     const idx = pending.indices ?? hand.map((_, i) => i);
     return idx
       .filter((i) => i >= 0 && i < hand.length)

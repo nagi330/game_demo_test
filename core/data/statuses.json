@@ -166,6 +166,39 @@
     "memo": "黄祖布下的公开暗箭：敌方下一个打出的「人物」落地后受 3 点伤害，随即消失；黄祖阵亡也消失（ADR-200）"
   },
   {
+    "id": "xian_fa_reward",
+    "name": "先发奖励",
+    "kind": "buff",
+    "numeric": false,
+    "scope": "character",
+    "timing": 20,
+    "duration": "this_turn",
+    "caps": [
+      "draw_on_attack_kill"
+    ],
+    "memo": "本回合通过普通攻击击杀敌方单位后抽1张牌"
+  },
+  {
+    "id": "yi_zhan_yang_zhan",
+    "name": "以战养战",
+    "kind": "debuff",
+    "numeric": false,
+    "scope": "character",
+    "timing": 20,
+    "duration": "this_turn",
+    "memo": "本回合阵亡时为施法方主公恢复1点生命并抽1张牌"
+  },
+  {
+    "id": "qin_zei_qin_wang",
+    "name": "擒王标记",
+    "kind": "debuff",
+    "numeric": false,
+    "scope": "character",
+    "timing": 20,
+    "duration": "this_turn",
+    "memo": "本回合阵亡时触发擒贼擒王奖励"
+  },
+  {
     "id": "jin_yong",
     "name": "禁用",
     "kind": "debuff",

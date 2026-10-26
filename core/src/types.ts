@@ -172,6 +172,16 @@ export interface CardEffect {
      */
     cards?: string[];
   };
+  /** 直接结算指定战法，不支付统率，也不进入弃牌堆。 */
+  cast_tactic?: string;
+  /** `opponent_choice` 的分支；由敌方玩家在结算窗口选择其一。 */
+  opponent_options?: Array<{ label: string; effects: CardEffect[] }>;
+  /** `return_with_substitute` 原位召唤的替身卡 id。 */
+  replacement_unit?: string;
+  /** `draw_random` 是否从全局可构筑卡池取牌，而不是当前牌库。 */
+  from_pool?: boolean;
+  /** 连续火攻是否包含起火点自身。 */
+  include_origin?: boolean;
   /** clash 专用：平局不视为失败，不执行胜负分支（周瑜「反间计」） */
   tie_is_neutral?: boolean;
   from?: 'top' | 'bottom';       // scry 的取牌端
@@ -398,6 +408,8 @@ export interface TargetSelector {
     damaged_or_controlled?: boolean; // 受伤或带行动控制状态（陈泰「援军解围」）
     attacked_this_turn?: boolean;
     acted_this_turn?: boolean;
+    /** 仅匹配拥有至少一个主动战技的单位（战法「暗度陈仓」）。 */
+    has_active_skill?: boolean;
     cost_max?: number;             // 统帅值上限（绝对，含）
     cost_min?: number;             // 统帅值下限（绝对，含）——与 cost_max 配合可写出互斥分支
     cost_below_source?: boolean;   // 统帅值低于来源单位（相对，"低于自己统帅的敌军"）ADR-036
@@ -420,7 +432,7 @@ export interface TargetSelector {
     any_of?: Array<{ type?: CardType | 'character'; tag?: string; faction?: Faction }>;
   };
   count?: number | 'all';
-  mode?: 'choose' | 'random' | 'first' | 'lowest_health' | 'highest_cost';
+  mode?: 'choose' | 'random' | 'first' | 'lowest_health' | 'highest_cost' | 'highest_attack';
   require_empty?: boolean;
 }
 
@@ -635,6 +647,8 @@ export interface Unit {
   statuses: Record<string, StatusInstance>;   // 状态实例（ADR-034）
   skills?: SkillDef[];
   attackedThisTurn: number;
+  /** 额外普攻中不能选择主公的次数（突围）。 */
+  extraAttacksNoLord?: number;
   /** 本回合是否行动过（攻击 / 使用主动技）—— ADR-074，司马懿①「没有任何行动」 */
   actedThisTurn: boolean;
   /** 本回合的攻击是否造成过伤害 —— ADR-074，司马懿② */
@@ -752,7 +766,9 @@ export interface MatchState {
   pendingHandChoice?: {
     side: Side;
     /** 选完之后做什么（目前只有放回牌库顶/底，为"弃一张""交给对手"留扩展位） */
-    kind: 'deck_top' | 'deck_bottom' | 'random' | 'discard' | 'tactic_pair';
+    kind: 'deck_top' | 'deck_bottom' | 'random' | 'discard' | 'tactic_pair' | 'modify_cost';
+    /** 选择目标手牌所属方；缺省与 side 相同。 */
+    handSide?: Side;
     /** 只允许在这些手牌下标里选（如"刚抽到的那两张"）；缺省 = 全部手牌 */
     indices?: number[];
     /** 手牌选择完成后继续执行同一技能的剩余效果。 */
@@ -760,6 +776,23 @@ export interface MatchState {
     /** 费用配对在选完手牌后执行的原效果定义。 */
     choiceEffect?: CardEffect;
   };
+  /** 敌方回合开始时等待其选择的二选一效果（围魏救赵）。 */
+  pendingOpponentChoice?: {
+    side: Side;
+    sourceSide: Side;
+    target: { kind: 'unit'; side: Side; row: Row; col: number } | { kind: 'lord'; side: Side };
+    options?: Array<{ label: string; effects: CardEffect[] }>;
+  };
+  /** 暂时离场单位；返回时不触发战吼或亡语。 */
+  removedUnits?: Array<{
+    side: Side;
+    row: Row;
+    col: number;
+    unit: Unit;
+    returnHalfTurn: number;
+  }>;
+  /** 休养生息效果的截止半回合。 */
+  restEffects?: Array<{ side: Side; untilHalfTurn: number }>;
   /**
    * 「阵亡后重建于手牌」的次数计数（ADR-141，孟获「蛮王」）
    *
@@ -792,6 +825,7 @@ export type Action =
   | { type: 'CHOOSE_DISCOVER'; cardId: string }
   /** 结算中途的**手牌**选择（ADR-144，杨仪「筹度粮谷」）：只在 `pendingHandChoice` 挂起时可用 */
   | { type: 'CHOOSE_HAND'; handIndex: number }
+  | { type: 'CHOOSE_OPPONENT'; option: 0 | 1 }
   /**
    * 升变（ADR-114 / ADR-116）。
    *

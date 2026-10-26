@@ -66,7 +66,8 @@ export function canUseUnitSkill(
   const key = skill.id || skill.name || '0';
   const freq = skill.frequency ?? 'once_per_turn';
   if (freq === 'once' && u.skillsUsedOnce.includes(key)) return { ok: false, reason: '本局已用过' };
-  if (freq === 'once_per_turn' && (u.skillUsesThisTurn[key] ?? 0) >= 1) {
+  if (freq === 'once_per_turn' && (u.skillUsesThisTurn[key] ?? 0) >= 1
+      && capStacks(u.statuses, 'extra_skill') <= 0) {
     return { ok: false, reason: '本回合已用过' };
   }
   if (state.sides[side].command.cur < (skill.cost ?? 0)) return { ok: false, reason: '统率值不足' };

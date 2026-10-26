@@ -243,9 +243,9 @@ test('陆逊「火烧连营」：指定起火点并沿连续相邻站位造成�
   assert.ok(burned.ok, burned.error ?? '火烧连营应能发动');
   s.state = burned.state;
   assert.equal(30 - unitAt(s, 'enemy', 2).hp, 2);
-  assert.equal(30 - unitAt(s, 'enemy', 3).hp, 0, '起火点不应承受伤害');
+  assert.equal(30 - unitAt(s, 'enemy', 3).hp, 2, '起火点也应承受2点火攻');
   assert.equal(30 - unitAt(s, 'enemy', 4).hp, 2);
-  assert.equal(stacksOf(unitAt(s, 'enemy', 2)), 1);
+  assert.equal(stacksOf(unitAt(s, 'enemy', 3)), 1);
   assert.equal(stacksOf(unitAt(s, 'enemy', 4)), 1);
 });
 
@@ -511,6 +511,9 @@ test('卡牌收口：荀攸/陆逊**不再**显式施加灼烧（否则伤害自
     const effects = [
       ...(skill!.effects ?? []),
       ...((skill!.modes ?? []).flatMap((m) => m.effects ?? [])),
+      ...(id === 'wu_luxun'
+        ? ALL.find((c) => c.id === 'wu_huoshao_lianying')?.effects ?? []
+        : []),
     ];
     assert.ok(effects.some((e) => (e.action === 'damage' || e.action === 'chain_damage') && e.damage_type === 'fire'),
       `${card.name}「${skillName}」的直伤应仍是 damage_type: fire`);

@@ -287,9 +287,19 @@ const matchesCardType = (t: string, want?: string): boolean => {
 };
 
 /** 检查卡牌是否包含指定属性的伤害效果，供发现水攻牌使用。 */
-const cardHasDamageType = (card: CardDef, damageType: string): boolean => {
+const cardHasDamageType = (card: CardDef, damageType: string, cards?: Map<string, CardDef>, seen = new Set<string>()): boolean => {
+  if (seen.has(card.id)) return false;
+  seen.add(card.id);
   const effects = (card.effects ?? []).concat((card.skills ?? []).flatMap((s) => s.effects ?? []));
-  return effects.some((e) => e.action === 'damage' && (e.damage_type ?? 'physical') === damageType);
+  return effects.some((e) => {
+    if ((e.action === 'damage' || e.action === 'chain_damage')
+        && (e.damage_type ?? 'physical') === damageType) return true;
+    if (e.action === 'cast_tactic' && e.cast_tactic) {
+      const tactic = cards?.get(e.cast_tactic);
+      return tactic ? cardHasDamageType(tactic, damageType, cards, seen) : false;
+    }
+    return false;
+  });
 };
 
 /** 手牌过滤（ADR-038）：类型 + 性别（ADR-071） + 归属标签 / 排除来源（ADR-141） */
@@ -352,6 +362,10 @@ const matchesFilter = (
   }
   if (f.attacked_this_turn !== undefined && (u.attackedThisTurn > 0) !== f.attacked_this_turn) return false;
   if (f.acted_this_turn !== undefined && u.actedThisTurn !== f.acted_this_turn) return false;
+  if (f.has_active_skill !== undefined) {
+    const hasActiveSkill = (u.skills ?? []).some((skill) => skill.kind === 'active');
+    if (hasActiveSkill !== f.has_active_skill) return false;
+  }
   if (f.has_status && !((u.statuses[f.has_status]?.stacks ?? 0) > 0)) return false;
   if (f.has_any_status && !f.has_any_status.some((id) => (u.statuses[id]?.stacks ?? 0) > 0)) return false;
   if (f.any_of && !f.any_of.some((alt) => {
@@ -746,11 +760,18 @@ export function runMarkDeath(
   //    连 `on_mark_death` 触发技也因为下面 `if (!inst?.srcUid) return;` 的早退而从未触发过。
   //    判据：`on_mark_damaged` 读的就是 `chou_di`（见 `runMarkDamaged`），这里必须一致。
   //    ✅ 向后兼容：`chou_di` 标记此前从不带 `payoff`，所以旧卡行为不变。
-  const inst = dead.statuses.chou_di ?? dead.statuses.chou_di_shou ?? dead.statuses.zhen_wang;
-  // ① 卡牌级标记（ADR-087）：结算写在标记上，由施法方执行 —— 不依赖任何单位
-  if (inst?.payoff?.length && inst.srcSide) {
-    runEffects(state, cards, inst.payoff, { side: inst.srcSide }, rng, events);
+  const markerIds = ['chou_di', 'chou_di_shou', 'zhen_wang', 'yi_zhan_yang_zhan', 'qin_zei_qin_wang'];
+  const marked = markerIds
+    .map((id) => dead.statuses[id])
+    .filter((inst): inst is NonNullable<typeof inst> => !!inst);
+  // ① 卡牌级标记（ADR-087）：结算写在标记上，由施法方执行 —— 不依赖任何单位。
+  // 本批战法使用独立标记，避免覆盖既有仇敌/阵亡标记的载荷。
+  for (const inst of marked) {
+    if (inst.payoff?.length && inst.srcSide) {
+      runEffects(state, cards, inst.payoff, { side: inst.srcSide }, rng, events);
+    }
   }
+  const inst = marked[0];
   // ② 单位级标记（ADR-041）：跑标记者自己的 on_mark_death 技能
   if (!inst?.srcUid) return;
   for (const side of ['own', 'enemy'] as Side[]) {
@@ -996,6 +1017,15 @@ function narrowByMode(
       return cost(b) - cost(a);
     }).slice(0, n);
   }
+  if (selector.mode === 'highest_attack') {
+    const attackOf = (t: TargetRef): number => t.kind === 'unit'
+      ? effectiveAttack(state, t.side, t.row, t.col)
+      : t.kind === 'lord' ? (state.sides[t.side].lord.attackThisTurn ?? 0) : 0;
+    const max = pool.reduce((m, t) => Math.max(m, attackOf(t)), -Infinity);
+    const tied = pool.filter((t) => attackOf(t) === max);
+    if (n <= 1) return tied.length ? [tied[rng.int(tied.length)]!] : [];
+    return tied.slice(0, n);
+  }
   // mode === 'choose' 的「玩家选择」由调用方先行处理（见 resolveTargets），
   // 走到这里说明没有合法选择（AI / 测试 / UI 未传目标）→ 取前 n 个兜底
   return pool.slice(0, n);
@@ -1035,7 +1065,17 @@ export function resolveTargets(
   if (selector.pick !== undefined) {
     const picked = pickOf(ctx, selector);
     if (picked) {
-      const validationSelector: TargetSelector = { ...selector, pick: undefined, mode: 'choose' };
+      // 仅写 `{ pick: 1 }` 的效果是对技能级 target 的引用，不能按默认
+      // `side: enemy` 重新解析，否则像火船破阵选择己方军械时会被误判为
+      // 非法目标。缺省 side 时按已选目标所在阵营补上校验方向；显式
+      // side/filter 仍照常验证，防止目标在结算前离场或变得不合法。
+      const pickedSide = picked.side === ctx.side ? 'self' : 'enemy';
+      const validationSelector: TargetSelector = {
+        ...selector,
+        side: selector.side ?? pickedSide,
+        pick: undefined,
+        mode: 'choose',
+      };
       const validationCtx: EffectContext = { ...ctx, chosen: picked, chosen2: undefined };
       const valid = resolveTargets(state, validationSelector, validationCtx, rng);
       return valid.some((target) => sameTarget(target, picked)) ? [picked] : [];
@@ -1202,6 +1242,32 @@ function findPos(state: MatchState, side: Side, uid: string): { row: Row; col: n
   return null;
 }
 
+/** 返回包含指定格的连续相邻军。空位会切断军队。 */
+function armyUnits(state: MatchState, side: Side, row: Row, col: number): Array<{ side: Side; row: Row; col: number }> {
+  const line = state.sides[side].rows[row];
+  if (!line[col]) return [];
+  let left = col;
+  let right = col;
+  while (left > 0 && line[left - 1]) left--;
+  while (right + 1 < line.length && line[right + 1]) right++;
+  const out: Array<{ side: Side; row: Row; col: number }> = [];
+  for (let c = left; c <= right; c++) out.push({ side, row, col: c });
+  return out;
+}
+
+function armyGroups(state: MatchState, side: Side): Array<Array<{ side: Side; row: Row; col: number }>> {
+  const groups: Array<Array<{ side: Side; row: Row; col: number }>> = [];
+  for (const row of BOARD.ROWS) {
+    let current: Array<{ side: Side; row: Row; col: number }> = [];
+    for (let col = 0; col < BOARD.COLS; col++) {
+      if (state.sides[side].rows[row][col]) current.push({ side, row, col });
+      else if (current.length) { groups.push(current); current = []; }
+    }
+    if (current.length) groups.push(current);
+  }
+  return groups;
+}
+
 /** 目标身上的某类状态 id 列表（驱散用，ADR-071） */
 function statusIdsOfKind(
   state: MatchState, ref: TargetRef, kind: 'buff' | 'debuff',
@@ -1245,6 +1311,12 @@ export function runOnAttackPhase(
   const side = findSide(state, attacker.uid);
   if (!side) return 0;
   let bonus = 0;
+  // 「避实就虚」由主公身上的本回合状态提供全局增伤。
+  if (phase === 'before' && attackTarget?.kind === 'unit') {
+    const target = getUnit(state, attackTarget.side, attackTarget.row, attackTarget.col);
+    if (target && effectiveAttack(state, attackTarget.side, attackTarget.row, attackTarget.col) < 2
+        && capStacks(state.sides[side].lord.statuses, 'low_attack_bonus') > 0) bonus += 2;
+  }
   for (const sk of (attacker.skills ?? []).filter((x) => x.trigger === TIMING.ON_ATTACK)) {
     const effs = (sk.effects ?? []).filter((e) =>
       phase === 'after'
@@ -1257,6 +1329,12 @@ export function runOnAttackPhase(
     emitSkillTriggered(state, side, attacker, sk, 'trigger', events);
     bonus += applicable.filter((e) => e.action === 'attack_bonus').reduce((sum, e) => sum + (e.value ?? 0), 0);
     runEffects(state, cards, applicable.filter((e) => e.action !== 'attack_bonus'), ctx, rng, events);
+  }
+  if (phase === 'after' && killed && capStacks(attacker.statuses, 'breakout_extra') > 0) {
+    const extra = attacker.statuses.tu_wei_extra;
+    if (extra) extra.stacks = Math.max(0, extra.stacks - 1);
+    attacker.attackedThisTurn -= 1;
+    attacker.extraAttacksNoLord = (attacker.extraAttacksNoLord ?? 0) + 1;
   }
   return bonus;
 }
@@ -1412,6 +1490,9 @@ export function resolveAttack(
   if (survivor && survivor.hp > 0) {
     runAllyAttackTriggers(state, cards, side, survivor, from.row, from.col, rng, events);
     runOnAttackPhase(state, cards, survivor, 'after', killed, rng, events, overflow, attackTarget, victimType);
+    if (killed && hasCap(survivor, 'draw_on_attack_kill')) {
+      drawCard(state, cards, side, events, rng);
+    }
     for (const sk of (survivor.skills ?? []).filter(sk => sk.trigger === TIMING.AFTER_ATTACK)) {
       if (!freqAllows(survivor, sk, TIMING.AFTER_ATTACK)) continue;   // ADR-168：频率闸门
       const ctx: EffectContext = { side, source: survivor, flags: dealtTotal > 0 ? ['damaged'] : [] };
@@ -1445,7 +1526,9 @@ export const IMPLEMENTED_ACTIONS: ReadonlySet<string> = new Set([
   'defect_to_deck',
   'summon_random',
   'reveal_hand',
-  'chain_damage',
+  'chain_damage', 'cast_tactic', 'dead_fight', 'temporary_remove', 'opponent_choice',
+  'return_with_substitute', 'reveal_hand_choose',
+  'army_strike', 'unit_duel_opposite', 'rest_and_recover',
   'roll',
   'attack_bonus',
   'send_hand_to_deck',   // 手牌 → 牌库顶/底/随机（ADR-139，杨仪「筹度粮谷」）
@@ -1605,13 +1688,13 @@ export function runEffects(
     const pendingHandBefore = state.pendingHandChoice;
     switch (eff.action) {
       case 'chain_damage': {
-        // 陆逊「火烧连营」：以指定敌方单位为起火点，沿同一排相邻单位传播。
-        // 空位会截断传播；起火点本身不受伤害；每个单位在本次结算中最多命中一次。
+        // 「火烧连营」：以指定敌方单位为起火点，沿同一排相邻单位传播。
+        // 空位会截断传播；每个单位在本次结算中最多命中一次。
         const origin = targets[0] ?? pickOf(ctx, eff.target);
         if (origin?.kind !== 'unit') break;
         const queue: Array<{ row: Row; col: number }> = [{ row: origin.row, col: origin.col }];
         const seen = new Set<string>([`${origin.row}:${origin.col}`]);
-        const affected: TargetRef[] = [];
+        const affected: TargetRef[] = eff.include_origin ? [origin] : [];
         while (queue.length) {
           const current = queue.shift()!;
           for (const col of [current.col - 1, current.col + 1]) {
@@ -1633,6 +1716,136 @@ export function runEffects(
             count: undefined,
           }], { ...ctx, chosen: target, chosen2: undefined }, rng, events);
         }
+        break;
+      }
+      case 'cast_tactic': {
+        // 仅用于陆逊：技能先由玩家选择起火点，再把该选择传给战法效果。
+        // 这是一次效果级释放，不扣统率、不进弃牌堆，也不触发 on_play。
+        const tacticId = eff.cast_tactic ?? eff.unit;
+        const tactic = tacticId ? cards.get(tacticId) : undefined;
+        if (!tactic || tactic.type !== 'tactic') break;
+        const selected = eff.target ? (resolveTargets(state, eff.target, ctx, rng)[0] ?? ctx.chosen) : ctx.chosen;
+        runEffects(state, cards, tactic.effects ?? [], {
+          ...ctx,
+          chosen: selected,
+          chosen2: undefined,
+          playedCard: tactic,
+        }, rng, events);
+        break;
+      }
+      case 'dead_fight': {
+        const selected = targets[0] ?? ctx.chosen;
+        if (selected?.kind !== 'unit') break;
+        const chosenUnit = getUnit(state, selected.side, selected.row, selected.col);
+        if (!chosenUnit) break;
+        const army = armyUnits(state, selected.side, selected.row, selected.col)
+          .filter((ref) => !(ref.row === selected.row && ref.col === selected.col));
+        if (!army.length) break;
+        const otherRef = army[rng.int(army.length)]!;
+        const left = { side: selected.side, row: selected.row, col: selected.col };
+        const right = { side: otherRef.side, row: otherRef.row, col: otherRef.col };
+        // 两边攻击力都为 0 时没有可能结束死斗，避免效果把对局卡死；否则持续到任意一方阵亡。
+        for (let i = 0; i < 10000; i++) {
+          const a = getUnit(state, left.side, left.row, left.col);
+          const b = getUnit(state, right.side, right.row, right.col);
+          if (!a || !b || a.hp <= 0 || b.hp <= 0) break;
+          if (effectiveAttack(state, left.side, left.row, left.col) <= 0
+              && effectiveAttack(state, right.side, right.row, right.col) <= 0) break;
+          resolveAttack(state, cards, left.side, { row: left.row, col: left.col },
+            { kind: 'unit', row: right.row, col: right.col }, events, rng,
+            { consumeAttack: false, toSide: right.side });
+          const aAfter = getUnit(state, left.side, left.row, left.col);
+          const bAfter = getUnit(state, right.side, right.row, right.col);
+          if (!aAfter || !bAfter || aAfter.hp <= 0 || bAfter.hp <= 0) break;
+          resolveAttack(state, cards, right.side, { row: right.row, col: right.col },
+            { kind: 'unit', row: left.row, col: left.col }, events, rng,
+            { consumeAttack: false, toSide: left.side });
+        }
+        break;
+      }
+      case 'unit_duel_opposite': {
+        const selected = targets[0] ?? ctx.chosen;
+        if (selected?.kind !== 'unit') break;
+        const foeSide = other(selected.side);
+        const foe = getUnit(state, foeSide, selected.row, selected.col);
+        const source = getUnit(state, selected.side, selected.row, selected.col);
+        if (!source || !foe || source.hp <= 0 || foe.hp <= 0) break;
+        resolveAttack(state, cards, selected.side, { row: selected.row, col: selected.col },
+          { kind: 'unit', row: selected.row, col: selected.col }, events, rng,
+          { consumeAttack: false, toSide: foeSide });
+        if ((getUnit(state, selected.side, selected.row, selected.col)?.hp ?? 0) > 0
+            && (getUnit(state, foeSide, selected.row, selected.col)?.hp ?? 0) > 0) {
+          resolveAttack(state, cards, foeSide, { row: selected.row, col: selected.col },
+            { kind: 'unit', row: selected.row, col: selected.col }, events, rng,
+            { consumeAttack: false, toSide: selected.side });
+        }
+        break;
+      }
+      case 'temporary_remove': {
+        const selected = targets[0] ?? ctx.chosen;
+        if (selected?.kind !== 'unit') break;
+        const unit = getUnit(state, selected.side, selected.row, selected.col);
+        if (!unit) break;
+        state.removedUnits ??= [];
+        state.removedUnits.push({ side: selected.side, row: selected.row, col: selected.col,
+          unit, returnHalfTurn: state.halfTurn + 1 });
+        state.sides[selected.side].rows[selected.row][selected.col] = null;
+        events.push({ type: 'UNIT_REMOVED', side: selected.side, row: selected.row, col: selected.col,
+          unit, reason: 'temporary_remove' });
+        break;
+      }
+      case 'opponent_choice': {
+        const selected = targets[0] ?? ctx.chosen;
+        if (!selected || selected.kind === 'hand') break;
+        const options = eff.opponent_options?.map((x) => ({ label: x.label, effects: structuredClone(x.effects) }));
+        state.pendingOpponentChoice = { side: other(ctx.side), sourceSide: ctx.side, target: selected, options };
+        events.push({ type: 'OPPONENT_CHOICE_OPTIONS', side: other(ctx.side), options: (options ?? [
+          { label: '主公受到5点伤害', effects: [] },
+          { label: '目标本回合无法行动', effects: [] },
+        ]).map((x) => x.label) } as never);
+        break;
+      }
+      case 'reveal_hand_choose': {
+        const targetSide = other(ctx.side);
+        const hand = state.sides[targetSide].hand;
+        const indices = hand.map((_, index) => index);
+        events.push({ type: 'HAND_REVEALED', side: ctx.side, cards: hand.map((hc) => hc.card) });
+        if (!indices.length) {
+          drawCard(state, cards, ctx.side, events, rng);
+          break;
+        }
+        state.pendingHandChoice = {
+          side: ctx.side,
+          handSide: targetSide,
+          kind: 'modify_cost',
+          indices,
+          continuation: {
+            effects: [
+              { action: 'cost_modifier', value: 2, duration: 2, target: { pick: 1, zone: 'hand' } },
+              { action: 'draw', value: 1 },
+            ],
+          },
+        };
+        events.push({ type: 'HAND_CHOICE_OPTIONS', side: ctx.side, kind: 'modify_cost', indices });
+        break;
+      }
+      case 'army_strike': {
+        const groups = armyGroups(state, ctx.side);
+        if (groups.length < 2) break;
+        groups.sort((a, b) => a.length - b.length);
+        if (groups[0]!.length >= groups[1]!.length) break;
+        for (const own of groups[0]!) {
+          const foe = getUnit(state, other(ctx.side), own.row, own.col);
+          if (!foe) continue;
+          runEffects(state, cards, [{ action: 'damage', value: val,
+            target: { pick: 1, mode: 'choose' } }],
+            { ...ctx, chosen: unitRef(other(ctx.side), own.row, own.col) }, rng, events);
+        }
+        break;
+      }
+      case 'rest_and_recover': {
+        state.restEffects ??= [];
+        state.restEffects.push({ side: ctx.side, untilHalfTurn: state.halfTurn + 2 });
         break;
       }
       case 'damage': {
@@ -1809,7 +2022,7 @@ export function runEffects(
           })) return false;
           // ADR-149：按**具体卡**筛（"把牌库里的诸葛尚置入手中"要靠它才是必然，否则退化成随机三选一）
           if (filter?.card_id && id !== filter.card_id) return false;
-          if (filter?.damage_type && !cardHasDamageType(card, filter.damage_type)) return false;
+          if (filter?.damage_type && !cardHasDamageType(card, filter.damage_type, cards)) return false;
           return true;
         });
         const pool = [...candidates];
@@ -1858,18 +2071,36 @@ export function runEffects(
       }
       case 'draw_random': {
         const filter = eff.target?.filter;
+        const n = Math.max(1, eff.count ?? 1);
+        if (eff.from_pool) {
+          const faction = eff.pool_faction ?? state.sides[ctx.side].lord.faction;
+          const pool = [...cards.values()].filter((card) => isPlayableBy(card, faction)
+            && card.type === 'tactic'
+            && (!filter?.faction || card.faction === filter.faction)
+            && (!filter?.factions || filter.factions.includes(card.faction)));
+          for (let i = 0; i < n && pool.length; i++) {
+            const picked = pool.splice(rng.int(pool.length), 1)[0];
+            if (!picked) break;
+            state.sides[ctx.side].hand.push({ card: picked, mods: [] });
+            events.push({ type: 'CARD_DRAWN', side: ctx.side, card: picked, deckLeft: state.sides[ctx.side].deck.length });
+          }
+          break;
+        }
         const deck = state.sides[ctx.side].deck;
-        const candidates = deck.map((id, index) => ({ id, index, card: cards.get(id) }))
-          .filter(({ card }) => !!card && (!filter?.type || (filter.type === 'character'
-            ? isCharacterType(card!.type) : card!.type === filter.type))
-            && (!filter?.faction || card!.faction === filter.faction)
-            && (!filter?.factions || filter.factions.includes(card!.faction))
-            && (!filter?.tag || (card!.tags ?? []).includes(filter.tag)));
-        const picked = candidates.length ? candidates[rng.int(candidates.length)] : undefined;
-        if (!picked?.card) break;
-        deck.splice(picked.index, 1);
-        state.sides[ctx.side].hand.push({ card: picked.card, mods: [] });
-        events.push({ type: 'CARD_DRAWN', side: ctx.side, card: picked.card, deckLeft: deck.length });
+        for (let i = 0; i < n; i++) {
+          const candidates = deck.map((id, index) => ({ id, index, card: cards.get(id) }))
+            .filter(({ card }) => !!card && (!filter?.type || (filter.type === 'character'
+              ? isCharacterType(card!.type) : card!.type === filter.type))
+              && (!filter?.faction || card!.faction === filter.faction)
+              && (!filter?.factions || filter.factions.includes(card!.faction))
+              && (!filter?.tag || (card!.tags ?? []).includes(filter.tag))
+              && (!filter?.damage_type || cardHasDamageType(card!, filter.damage_type, cards)));
+          const picked = candidates.length ? candidates[rng.int(candidates.length)] : undefined;
+          if (!picked?.card) break;
+          deck.splice(picked.index, 1);
+          state.sides[ctx.side].hand.push({ card: picked.card, mods: [] });
+          events.push({ type: 'CARD_DRAWN', side: ctx.side, card: picked.card, deckLeft: deck.length });
+        }
         break;
       }
       case 'discover_tactic_pair': {
@@ -2268,6 +2499,20 @@ export function runEffects(
             }
           }
           events.push({ type: 'UNIT_RETURNED', side: t.side, row: t.row, col: t.col, unit: u });
+        }
+        break;
+      }
+      case 'return_with_substitute': {
+        const replacement = eff.replacement_unit ? cards.get(eff.replacement_unit) : undefined;
+        for (const t of targets.length ? targets : chosenFor(eff.target)) {
+          if (t.kind !== 'unit') continue;
+          const u = getUnit(state, t.side, t.row, t.col);
+          if (!u) continue;
+          const def = cards.get(u.cardId);
+          state.sides[t.side].rows[t.row][t.col] = null;
+          if (def) state.sides[t.side].hand.push({ card: def, mods: [] });
+          events.push({ type: 'UNIT_RETURNED', side: t.side, row: t.row, col: t.col, unit: u });
+          if (replacement) summonUnit(state, cards, t.side, t.row, t.col, replacement.id, events);
         }
         break;
       }
@@ -3128,9 +3373,13 @@ export function runEffects(
         break;
     }
     if (state.pendingHandChoice && state.pendingHandChoice !== pendingHandBefore) {
-      state.pendingHandChoice.continuation = {
-        effects: effects.slice(effectIndex + 1), sourceUid: ctx.source?.uid,
-      };
+      // 某些动作（如 `reveal_hand_choose`）已经提供了自己的后续效果；
+      // 只有普通的中途手牌选择才需要把当前效果列表的剩余部分接上。
+      if (!state.pendingHandChoice.continuation) {
+        state.pendingHandChoice.continuation = {
+          effects: effects.slice(effectIndex + 1), sourceUid: ctx.source?.uid,
+        };
+      }
       return;
     }
   }
