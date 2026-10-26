@@ -44,6 +44,12 @@ export function validateCards(cards: CardDef[]): Issue[] {
   const add = (level: Issue['level'], cardId: string, message: string) =>
     issues.push({ level, cardId, message });
 
+  // 卡 id 唯一性：`cards.get(id)` 只会取第一张，重复 id 会让第二张静默失效
+  // （踩过：高顺「陷阵营」同时存在 2 费/4 费两版）。
+  const idCount = new Map<string, number>();
+  for (const c of cards) idCount.set(c.id, (idCount.get(c.id) ?? 0) + 1);
+  for (const [id, n] of idCount) if (n > 1) add('error', id, `卡 id 重复 ${n} 次 —— cards.get('${id}') 只会取第一张`);
+
   for (const c of cards) {
     // ③ 卡名长度
     // ADR-191：设计者指定保留完整阵名，仅此卡豁免五字名称。
@@ -137,7 +143,7 @@ export function validateCards(cards: CardDef[]): Issue[] {
          *（modify 另看 `attack`/`health`）。
          * 报 warn 而不是 error：占位可能是"机制还没设计"，不该阻断构建，但必须看得见。
          */
-        const dynValue = (['value_from', 'value_from_flag', 'value_from_discarded', 'value_from_status', 'value_from_source', 'value_from_clash_target', 'value_from_played'] as const)
+        const dynValue = (['value_from', 'value_from_flag', 'value_from_discarded', 'value_from_status', 'value_from_clash_target', 'value_from_chosen', 'value_from_source', 'value_from_played'] as const)
           .some((k) => e[k] !== undefined && e[k] !== null);
         if ((e.action === 'damage' || e.action === 'heal') && !dynValue && !e.value) {
           add('warn', c.id, `${where} 的「${e.action}」没有任何数值来源（值 ${String(e.value)}）—— 实际不会发生任何事，是不是占位没翻译完？`);

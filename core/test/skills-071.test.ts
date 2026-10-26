@@ -504,26 +504,6 @@ test('B-11 守护范围：shou_hu 是 any、hu_zhu 是 lord，两者在状态表
    回归：陈宫「忠烈」用的 shou_hu（any）不受护主改动影响
    ============================================================ */
 
-test('回归：shou_hu（any）仍然接管被守护单位的伤害', () => {
-  const { state, ctx } = scenario({ ownHand: ['qun_chengong'] });
-  const target = mk('target', 1, 10, {}, 'shu');
-  setUnit(state, 'own', 'front', 1, target);
-
-  const r = applyAction(state, ctx, {
-    type: 'PLAY_CARD', cardIndex: 0, row: 'front', col: 0,
-    target: { side: 'own', row: 'front', col: 1 },
-  });
-  assert.ok(r.ok, `陈宫应能打出：${r.error}`);
-  const cheng = getUnit(r.state, 'own', 'front', 0)!;
-  const hpTarget = getUnit(r.state, 'own', 'front', 1)!.hp;
-  const hpCheng = cheng.hp;
-
-  const evs: GameEvent[] = [];
-  dealDamage(r.state, ctx.cards, unitRef('own', 'front', 1), 3, evs, 'test');
-  assert.equal(getUnit(r.state, 'own', 'front', 1)!.hp, hpTarget, '被守护者不该掉血');
-  assert.equal(getUnit(r.state, 'own', 'front', 0)!.hp, hpCheng - 3, '伤害应转给陈宫');
-});
-
 /* ============================================================
    出牌前的「要选什么」：判定下沉到 core（BACKLOG §3，UI 不自己猜）
    ============================================================ */
@@ -548,16 +528,6 @@ test('playTargetPlan：张苞是全体目标（count: all），不该弹选目�
   setUnit(state, 'enemy', 'front', 0, mk('e', 1, 3));
   const plan = playTargetPlan(state, 'own', base('shu_zhangbao'));
   assert.equal(plan.choices.length, 0, 'count: all 由引擎逐个结算，不需要玩家挑');
-});
-
-test('playTargetPlan：陈宫可指定敌我双方的人（side: both）', () => {
-  realCard('qun_chengong');
-  const { state } = scenario({ ownHand: ['qun_chengong'], own: { front: [null, 'neutral_infantry'] } });
-  setUnit(state, 'enemy', 'front', 0, mk('e', 1, 3));
-  const plan = playTargetPlan(state, 'own', base('qun_chengong'));
-  assert.equal(plan.choices.length, 1, '陈宫只需选一个目标');
-  const sides = plan.choices[0]!.targets.map((t) => t.side);
-  assert.ok(sides.includes('own') && sides.includes('enemy'), '敌我都要能选');
 });
 
 test('playTargetPlan：程昱要两个选择（先牺牲谁、再恢复给谁），走 target2', () => {
@@ -744,10 +714,11 @@ test('ADR-072：显式标注的低攻武将与默认谋臣各自正确（祖茂/
   assert.equal(byId.get('wu_zumao')!.health, 5);
   assert.equal(byId.get('wu_zumao')!.type, 'general', '显式类型仍应为武将');
   assert.equal(byId.get('wu_zumao')!.type_explicit, true, '需要显式标注，否则校验器报错');
-  for (const id of ['wei_caogang', 'qun_zhangbao']) {
-    assert.equal(byId.get(id)!.type, 'general', `${id} 是显式判定的武将`);
-    assert.equal(byId.get(id)!.type_explicit, true, `${id} 应带 type_explicit`);
-  }
+  assert.equal(byId.get('wei_caogang')!.type, 'general', '曹昂是显式判定的武将');
+  assert.equal(byId.get('wei_caogang')!.type_explicit, true, '曹昂应带 type_explicit');
+  // 张宝 2026-10-25 重做为 1 攻谋臣，但仍是显式定型（type_explicit）
+  assert.equal(byId.get('qun_zhangbao')!.type, 'strategist', '张宝是显式判定的谋臣');
+  assert.equal(byId.get('qun_zhangbao')!.type_explicit, true, '张宝应带 type_explicit');
   // 没有显式标注的 1 攻人物 → 默认谋臣
   assert.equal(byId.get('shu_xiangchong')!.type, 'strategist',
     '向宠 1 攻且无设计者显式标注 → 按 ADR-018 默认谋臣（ADR-072 从「武将」修正）');

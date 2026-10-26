@@ -260,6 +260,8 @@ test('ADR-073：真实卡池里不存在「文案提到关键词但卡上没实�
       if (!text.includes(cn)) continue;
       // 关键词也可作为伤害目标的筛选条件，例如霹雳车额外伤害针对架盾单位。
       const referenced = effs.some(e => e.target?.filter?.keyword === kw || e.bonus_vs_keyword?.keyword === kw
+        // 何进「诏召猛将」：先攻是给 `deploy_from_deck` 召唤出来的武将（grant_keyword）。
+        || e.grant_keyword === kw
         // 丁奉的先攻不是给自身，而是由雪中奋短兵光环授予后续召唤单位。
         || (kw === 'xian_gong' && e.action === 'apply_status' && e.status === 'dingfeng_aura'));
       if (kws.has(kw) || applied.has(`${kw}_status`) || applied.has(kw) || referenced) continue;

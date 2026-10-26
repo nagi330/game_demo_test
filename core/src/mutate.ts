@@ -839,6 +839,10 @@ export function summonUnit(
   if (!card) return null;
   if (state.sides[side].rows[row][col]) return null;
   const u = makeUnit(card, state.turn, nextUidSeq(state));
+  // ADR-197：召唤同样吃手牌/牌库层面的关键词授予
+  for (const kw of state.sides[side].cardKeywords?.[card.id] ?? []) {
+    if (!u.kw.includes(kw)) u.kw.push(kw);
+  }
   setUnit(state, side, row, col, u);
   // 丁奉「雪中奋短兵」：只强化其光环存在后新召唤的单位。
   // 丁奉「雪中奋短兵」只强化后续召唤的武将、谋臣和兵种，

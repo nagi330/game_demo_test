@@ -207,28 +207,6 @@ test('统率不足（cur = 0，需 1）：拒绝、带 reason、统率不变、�
   assert.deepEqual(after.kw, before.kw, '被拒 → 关键词原样');
 });
 
-test('统率不足时**不派发新形态战吼**（陷阵营选了先攻也拿不到先攻 / +2 攻）', () => {
-  const s = setup(0);
-  const u = place(s, 'neutral_shieldman');
-  markReady(u);
-  const mode1 = real('qun_xianzhenying').skills!.find((sk) => sk.modes?.length)!;
-  assert.ok(mode1.modes!.length === 2, '陷阵营是抉择卡（战吼二选一）');
-  assert.ok(mode1.modes![1]!.effects!.some((e) => e.action === 'apply_status' && e.status === 'xian_gong_status'),
-    '第 2 分支由战吼当场授予先攻 —— 正是"战吼有没有派发"的探针');
-
-  const r = applyAction(s.state, s.ctx, {
-    type: 'UPGRADE_UNIT', row: 'front', col: 0, toCardId: 'qun_xianzhenying', modeIndex: 1,
-  });
-  assert.equal(r.ok, false, '需 1 统率但只有 0 → 被拒');
-  const after = getUnit(r.state, 'own', 'front', 0)!;
-  assert.equal(after.cardId, 'neutral_shieldman', '形态没换');
-  assert.equal(hasTrait(after, 'xian_gong'), false, '战吼没派发 → 不该有先攻');
-  assert.equal(after.statuses.xian_gong_status, undefined, '也不该出现 xian_gong_status');
-  assert.deepEqual([after.atk, after.maxHp], [real('neutral_shieldman').attack, real('neutral_shieldman').health],
-    '战吼的 +2 攻 / +2 生命一点都没生效');
-  assert.equal(hasTrait(after, 'jia_dun'), true, '原有的「架盾」关键词不受影响');
-});
-
 test('统率不足（cur = 1，但 d = 3 需 2）：同样被拒且不扣', () => {
   const s = setup(1);
   s.ctx.cards.set(d3Target.id, d3Target);

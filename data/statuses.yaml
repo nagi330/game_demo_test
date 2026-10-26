@@ -156,6 +156,14 @@
   duration: turns
   memo: "统率值上限 −N"
 
+- id: anjian_status
+  name: 暗箭
+  kind: debuff
+  numeric: false
+  scope: lord
+  duration: permanent
+  memo: "黄祖布下的公开暗箭：敌方下一个打出的「人物」落地后受 3 点伤害，随即消失；黄祖阵亡也消失（ADR-200）"
+
 # ---------- ADR-034 新增：能力驱动的状态 ----------
 # caps 字段声明该状态**具体阻断什么**，引擎只查能力、不认状态 id。
 
@@ -259,14 +267,22 @@
   caps: [block_draw]
   memo: "引擎内部：该方本回合不能抽牌"
 
-- id: jin_yan
-  name: 进言
-  kind: buff
+- id: gong_qing_pending
+  name: 公卿尽质·待劫
+  kind: debuff
   numeric: false
   scope: lord
-  timing: 2             # 回合开始：抽牌
   duration: turns
-  memo: "引擎内部：该方回合开始额外抽牌"
+  memo: "敌方回合结束时检查手牌，若多于郭汜方则被夺 1 张"
+
+- id: jin_yan
+  name: 禁言
+  kind: debuff
+  numeric: false
+  scope: lord
+  duration: turns
+  caps: [block_lord_skill]
+  memo: "该方主帅不能使用主公技（马超「铁骑突袭」/田丰「刚而直谏」）"
 
 - id: can_mou
   name: 参谋

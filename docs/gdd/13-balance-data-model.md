@@ -391,6 +391,33 @@ DoT 跳伤 / 水困行动税 / 中毒削上限 / 藤甲反伤都**绕过效果�
     mode: choose
 ```
 
+#### scheme_duel：两名敌方人物真实互攻，并按存活者反噬（ADR-180）
+
+王允「密谋诛恶」专用。效果 `target` 用 `count: 2, pick: 2` 选**两名敌方人物**；
+`ctx.chosen` 是第 1 个（攻击者），`ctx.chosen2` 是第 2 个（被攻击者）。结算：
+第 1 个对第 2 个发起一次真实普攻（含反击、亡语、攻击触发）；交锋后按 `survivor_condition` 判断：
+- `'any'`（缺省）：两名中**至少一名**存活 → 触发；
+- `'both'`：**两名都存活**才触发。
+
+触发时：王允**真实阵亡**（`killUnit`，不是 9999 伤害，披坚挡不住）；己方主公受到
+`lord_damage` 的伤害（缺省 `'max_attack'` = 存活目标中最高攻击；也可写固定数字）。
+⚠️ 普通攻击的反击是**同时结算**（ADR-062），目标死了也会反击；所以双方同归于尽是可能的：
+`any` 下只死一个/两名都存活触发，**双方同归于尽不触发**（0 代价 2 换 1 的上限）。
+`self_destruct: false` 可关掉王允阵亡（当前卡池无载体）。
+
+```yaml
+- action: scheme_duel
+  survivor_condition: any        # any = 任一存活；both = 两名都存活
+  self_destruct: true
+  lord_damage: max_attack        # 或固定数字
+  target:
+    side: enemy
+    filter: { type: character, include_lord: false }
+    count: 2
+    mode: choose
+    pick: 2
+```
+
 #### 攻击事件的溢出量标记 `overflow`（ADR-088）
 
 `resolveAttack` 在**击杀**目标时把溢出量写成事件标记 `overflow:N`，
@@ -530,15 +557,25 @@ condition: { lord_hp: { side: enemy, op: '<', value: 15 } }
 # f) lord_full_hp —— 判断主公在本次技能结算开始时是否满血
 condition: { lord_full_hp: { side: self, value: true } }
 
-# g) chosen_side / chosen_lord / chosen_damaged —— 判断**玩家本次所选的那个目标**
-#    读 `ctx.chosen`，与选择器无关；三者是姊妹条件（ADR-069 陈宫 / ADR-148 华佗 / ADR-159 黄忠）
+# g) chosen_side / chosen_lord / chosen_damaged / chosen_dead / chosen_attack_max —— 判断**玩家本次所选的那个目标**
+#    读 `ctx.chosen`，与选择器无关；这组是姊妹条件（ADR-069 陈宫 / ADR-148 华佗 / ADR-159 黄忠 / ADR-179 吕布 / ADR-182 李儒）
 condition: { chosen_side: 'enemy' }     # 所选目标属于哪一方（'ally' 判己方）
 condition: { chosen_lord: true }        # 所选目标是主将吗
 condition: { chosen_damaged: true }     # 所选目标**已受伤**吗（hp < maxHp；主将也适用）
+condition: { chosen_dead: true }        # 所选目标**已阵亡/已不在场**吗（求值时的当前状态，ADR-179）
+condition: { chosen_attack_max: 3 }     # 所选目标**当前攻击力 ≤ 3**（李儒「鸩酒」＝攻击 <4；求值时读，ADR-182）
 
 # h) has_fallen —— 某张卡**本局是否已经阵亡过**（ADR-160，姜维「复汉」公开判胜技）
 condition: { has_fallen: { side: 'enemy', card_id: 'wei_dengai' } }
 ```
+
+**关于 `chosen_dead`（ADR-179）**：
+
+- 读 `ctx.chosen` 的**当前**状态：单位看 `getUnit(...)` 是否为空或 `hp <= 0`；主将看 `lord.hp <= 0`。
+- 与 `chosen_damaged` 的区别：`chosen_damaged` 是**技能开始时**的快照（黄忠「百步穿杨」），
+  本条件**必须放在伤害效果之后**求值，才表示“打完之后所选目标死没死”。
+- 典型用法：吕布「一骑当千」——5 点主伤害 → 3 点相邻伤害 → **若主目标阵亡**才震慑相邻；
+  相邻 3 点造成的击杀**不算**（它们不是 `chosen`）。这就是“先吃 3 伤、再挂震慑”的严格顺序。
 
 **关于 `has_fallen`（ADR-160）**：
 
@@ -614,6 +651,19 @@ condition: { has_fallen: { side: 'enemy', card_id: 'wei_dengai' } }
 效果数值也可以直接取来源单位的当前属性：`value_from_source: attack` 或
 `value_from_source: health`，用于“按自身当前攻击力/生命值造成伤害或治疗”等效果。
 
+**重复次数也可以动态取**（ADR-183，沮授「缓师蓄粮」）：`count_from` 让 `draw` / `heal` / `damage`
+按**未使用的统率**重复 —— 每 `divisor` 点重复 1 次、封顶 `max`；缺省退回 `count ?? 1`。
+
+```yaml
+- action: draw
+  value: 1
+  count_from: { resource: command, divisor: 2, max: 3 }   # 每 2 点未使用统率抽 1，最多 3 次
+- action: heal
+  value: 2
+  count_from: { resource: command, divisor: 2, max: 3 }
+  target: { side: ally, filter: { damaged: true, include_lord: true }, count: 1, mode: random }
+```
+
 `damage` 可标注 `damage_type: water` 表示水攻；来源单位身上的 `water_damage`
 能力状态层数会在结算时加到水攻伤害上。单位触发 `on_lord_skill_used` 时机可用于
 表达“每次使用主公技后”的联动效果。
@@ -639,12 +689,14 @@ condition: { has_fallen: { side: 'enemy', card_id: 'wei_dengai' } }
 | `discard` | target.side, count, **mode** | 弃牌：**按「方」结算**。缺省从该方手牌**随机**弃 N 张；`mode: choose` 则**由玩家点一张**（读 `ctx.handIndex`）——此时 `unitSkillTargetPlan` 会把它报成一步 `zone: 'hand'`（ADR-146；**当前卡池暂无载体**，原载体华佗「青囊」已按 ADR-148 改成「医圣」） |
 | `return_to_hand` | target | 返回手牌（"收回手中""回到对方手牌"）| ⭐ **ADR-175**：新增 `value`（费用增减）＋`duration`（持续回合）—— 收回手牌的同时给**那张手牌**挂费用修正（关平「鸣金救主」"其费用下回合 −2"）。⚠️ 回手后重下是**全新单位**（满血、无状态），所以"回满血清 debuff"是回手自带的，无需额外效果。
 | `clash` | target, then | **拼点**：双方各翻一张，比点数；结果写入 `event` 供条件判定 |
+| `scheme_duel` | target(count/pick=2), survivor_condition, self_destruct, lord_damage | **两名敌方人物真实互攻**（ADR-180，王允「密谋诛恶」）：第 1 个对第 2 个普攻一次；交锋后按任一/两名存活触发“王允真实阵亡 + 己方主公受伤”。`lord_damage: max_attack` ＝ 存活者最高攻击。⚠️ 反击同时结算（ADR-062），目标死了也会反击。 |
 | `scry` | target, count, to | 查看/移动卡池顶或底（"查看卡池第一张牌""放到最底层"）|
 | `discover` | target.filter, count, value, discover_to, discover_from, discover_modifiers, discover_tag_modifiers | 默认从己方牌库随机展示最多 `count` 张满足条件的牌；`discover_from: pool` 时改从全局卡池展示，选择后不移除牌库中的同名牌；暂停等待玩家选择；默认加入手牌，`discover_to: deck_top` 时将所选牌置于牌库顶部；`value` 为统一费用修正；`discover_modifiers` 可按人物类型给选择结果附加费用/攻/血修正，`discover_tag_modifiers` 可按卡牌标签附加修正 | **筛选支持 `card_id`**（ADR-149：候选池可精确到一张，用于“把牌库里某张具体卡拉到手”）
 | `discover_tactic_pair` | target.filter（`zone: hand`、`type: tactic`、`mode: choose`）, pool_faction | 弃置玩家选择的手牌战法，从指定阵营可构筑的战法池（含公共战法）随机获得两张；优先使费用总和等于被弃牌当前费用，无法精确匹配时改为相差 1；允许同名，无任何组合时只弃牌 |
 | `send_hand_to_deck` | to, mode, from_drawn | **把手牌放回牌库的指定位置，且不抽牌**（ADR-139）。`to`：`deck_top` / `deck_bottom`（缺省）/ `random`；`mode: choose` 用 `ctx.handIndex` 指定哪张；**没给下标时挂起等玩家选**（`pendingHandChoice`，ADR-144），`from_drawn: N` 把候选锁死在刚抽到的最近 N 张。配合 `draw` 可写「先抽 N 张、再把其中一张放回底部」这类两段式效果（杨仪「筹度粮谷」）。⚠️ 与 `cycle_to_deck` 的区别：那个是"随机位置 + 必抽 1 张"的置换 |
 | `defect_to_deck` | unit, position | **叛变：阵亡后把「这张卡」换成另一张卡、放进对手牌库的随机位置**（ADR-174，糜芳「叛迎」）。`unit` ＝ 替代卡 id（缺省＝原卡，用来做"叛变后变成无技能版本"）；`position: 'top'` 才放顶，缺省＝随机位置。⚠️ 与 `self_to_hand` 的区别：落点是**牌库**不是手牌、且可以**换成另一张卡**。牌库方向沿用全项目约定（数组末尾＝顶、开头＝底） |
-| `discover`（扩展 ADR-178） | count, picks, pool, rest, discover_to | **发现候选牌并由玩家选择**。`count` ＝ 展示几张；**`picks`（新）** ＝ 要选几张（缺省 1）—— 选满前 `pendingDiscover` 保持挂起，每次 `CHOOSE_DISCOVER` 选一张；**`rest`（新）** ＝ 选完后**剩余候选**的去向（`'deck'` ＝ 放入牌库；缺省丢弃）。**`pool`（新）** ＝ 候选来源改为**公共卡池**（`{type, factions}`，写法同 `cast_random`），缺省才从**牌库**取。⚠️ 池来源时 `chooseDiscover` 不会从牌库切除；牌库来源时才切除。诸葛亮「隆中对」＝ 5 选 3、余 2 进牌库 |
+| `discover`（扩展 ADR-178） | count, picks, pool, rest, discover_to | **发现候选牌并由玩家选择**。`count` ＝ 展示几张；**`picks`（新）** ＝ 要选几张（缺省 1）—— 选满前 `pendingDiscover` 保持挂起，每次 `CHOOSE_DISCOVER` 选一张；**`rest`（新）** ＝ 选完后**剩余候选**的去向（`'deck'` ＝ 放入牌库；缺省丢弃）。**`pool`（新）** ＝ 候选来源改为**公共卡池**（`{type, factions}`，写法同 `cast_random`；ADR-181 追加 `cards` 指定卡 id 列表），缺省才从**牌库**取。⚠️ 池来源时 `chooseDiscover` 不会从牌库切除；牌库来源时才切除。诸葛亮「隆中对」＝ 5 选 3、余 2 进牌库 |
+| `discover`（扩展 ADR-181） | pool.cards | **指定卡 id 列表**：给出时只在这些卡里选，忽略 `type`/`factions`；卡表查无的 id 直接跳过。用于袁术「传国玉玺」3 选 2（`count: 3`、`picks: 2`，第 3 张默认丢弃、不进牌库/手牌）。`fromPool: true` ⇒ `chooseDiscover` 不切牌库 |
 | `override_status` | status, caps, target | **把目标身上某状态的若干档位（cap）覆盖为指定值**（ADR-142，兀突骨「藤甲统率」）。`status` = 作用的状态（如 `teng_jia`），`caps` = `{ <cap>: <绝对值> }`（如 `{ reduce_physical: 2, vulnerable_fire: 0 }` ＝ 物理 −2 且不再怕火），`target` 支持 `zone: hand`（手牌写 `HandMod.kind: rule`，**打出时随牌进场**）。⚠️ **仅当该状态确实存在于目标身上时才生效**（被净化即失效、重新获得即恢复）；**绝对值**不是增减量；同一 (状态,档位) 幂等。**为什么不用加层数**：一个状态的多个 cap 共用层数（藤甲的减伤与怕火同源），加层会一起放大 |
 | `CHOOSE_HAND`（**动作**，不是效果） | handIndex | 结算中途的手牌选择（ADR-144）：只在 `pendingHandChoice` 挂起时可用，其它动作会被引擎拒绝。由 UI/AI 发出；AI 的候选枚举在 `ai/options.ts`，口径是"费用低的先放回"。 |
 | `gain_command` | value, **permanent** | 统率。缺省只加**本回合可用值** `cur` 且夹在 `max` 内；**`permanent: true`（ADR-139）同时抬统率上限**（封顶 `COMMAND.MAX` = 10）并发 `COMMAND_MAX_CHANGED`。⚠️ 回合开始会把 `cur` 回满，所以「回合开始 +N 统率」**必须**用 `permanent: true`，否则收益恒为 0 |

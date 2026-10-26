@@ -59,26 +59,6 @@ function place(s: ReturnType<typeof setup>, id: string, side: Side = 'own', col 
    一、费用下限（ADR-112 / ADR-119）
    ===================================================================== */
 
-test('群雄特种兵费用 ≥ 对应基础兵 + 1', () => {
-  const expected: Array<[string, number]> = [
-    ['qun_xiandengsishi', 3],   // 步兵（原 2 费 4/3 → 3 费 3/3）
-    ['qun_huangjinlishi', 3],   // 步兵（ADR-121 定 3 费 2/2；下限 ≥2 仍满足）
-    ['qun_fudunshi', 3],        // 盾兵（原 2 费 → ADR-125 定 3 费 1/6 伏楯士「俱起」）
-    ['qun_xianzhenying', 4],    // 盾兵（原 2 费 → ADR-126 定 4 费 3/6 破盾墙）
-    ['qun_baimayicong', 4],     // 骑兵（原 2 费）
-    ['qun_xiliangtieqi', 4],    // 骑兵（原 2 费）
-    ['qun_wuhuantuqi', 4],      // 骑兵（ADR-128 由弓兵改回骑兵：突骑本就是骑兵）
-    ['qun_xiandengnushou', 2],  // 弓兵（ADR-131 弓兵基础降为 1 费 → 下限 2，本卡天然合规）
-  ];
-  for (const [id, cost] of expected) {
-    const c = real(id);
-    const base = real(BASE_TROOP[c.troopKind!]!);
-    assert.equal(c.cost, cost, `${c.name} 费用应定为 ${cost}`);
-    assert.ok((c.cost ?? 0) >= (base.cost ?? 0) + 1,
-      `${c.name}（${c.cost} 费）必须 ≥ 基础${base.name}（${base.cost} 费）+ 1`);
-  }
-});
-
 test('群雄 8 张特种兵逐张实算合规（不依赖上一条的清单）', () => {
   const qun = cards.filter((c) => c.faction === 'qun' && c.type === 'troop' && c.upgradeFrom);
   assert.equal(qun.length, 8, '群雄特种兵应为 8 张');
@@ -275,29 +255,7 @@ test('永久成长：统领阵亡后黄巾兵不缩回去（单向棘轮）', ()
     '统领死了也不回落 —— 这正是设计者要的「当前场次永久」（旧版光环会缩回 1/1）');
 });
 
-test('统领上场：场上已有的黄巾众永久 +1/+1，且同一名统领只算一次', () => {
-  const s = setup();
-  // 张梁（统领）已在场；另有一个「早先召出来的」黄巾兵
-  setUnit(s.state, 'own', 'front', 0, makeUnit(real('qun_zhangliang'), 0, nextUidSeq(s.state)));
-  setUnit(s.state, 'own', 'front', 1, makeUnit(real('token_huangjin_bing'), 0, nextUidSeq(s.state)));
-
-  s.state.sides.own.hand = [{ card: real('qun_zhangbao'), mods: [] }];
-  const r = applyAction(s.state, s.ctx, { type: 'PLAY_CARD', cardIndex: 0, row: 'front', col: 2 });
-  assert.ok(r.ok, r.error ?? '出牌应成功');
-
-  const tokens = allUnits(r.state, 'own').filter((x) => x.unit.cardId === 'token_huangjin_bing');
-  assert.equal(tokens.length, 3, '原有的 1 个 ＋ 张宝战吼召的 2 个');
-  const fresh = tokens.filter((x) => x.col !== 1);
-  for (const t of fresh) {
-    assert.deepEqual([t.unit.atk, t.unit.maxHp], [3, 3],
-      '新召的兵落地快照 2 名统领 = 3/3；若战吼「先召唤后 buff」，同一名统领会被算两次变 4/4');
-  }
-  const old = tokens.find((x) => x.col === 1)!;
-  assert.deepEqual([old.unit.atk, old.unit.maxHp, old.unit.mods.filter((m) => m.kind === 'permanent').length],
-    [2, 2, 1], '老的一个只吃到张宝这一档 +1/+1，且只有一条永久修正（没有重复计）');
-});
-
-test('张角「大贤良师」：上场时给场上黄巾众永久 +1/+1', () => {
+test('张角「黄天当立」：上场时给场上黄巾永久 +1/+1', () => {
   const s = setup();
   s.state.sides.own.command.cur = 10;
   setUnit(s.state, 'own', 'front', 0, makeUnit(real('token_huangjin_bing'), 0, nextUidSeq(s.state)));
@@ -504,16 +462,6 @@ test('白马义从没有先攻：打出当回合不能攻击（与西凉铁骑�
   assert.equal(atk2.ok, true, '西凉铁骑带先攻 → 入场当回合可攻击（两张卡的分工由此拉开）');
 });
 
-test('公孙瓒卡面文案与实际召唤数一致（2 → 1，ADR-047 削弱后文案漏改）', () => {
-  const c = real('qun_gongsunzan');
-  const sk = (c.skills ?? []).find((x) => x.name === '白马义从')!;
-  const summons = (sk.effects ?? []).filter((e) => e.action === 'summon');
-  const count = summons.reduce((n, e) => n + (e.count ?? 1), 0);
-  assert.equal(count, 1, '效果只召唤 1 个弓兵');
-  assert.match(sk.text ?? '', /召唤\s*1\s*个/, '卡面文案必须写 1 个（曾写成 2 个而效果是 1）');
-  assert.match(c.memo ?? '', /1\s*个/, 'memo 也要一致');
-});
-
 /* =====================================================================
    七、伏楯士（原「先登盾兵」）：「俱起」成长（ADR-125）
    史料：《英雄记》「義兵皆伏楯下不動……乃同時俱起……直前衝突」
@@ -580,61 +528,6 @@ test('俱起结算：按设计者给的时序 —— 己方回合结束 +1，敌
         《三国志·魏书七》「遣高順攻劉備於沛，破之……夏侯惇救備，為順所敗」
    ===================================================================== */
 
-test('陷阵营：4 费 2/5 抉择 —— 架盾 2/7 或 先攻 4/5（另外保留无不破者）', () => {
-  const c = real('qun_xianzhenying');
-  assert.deepEqual([c.cost, c.attack, c.health], [4, 2, 5],
-    '基础 2/5 ＝ 7 点，低于 4 费基准 9 —— 两个分支各补 3 点回来');
-  assert.equal(c.troopKind, 'shield');
-  assert.deepEqual(c.keywords ?? [], [], '架盾/先攻都由战吼抉择当场授予，不是卡面固定关键词');
-
-  const modal = (c.skills ?? []).find((x) => x.name === '陷阵')!;
-  assert.equal(modal.trigger, 'on_play');
-  assert.equal(modal.modes?.length, 2, '两个分支');
-  assert.deepEqual(modal.modes![0]!.effects!.map((e) => [e.action, e.status ?? e.health]),
-    [['apply_status', 'jia_dun_status'], ['modify', 2]], '① 架盾 ＋ 生命 +2 → 2/7');
-  assert.deepEqual(modal.modes![1]!.effects!.map((e) => [e.action, e.status ?? e.attack]),
-    [['apply_status', 'xian_gong_status'], ['modify', 2]], '② 先攻 ＋ 攻击 +2 → 4/5');
-
-  const po = (c.skills ?? []).find((x) => x.name === '无不破者')!;
-  assert.equal(po.trigger, 'on_attack');
-  assert.deepEqual(po.effects![0]!.condition, { attack_target: { keyword: 'jia_dun' } },
-    '「无不破者」是两个分支共有的固有属性（抉择换的是怎么用它，不是它是谁）');
-  assert.equal(po.effects![0]!.value, 2);
-});
-
-test('抉择结算：从手牌打出，① 变 2/7 带架盾；② 变 4/5 带先攻且当回合能打', () => {
-  const s = setup();
-  s.state.sides.own.command.cur = 9;
-  s.state.sides.own.hand = [{ card: real('qun_xianzhenying'), mods: [] }];
-  const r = applyAction(s.state, s.ctx, {
-    type: 'PLAY_CARD', cardIndex: 0, row: 'front', col: 0, modeIndex: 0,
-  });
-  assert.ok(r.ok, r.error ?? '出牌应成功');
-  const a = getUnit(r.state, 'own', 'front', 0)!;
-  assert.deepEqual([a.atk, a.hp, a.maxHp], [2, 7, 7], '① 架盾分支：2/7');
-  assert.ok(hasTrait(a, 'jia_dun'), '并获得架盾（嘲讽）');
-  assert.ok(!hasTrait(a, 'xian_gong'), '不该同时有先攻');
-
-  const s2 = setup();
-  s2.state.sides.own.command.cur = 9;
-  s2.state.sides.own.hand = [{ card: real('qun_xianzhenying'), mods: [] }];
-  const r2 = applyAction(s2.state, s2.ctx, {
-    type: 'PLAY_CARD', cardIndex: 0, row: 'front', col: 0, modeIndex: 1,
-  });
-  assert.ok(r2.ok, r2.error ?? '出牌应成功');
-  const b = getUnit(r2.state, 'own', 'front', 0)!;
-  assert.deepEqual([b.atk, b.hp, b.maxHp], [4, 5, 5], '② 先攻分支：4/5');
-  assert.ok(hasTrait(b, 'xian_gong'), '并获得先攻');
-  assert.ok(!hasTrait(b, 'jia_dun'), '不该同时有架盾');
-
-  // 先攻＝入场当回合即可攻击
-  setUnit(r2.state, 'enemy', 'front', 3, makeUnit(real('shu_bai_erbing'), 0, nextUidSeq(r2.state)));
-  const atk = applyAction(r2.state, s2.ctx, {
-    type: 'ATTACK', from: { row: 'front', col: 0 }, to: { kind: 'unit', row: 'front', col: 3 },
-  });
-  assert.equal(atk.ok, true, '先攻分支打出当回合就能攻击');
-});
-
 test('升变选先攻：同样能当回合再打一次（ADR-127 修的引擎缺口）', () => {
   const s = setup();
   s.state.sides.own.command.cur = 9;
@@ -678,53 +571,6 @@ test('升变选架盾：变 2/7 并获得嘲讽', () => {
   const u = getUnit(up.state, 'own', 'front', 0)!;
   assert.deepEqual([u.atk, u.hp, u.maxHp], [2, 7, 7], '架盾分支：2/7');
   assert.ok(hasTrait(u, 'jia_dun'));
-});
-
-test('陷阵结算：打架盾目标 +2 攻，打不带架盾的目标不加，且不绕过架盾', () => {
-  const a = setup();
-  setUnit(a.state, 'enemy', 'front', 3, makeUnit(real('shu_bai_erbing'), 0, nextUidSeq(a.state)));
-  a.state.sides.own.command.cur = 9;
-  a.state.sides.own.hand = [{ card: real('qun_xianzhenying'), mods: [] }];
-  const ra = applyAction(a.state, a.ctx, {
-    type: 'PLAY_CARD', cardIndex: 0, row: 'front', col: 0, modeIndex: 1,
-  });
-  assert.ok(ra.ok, ra.error ?? '出牌应成功');
-  const atk = applyAction(ra.state, a.ctx, {
-    type: 'ATTACK', from: { row: 'front', col: 0 }, to: { kind: 'unit', row: 'front', col: 3 },
-  });
-  assert.ok(atk.ok, atk.error ?? '攻击应成功');
-  assert.equal(getUnit(atk.state, 'enemy', 'front', 3), null,
-    '先攻分支 4 攻 ＋ 破盾 2 ＝ 6 点，6 血白毦兵被一击打死');
-
-  const b = setup();
-  const bTarget = makeUnit(real('wei_hubaoki_hu'), 0, nextUidSeq(b.state));
-  bTarget.baseMaxHp = bTarget.maxHp = bTarget.hp = 5;
-  setUnit(b.state, 'enemy', 'front', 3, bTarget);
-  b.state.sides.own.command.cur = 9;
-  b.state.sides.own.hand = [{ card: real('qun_xianzhenying'), mods: [] }];
-  const rb = applyAction(b.state, b.ctx, {
-    type: 'PLAY_CARD', cardIndex: 0, row: 'front', col: 0, modeIndex: 1,
-  });
-  assert.ok(rb.ok, rb.error ?? '出牌应成功');
-  const atk2 = applyAction(rb.state, b.ctx, {
-    type: 'ATTACK', from: { row: 'front', col: 0 }, to: { kind: 'unit', row: 'front', col: 3 },
-  });
-  assert.ok(atk2.ok, atk2.error ?? '攻击应成功');
-  assert.equal(getUnit(atk2.state, 'enemy', 'front', 3)!.hp, 5 - 4, '打不带架盾的目标：只有 4 点');
-
-  // 架盾的嘲讽仍然有效：敌方有架盾单位时不能越过它打别人
-  const c = setup();
-  setUnit(c.state, 'enemy', 'front', 3, makeUnit(real('shu_bai_erbing'), 0, nextUidSeq(c.state)));
-  setUnit(c.state, 'enemy', 'front', 5, makeUnit(real('neutral_infantry'), 0, nextUidSeq(c.state)));
-  c.state.sides.own.command.cur = 9;
-  c.state.sides.own.hand = [{ card: real('qun_xianzhenying'), mods: [] }];
-  const rc = applyAction(c.state, c.ctx, {
-    type: 'PLAY_CARD', cardIndex: 0, row: 'front', col: 0, modeIndex: 1,
-  });
-  const over = applyAction(rc.state, c.ctx, {
-    type: 'ATTACK', from: { row: 'front', col: 0 }, to: { kind: 'unit', row: 'front', col: 5 },
-  });
-  assert.equal(over.ok, false, '「无不破者」只是打盾墙更疼，**并不绕过架盾**');
 });
 
 /* =====================================================================

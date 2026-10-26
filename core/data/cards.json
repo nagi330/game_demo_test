@@ -4251,13 +4251,13 @@
     "cost": 2,
     "attack": 2,
     "health": 2,
-    "memo": "战吼点名 1 点水伤",
+    "memo": "2 费 2/2：督水——战吼点名 1 点水伤",
     "gender": "male",
     "keywords": [],
     "skills": [
       {
-        "id": "shui_gong",
-        "name": "水攻",
+        "id": "du_shui",
+        "name": "督水",
         "kind": "trigger",
         "trigger": "on_play",
         "text": "战吼：对指定一名敌人造成 1 点水伤。",
@@ -4278,7 +4278,8 @@
         ]
       }
     ],
-    "flavor": ""
+    "note": "**2 费 2/2 武将**：身体 4，基准 5，**−1**；〈督水〉——战吼对指定一名敌人造成 1 点水伤 （2 费段唯一的水攻入口，水伤会按全局规则自动挂 1 层「水困」）。 **技能名**：取「都督水军」（演义 C）之意，比原来的「水攻」更像一个人的作为； 正史对应的官名是「**长水校尉**」（B），若想更考据可改叫「长水」。 **史料（B）**：《襄阳耆旧传》（习凿齿）「後漢蔡瑁字德珪，襄陽人，性豪自喜，少為魏武所親。 劉琮之敗，武帝造其家，入瑁私室，呼見其妻子……**漢末諸蔡最盛**」。 **史料（C）**：《三国演义》「都督水军」、蒋干盗书、曹操误斩蔡瑁张允——全是演义。 **不得写**：把「水军都督」当正史（正史只有长水校尉官名）、蒋干盗书/曹操误斩是正史（C）、 蔡瑁赤壁战死或被周瑜/关羽所杀（正史无载，卒年不详）、蔡瑁与蔡文姬同族（陈留蔡氏≠襄阳蔡氏）。\n",
+    "flavor": "劉琮之敗，武帝造其家，入瑁私室，呼見其妻子。"
   },
   {
     "id": "qun_songxian",
@@ -4288,11 +4289,45 @@
     "cost": 2,
     "attack": 2,
     "health": 3,
-    "keywords": [
-      "qi_xi"
-    ],
-    "memo": "上场隐身，出手后现形",
+    "rarity": "common",
+    "keywords": [],
+    "memo": "2 费 2/3：白门盗戟——震慑 1 回合；目标攻 ≥4 时自己永久 +2 攻",
     "gender": "male",
+    "skills": [
+      {
+        "id": "bai_men_dao_ji",
+        "name": "白门盗戟",
+        "kind": "trigger",
+        "trigger": "on_play",
+        "text": "战吼：使一名敌方人物 1 回合「震慑」（无法普攻）；若其攻击力 ≥4，宋宪额外永久 +2 攻击力。",
+        "effects": [
+          {
+            "action": "apply_status",
+            "status": "zhen_she",
+            "duration": 1,
+            "target": {
+              "side": "enemy",
+              "filter": {
+                "type": "character"
+              },
+              "count": 1,
+              "mode": "choose"
+            }
+          },
+          {
+            "action": "modify",
+            "attack": 2,
+            "target": {
+              "source": true
+            },
+            "condition": {
+              "chosen_attack_min": 4
+            }
+          }
+        ]
+      }
+    ],
+    "note": "**2 费 2/3 武将（`common`）**：身体 5，基准 5，**0**；〈白门盗戟〉＝战吼对一名敌方人物 施加 1 回合「震慑」（无法普攻）；若其攻击力 ≥4，宋宪额外永久 +2 攻击力（`chosen_attack_min: 4`）。 **引擎**：新增条件 `chosen_attack_min`（读 `ctx.chosen` 求值时的 atk，ADR-191）。 **史料（A/B）**：《三国志》卷七 吕布传：宋宪与侯成、魏续缚陈宫、高顺，率众降曹操。 **不得写**：宋宪盗赤兔马（演义情节，正史无）、宋宪被颜良斩（演义，正史无）、 宋宪是吕布的义子。\n",
     "flavor": ""
   },
   {
@@ -4303,28 +4338,89 @@
     "cost": 3,
     "attack": 3,
     "health": 4,
-    "memo": "挨打没死就回 1 血，极耐消耗",
+    "memo": "3 费 3/4：敌方主公头顶挂公开「暗箭」，敌方下一个打出的人物吃 3 点",
     "gender": "male",
     "keywords": [],
     "skills": [
       {
-        "id": "wan_qiang",
-        "name": "顽强",
+        "id": "an_jian",
+        "name": "暗箭",
         "kind": "trigger",
-        "trigger": "on_damaged",
-        "text": "每次受到攻击没有阵亡时，恢复 1 点生命。",
+        "trigger": "on_play",
+        "text": "战吼：在敌方主公头顶挂出「暗箭」（公开可见）。敌方下一个打出的人物落地后受到 3 点伤害，暗箭随即消失；黄祖阵亡则暗箭失效。",
         "effects": [
           {
-            "action": "heal",
-            "value": 1,
+            "action": "apply_status",
+            "status": "anjian_status",
             "target": {
-              "source": true
+              "side": "enemy",
+              "lord": true
+            }
+          }
+        ]
+      },
+      {
+        "id": "an_jian_fa",
+        "name": "暗箭·发",
+        "kind": "trigger",
+        "trigger": "on_card_played",
+        "played_by": "enemy",
+        "target": {
+          "filter": {
+            "type": "character"
+          }
+        },
+        "text": "敌方打出人物后：若敌方主公头顶有「暗箭」，该人物受到 3 点伤害，暗箭消失。",
+        "effects": [
+          {
+            "action": "damage",
+            "value": 3,
+            "target": {
+              "played": true
+            },
+            "condition": {
+              "lord_status": {
+                "side": "enemy",
+                "status": "anjian_status"
+              }
+            }
+          },
+          {
+            "action": "remove_status",
+            "status": "anjian_status",
+            "target": {
+              "side": "enemy",
+              "lord": true
+            },
+            "condition": {
+              "lord_status": {
+                "side": "enemy",
+                "status": "anjian_status"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "an_jian_mie",
+        "name": "暗箭·灭",
+        "kind": "trigger",
+        "trigger": "on_death",
+        "text": "黄祖阵亡，敌方主公头顶的「暗箭」随之失效。",
+        "effects": [
+          {
+            "action": "remove_status",
+            "status": "anjian_status",
+            "target": {
+              "side": "enemy",
+              "lord": true
             }
           }
         ]
       }
     ],
-    "flavor": ""
+    "note": "**3 费 3/4 武将**：身体 7，基准 7，**0**；〈暗箭〉＝登场时在**敌方主公**头顶挂一个 **公开**的「暗箭」标记：敌方下一个**打出**的人物（不含召唤的衍生物）落地并结算完战吼后， 受到 3 点伤害，标记随即消失；**黄祖阵亡则暗箭失效**（这就是对手的反制手段：先解黄祖）。 **为什么公开不做隐藏**：全池只有黄祖会挂密谋时，\"问号\"没有信息量（看到黄祖就知道是暗箭）， 对手只能盲送炮灰；公开则让对手能**主动博弈**（先送个便宜人物吃掉，或先解黄祖）。 若日后密谋扩到 3 种以上（王允诛恶、贾诩离间…），再考虑隐藏与\"看破\"——那属于系统级，另案。 **引擎（ADR-200）**：标记＝挂在敌方主公上的状态 `anjian_status`；触发用 `on_card_played` （已有钩子，新增 `played_by: 'enemy'` 只认对手出牌）＋目标选择器 `played: true`（指向刚打出的单位） ＋条件 `lord_status`（标记还在才触发）。**标记就是唯一真源**，不引入并行的 pending 状态。 **史料（B）**：《典略》（裴松之注引）「堅悉其眾攻表，表閉門，**夜遣將黃祖潛出發兵**…… 堅乘勝夜追祖，**祖部兵從竹木間暗射堅**，殺之」——「從竹木間暗射」即暗箭的原始出处。 **史料（A）**：《三国志·吴书一·孙破虏讨逆传》「單馬行峴山，**為祖軍士所射殺**」；建安十三年 孙权破江夏，「祖挺身亡走，騎士馮則追梟其首」。 **不得写**：黄祖**亲手**暗箭射杀孙坚（正史是「祖军士/祖部兵」，演义是吕公 C）、 黄祖是江夏土皇帝（他是刘表任命的太守）、黄祖被周瑜/孙权亲手所杀（正史是冯则追斩）、 黄祖「主动索要」祢衡（是曹操送刘表、刘表送黄祖）。\n",
+    "flavor": "單馬行峴山，為祖軍士所射殺。"
   },
   {
     "id": "qun_huaxiong",
@@ -4332,9 +4428,9 @@
     "faction": "qun",
     "type": "general",
     "cost": 3,
-    "attack": 3,
-    "health": 3,
-    "memo": "每次击杀 +1/+1；亡语把这份成长送给击杀者",
+    "attack": 4,
+    "health": 4,
+    "memo": "3 费 4/4：击杀 +1/+1；亡语把这份成长送给击杀者",
     "gender": "male",
     "keywords": [],
     "skills": [
@@ -4360,7 +4456,7 @@
         "name": "遗计·威震四方",
         "kind": "trigger",
         "trigger": "on_death",
-        "text": "亡语：击杀华雄的角色获得 +1 攻 / +1 血。",
+        "text": "亡语：击杀华雄的敌方人物获得 +1 攻 / +1 血。",
         "effects": [
           {
             "action": "modify",
@@ -4373,91 +4469,79 @@
         ]
       }
     ],
+    "note": "**3 费 4/4 武将**：身体 8，基准 7，**+1**（超模 1 点），用亡语的「资敌」成长对冲。 〈威震四方〉＝每次击杀永久 +1/+1；〈遗计·威震四方〉＝亡语把 +1/+1 送给**击杀华雄的敌方人物** （`event: killer`，不是泛指击杀者）。 **史料（A）**：《三国志·吴书一·孙破虏讨逆传》「坚复相收兵，合战于阳人，大破卓军，枭其**都督华雄**等」； 华雄是董卓军**都督**，死于孙坚军之手。 **不得写**：华雄是关羽所斩（演义 C「温酒斩华雄」）、华雄是董卓义子、华雄是西凉第一勇士。\n",
     "flavor": ""
   },
   {
     "id": "qun_zhangbao",
     "name": "张宝",
     "faction": "qun",
-    "type": "general",
+    "type": "strategist",
     "cost": 3,
     "attack": 1,
-    "health": 2,
+    "health": 3,
+    "rarity": "elite",
     "tags": [
       "huang_jin",
       "huang_jin_tongling"
     ],
-    "memo": "与张梁同场召 2 个黄巾兵，三兄弟齐全翻倍",
+    "memo": "3 费 1/3：地公立坛——召黄巾兵；场上有其他统领再召一个并给黄巾披坚",
     "gender": "male",
     "type_explicit": true,
     "keywords": [],
     "skills": [
       {
-        "id": "huang_tian_dang_li",
-        "name": "黄天当立",
+        "id": "di_gong_li_tan",
+        "name": "地公立坛",
         "kind": "trigger",
         "trigger": "on_play",
-        "text": "战吼：己方所有黄巾众（黄巾兵与黄巾力士）永久 +1/+1；张宝与张梁同时在场时召唤 2 个黄巾兵；张氏三兄弟同时在场时再召唤 2 个（共 4 个）。",
+        "text": "战吼：召唤 1 个「黄巾兵」；若己方场上还有其他「黄巾统领」，再召唤 1 个，并使所有「黄巾」单位获得「披坚」。",
         "effects": [
           {
-            "action": "modify",
-            "attack": 1,
-            "health": 1,
+            "action": "summon",
+            "unit": "token_huangjin_bing",
+            "count": 1,
+            "position": "random"
+          },
+          {
+            "action": "summon",
+            "unit": "token_huangjin_bing",
+            "count": 1,
+            "position": "random",
+            "condition": {
+              "exists": {
+                "side": "ally",
+                "filter": {
+                  "tag": "huang_jin_tongling",
+                  "exclude_source": true
+                }
+              }
+            }
+          },
+          {
+            "action": "apply_status",
+            "status": "sheng_dun_status",
             "target": {
               "side": "ally",
               "filter": {
-                "tag": "huang_jin_zhong"
+                "tag": "huang_jin"
               },
               "count": "all"
-            }
-          },
-          {
-            "action": "summon",
-            "unit": "token_huangjin_bing",
-            "count": 2,
-            "position": "random",
+            },
             "condition": {
-              "all_of": [
-                {
-                  "exists": {
-                    "side": "ally",
-                    "filter": {
-                      "card_id": "qun_zhangliang"
-                    }
-                  }
+              "exists": {
+                "side": "ally",
+                "filter": {
+                  "tag": "huang_jin_tongling",
+                  "exclude_source": true
                 }
-              ]
-            }
-          },
-          {
-            "action": "summon",
-            "unit": "token_huangjin_bing",
-            "count": 2,
-            "position": "random",
-            "condition": {
-              "all_of": [
-                {
-                  "exists": {
-                    "side": "ally",
-                    "filter": {
-                      "card_id": "qun_zhangliang"
-                    }
-                  }
-                },
-                {
-                  "exists": {
-                    "side": "ally",
-                    "filter": {
-                      "card_id": "qun_zhangjiao"
-                    }
-                  }
-                }
-              ]
+              }
             }
           }
         ]
       }
     ],
+    "note": "**3 费 1/3 谋臣（`elite`，`tags: [huang_jin, huang_jin_tongling]`）**：身体 4，基准 7，**−3**； 〈地公立坛〉＝召唤 1 个「黄巾兵」（它落地时按黄巾统领数自行成长，见黄巾兵卡面）； 若己方**场上**还有其他黄巾统领，再召唤 1 个，并使所有「黄巾」单位获得「披坚」。 **引擎**：零改动（`summon` + `apply_status: sheng_dun_status`；条件 `exists` + `exclude_source`）。 **史料（A）**：《后汉书·皇甫嵩传》/《三国志·魏书一》「角稱天公將軍，角弟寶稱地公將軍， 寶弟梁稱人公將軍」；张宝是张角之弟。 **不得写**：张宝是张角的儿子、张宝是「妖道」（黄巾是民变）、张宝被关羽所斩（演义 C）。\n",
     "flavor": ""
   },
   {
@@ -4465,28 +4549,34 @@
     "name": "张梁",
     "faction": "qun",
     "type": "general",
-    "cost": 3,
-    "attack": 2,
-    "health": 2,
+    "cost": 4,
+    "attack": 3,
+    "health": 4,
+    "rarity": "elite",
     "tags": [
       "huang_jin",
       "huang_jin_tongling"
     ],
-    "memo": "与张宝同场召 2 个黄巾兵，三兄弟齐全翻倍",
+    "memo": "4 费 3/4：人公精勇——召黄巾兵、黄巾众先攻；场上有其他统领全体黄巾 +1 攻",
     "gender": "male",
     "keywords": [],
     "skills": [
       {
-        "id": "huang_tian_dang_li",
-        "name": "黄天当立",
+        "id": "ren_gong_jing_yong",
+        "name": "人公精勇",
         "kind": "trigger",
         "trigger": "on_play",
-        "text": "战吼：己方所有黄巾众（黄巾兵与黄巾力士）永久 +1/+1；张宝与张梁同时在场时召唤 2 个黄巾兵；张氏三兄弟同时在场时再召唤 2 个（共 4 个）。",
+        "text": "战吼：召唤 1 个「黄巾兵」，并使所有「黄巾众」获得「先攻」；若己方场上还有其他「黄巾统领」，所有「黄巾」单位永久 +1 攻击力。",
         "effects": [
           {
-            "action": "modify",
-            "attack": 1,
-            "health": 1,
+            "action": "summon",
+            "unit": "token_huangjin_bing",
+            "count": 1,
+            "position": "random"
+          },
+          {
+            "action": "apply_status",
+            "status": "xian_gong_status",
             "target": {
               "side": "ally",
               "filter": {
@@ -4496,35 +4586,110 @@
             }
           },
           {
-            "action": "summon",
-            "unit": "token_huangjin_bing",
-            "count": 2,
-            "position": "random",
+            "action": "modify",
+            "attack": 1,
+            "target": {
+              "side": "ally",
+              "filter": {
+                "tag": "huang_jin"
+              },
+              "count": "all"
+            },
             "condition": {
-              "all_of": [
-                {
-                  "exists": {
-                    "side": "ally",
-                    "filter": {
-                      "card_id": "qun_zhangbao"
-                    }
-                  }
+              "exists": {
+                "side": "ally",
+                "filter": {
+                  "tag": "huang_jin_tongling",
+                  "exclude_source": true
                 }
-              ]
+              }
             }
+          }
+        ]
+      }
+    ],
+    "note": "**4 费 3/4 武将（`elite`，`tags: [huang_jin, huang_jin_tongling]`）**：身体 7，基准 9，**−2**； 〈人公精勇〉＝召唤 1 个「黄巾兵」、所有「黄巾众」获得「先攻」；若己方**场上**还有其他黄巾统领， 所有「黄巾」单位永久 +1 攻击力。 **引擎**：零改动（`summon` + `apply_status: xian_gong_status` + `modify`；条件 `exists`）。 **史料（A）**：《后汉书·皇甫嵩传》「嵩與角弟梁戰於廣宗，**梁眾精勇**，嵩不能克……大破之，斬梁」； 张梁是张角之弟、人公将军，广宗战死。 **不得写**：张梁是张角的儿子、张梁被关羽所斩（演义 C）、张梁是「黄巾第一猛将」。\n",
+    "flavor": "梁眾精勇。"
+  },
+  {
+    "id": "qun_gaoshun",
+    "name": "高顺",
+    "faction": "qun",
+    "type": "general",
+    "cost": 7,
+    "attack": 4,
+    "health": 7,
+    "rarity": "elite",
+    "keywords": [
+      "jia_dun",
+      "xian_gong"
+    ],
+    "memo": "7 费 4/7 先攻架盾：战吼将 2 张陷阵营置入手牌",
+    "gender": "male",
+    "skills": [
+      {
+        "id": "xian_zhen_tong_ling",
+        "name": "陷阵统领",
+        "kind": "trigger",
+        "trigger": "on_play",
+        "text": "先攻、架盾。战吼：将两张「陷阵营」置入你的手牌。",
+        "effects": [
+          {
+            "action": "add_to_hand",
+            "unit": "qun_xianzhenying",
+            "count": 2
+          }
+        ]
+      }
+    ],
+    "note": "**7 费 4/7 武将（`elite`，`keywords: [jia_dun, xian_gong]`）**：身体 11，基准 15，**−4**； 先攻 + 架盾 ≈ 3~4；〈陷阵统领〉把 2 张既有「陷阵营」（4 费 2/5 抉择：架盾 2/7 / 先攻 4/5） 置入手牌 ≈ 8~10；合计 ≈ **24~26**，7 费**明显偏强**（若实测过强，第一杠杆是「只给 1 张」或 「置入手牌时本回合费用 −2」）。 **引擎**：新增 `add_to_hand`（直接把指定卡置入手牌，不碰牌库、不付统率；ADR-190）。 **史料（B）**：《三国志》卷七 吕布传裴注引《英雄记》：「順為人清白有威嚴，不飲酒，不受饋遺。 所將七百餘兵，號為千人，鎧甲鬬具皆精練齊整，每所攻擊無不破者，名為陷陣營。」 **不得写**：高顺是吕布的义子/亲弟、高顺投降曹操、高顺与陈宫合谋、陷阵营是骑兵（正史是步兵精锐）。\n",
+    "flavor": "順為人清白有威嚴，不飲酒，不受饋遺。所將七百餘兵，號為千人，鎧甲鬬具皆精練齊整，每所攻擊無不破者，名為陷陣營。"
+  },
+  {
+    "id": "qun_gongsunzan",
+    "name": "公孙瓒",
+    "faction": "qun",
+    "type": "general",
+    "cost": 5,
+    "attack": 4,
+    "health": 4,
+    "rarity": "elite",
+    "memo": "5 费 4/4 先攻：白马义从未上场就有先攻；场上有白马时炸敌方全体 1",
+    "gender": "male",
+    "keywords": [
+      "xian_gong"
+    ],
+    "skills": [
+      {
+        "id": "bai_ma_yi_cong",
+        "name": "白马义从",
+        "kind": "trigger",
+        "trigger": "on_play",
+        "text": "先攻。战吼：使己方手牌和牌库中的所有「白马义从」永久获得「先攻」；若己方场上已有「白马义从」，对敌方全体人物造成 1 点伤害。",
+        "effects": [
+          {
+            "action": "grant_card_keyword",
+            "unit": "qun_baimayicong",
+            "keyword": "xian_gong"
           },
           {
-            "action": "summon",
-            "unit": "token_huangjin_bing",
-            "count": 2,
-            "position": "random",
+            "action": "damage",
+            "value": 1,
+            "target": {
+              "side": "enemy",
+              "filter": {
+                "type": "character",
+                "include_lord": false
+              },
+              "count": "all"
+            },
             "condition": {
-              "all_of": [
+              "any_of": [
                 {
                   "exists": {
                     "side": "ally",
                     "filter": {
-                      "card_id": "qun_zhangbao"
+                      "card_id": "qun_baimayicong"
                     }
                   }
                 },
@@ -4532,7 +4697,7 @@
                   "exists": {
                     "side": "ally",
                     "filter": {
-                      "card_id": "qun_zhangjiao"
+                      "card_id": "elite_baima_yicong"
                     }
                   }
                 }
@@ -4542,134 +4707,80 @@
         ]
       }
     ],
-    "flavor": ""
-  },
-  {
-    "id": "qun_gaoshun",
-    "name": "高顺",
-    "faction": "qun",
-    "type": "general",
-    "cost": 4,
-    "attack": 2,
-    "health": 2,
-    "memo": "召唤 2 个盾兵，并把全场盾兵进化成陷阵盾兵",
-    "gender": "male",
-    "keywords": [],
-    "skills": [
-      {
-        "id": "xian_zhen_ying",
-        "name": "陷阵营",
-        "kind": "trigger",
-        "trigger": "on_play",
-        "effects": [
-          {
-            "action": "summon",
-            "unit": "neutral_shieldman",
-            "count": 2,
-            "position": "random"
-          },
-          {
-            "action": "transform",
-            "to": "elite_xianzhen_dun",
-            "target": {
-              "side": "ally",
-              "filter": {
-                "troopKind": "shield"
-              },
-              "count": "all"
-            }
-          }
-        ],
-        "text": "召唤 2 个盾兵，并将场上所有盾兵进化为陷阵盾兵（2 攻 2 血，保留架盾）。"
-      }
-    ],
-    "flavor": ""
-  },
-  {
-    "id": "qun_gongsunzan",
-    "name": "公孙瓒",
-    "faction": "qun",
-    "type": "general",
-    "cost": 4,
-    "attack": 2,
-    "health": 2,
-    "memo": "召唤 1 个弓兵，并把全场弓兵进化成白马义从",
-    "gender": "male",
-    "keywords": [],
-    "skills": [
-      {
-        "id": "bai_ma_yi_cong",
-        "name": "白马义从",
-        "kind": "trigger",
-        "trigger": "on_play",
-        "effects": [
-          {
-            "action": "summon",
-            "unit": "neutral_archer",
-            "count": 1,
-            "position": "random",
-            "note": "平衡（ADR-047）：白马义从每只 +1/+1 且每回合 2 伤，是三种进化里收益最高的；召唤数 2→1"
-          },
-          {
-            "action": "transform",
-            "to": "elite_baima_yicong",
-            "target": {
-              "side": "ally",
-              "filter": {
-                "troopKind": "archer"
-              },
-              "count": "all"
-            }
-          }
-        ],
-        "text": "召唤 1 个弓兵，并将场上所有弓兵进化为白马义从（1 攻 2 血，每回合造成 2 点伤害）。"
-      }
-    ],
-    "flavor": ""
+    "note": "**5 费 4/4 武将（`elite`，`keywords: [xian_gong]`）**：身体 8，基准 11，**−3**；先攻约 +1； 〈白马义从〉＝给己方手牌与牌库里所有「白马义从」**永久授予先攻**（未上场就带，出场即能攻击）， 若场上已有白马义从再对敌方全体人物各 1 点。 **引擎**：新增 `grant_card_keyword`（ADR-197）——侧记 `SideState.cardKeywords`，`playCard`/`summonUnit` 出场时叠加到单位 `kw`；**不是上场后补**，先攻的意义完整。 **史料（A）**：《三国志·魏书八·公孙瓒传》「瓚常與善射之士數十人，皆乘白馬，以為左右翼， 自號『白馬義從』。烏桓更相告語，避白馬長史」。 **不得写**：白马义从是「骑兵无敌」（是**善射**的骑射精锐）、公孙瓒是袁绍的部下、 公孙瓒被赵云所杀（演义 C）。\n",
+    "flavor": "瓚常與善射之士數十人，皆乘白馬，以為左右翼，自號「白馬義從」。"
   },
   {
     "id": "qun_mateng",
     "name": "马腾",
     "faction": "qun",
     "type": "general",
-    "cost": 4,
-    "attack": 2,
-    "health": 2,
+    "cost": 5,
+    "attack": 4,
+    "health": 4,
+    "rarity": "elite",
     "tags": [
       "xi_liang"
     ],
-    "memo": "召唤 2 个步兵，并把全场步兵进化成西凉铁骑",
+    "keywords": [
+      "xian_gong"
+    ],
+    "memo": "5 费 4/4 先攻：有西凉同伴就双方披坚",
     "gender": "male",
-    "keywords": [],
     "skills": [
       {
-        "id": "xi_liang_tie_qi",
-        "name": "西凉铁骑",
+        "id": "xi_liang_tong_ling",
+        "name": "西凉统领",
         "kind": "trigger",
         "trigger": "on_play",
+        "text": "先攻。战吼：若己方场上有其他「西凉」人物或「西凉铁骑」，使马腾与该西凉单位双方获得「披坚」（免疫一次伤害）。",
         "effects": [
           {
-            "action": "summon",
-            "unit": "neutral_infantry",
-            "count": 2,
-            "position": "random"
+            "action": "apply_status",
+            "status": "sheng_dun_status",
+            "target": {
+              "source": true
+            },
+            "condition": {
+              "exists": {
+                "side": "ally",
+                "filter": {
+                  "type": "character",
+                  "exclude_source": true,
+                  "tag": "xi_liang"
+                }
+              }
+            }
           },
           {
-            "action": "transform",
-            "to": "elite_xiliang_tieqi",
+            "action": "apply_status",
+            "status": "sheng_dun_status",
             "target": {
               "side": "ally",
               "filter": {
-                "troopKind": "infantry"
+                "type": "character",
+                "exclude_source": true,
+                "tag": "xi_liang"
               },
-              "count": "all"
+              "count": 1,
+              "mode": "choose"
+            },
+            "condition": {
+              "exists": {
+                "side": "ally",
+                "filter": {
+                  "type": "character",
+                  "exclude_source": true,
+                  "tag": "xi_liang"
+                }
+              }
             }
           }
-        ],
-        "text": "召唤 2 个步兵，并将场上所有步兵进化为西凉铁骑（2 攻 1 血，获得先攻）。"
+        ]
       }
     ],
-    "flavor": ""
+    "note": "**5 费 4/4 武将（`elite`，`tags: [xi_liang]`，`keywords: [xian_gong]`）**：身体 8，基准 11，**−3**； 先攻约 +1；战吼在「有西凉同伴」时给马腾与该同伴各 1 层「披坚」（免疫一次伤害）≈ +2~3（条件性）。 定位是\"西凉阵型\"：马超/马岱/韩遂/西凉铁骑在场时才开得出上限。 **引擎**：零改动——`exists` 条件 + `apply_status: sheng_dun_status` + `mode: choose` + `source: true`。 ⚠️ 为让「西凉铁骑」也吃 tag 过滤，给它补了 `tags: [xi_liang]`（衍生兵种，数据改动）。 **史料（A/B）**：《典略》（裴注引）「騰為人長八尺餘，身體洪大，面鼻雄異，而性賢厚，人多敬之」； 马腾是凉州军阀、马超之父。 **不得写**：马腾是西凉国王/独立君主、马腾与韩遂是结义兄弟（演义 C，正史待核）、 马腾被马超所杀（正史：马腾被曹操所杀、三族被诛）。\n",
+    "flavor": "騰為人長八尺餘，身體洪大，面鼻雄異，而性賢厚，人多敬之。"
   },
   {
     "id": "qun_dongzhuo",
@@ -4734,117 +4845,102 @@
     "cost": 6,
     "attack": 3,
     "health": 6,
+    "rarity": "elite",
     "tags": [
       "yuan_shi"
     ],
-    "memo": "每回合送弓兵；战吼塞万箭齐发，亡语全塞给对手",
+    "memo": "6 费 3/6：号令四州——召士族兵、万箭入手，每名袁氏再洗一张万箭进牌库",
     "gender": "male",
     "keywords": [],
     "skills": [
       {
-        "id": "wei_wang",
-        "name": "威望",
+        "id": "hao_ling_si_zhou",
+        "name": "号令四州",
         "kind": "trigger",
-        "trigger": "turn_start",
-        "text": "每回合召唤一个弓兵。",
+        "trigger": "on_play",
+        "text": "战吼：召唤一个 1/2「士族兵」（袁氏），并将 1 张「万箭齐发」置入你的手牌；随后己方场上每有 1 名「袁氏」单位，便将 1 张「万箭齐发」洗入你的牌库。",
         "effects": [
           {
             "action": "summon",
-            "unit": "neutral_archer",
+            "unit": "qun_shizubing",
             "count": 1,
             "position": "random"
-          }
-        ]
-      },
-      {
-        "id": "jian_xiong_zhi_ming",
-        "name": "万箭齐发之令",
-        "kind": "trigger",
-        "trigger": "on_play",
-        "text": "战吼：获得一张万箭齐发，并将两张万箭齐发加入牌组。",
-        "effects": [
+          },
           {
-            "action": "add_to_deck",
+            "action": "add_to_hand",
             "unit": "tactic_wanjianqifa",
-            "count": 1,
-            "to": "hand"
+            "count": 1
           },
           {
             "action": "add_to_deck",
             "unit": "tactic_wanjianqifa",
-            "count": 2,
-            "to": "deck"
-          }
-        ]
-      },
-      {
-        "id": "yi_ji_wan_jian",
-        "name": "遗计·万箭齐发",
-        "kind": "trigger",
-        "trigger": "on_death",
-        "text": "遗计：将未抽到的万箭齐发加入敌方牌库。",
-        "effects": [
-          {
-            "action": "send_to_deck",
-            "unit": "tactic_wanjianqifa",
-            "target": {
-              "side": "enemy"
+            "value_from": {
+              "side": "ally",
+              "filter": {
+                "tag": "yuan_shi"
+              },
+              "count": "all"
             }
           }
         ]
       }
     ],
-    "flavor": ""
+    "note": "**6 费 3/6 武将（`elite`，`tags: [yuan_shi]`）**：身体 9，基准 13，**−4**；〈号令四州〉＝召唤 1 个 1/2「士族兵」（袁氏）＋1 张「万箭齐发」入手；随后场上每有 1 名袁氏单位，洗 1 张万箭进牌库 （通常 2 张：袁绍自己＋士族兵）。 **引擎**：`add_to_deck` 新增 `value_from` 动态数量（ADR-195）；`summon`/`add_to_hand` 现成。 **史料（A/B）**：袁绍「四世三公」——《三国志·魏书六·袁绍传》「自安以下，四世居三公位， 由是勢傾天下」；据冀、青、幽、并四州；界桥之战以强弩破公孙瓒白马义从（万箭齐发的史实底子）。 **不得写**：袁绍是「四世三公」的**开创者**（是第四代）、袁绍统一了北方（官渡败后失势）、 万箭齐发是袁绍的专属兵法（是界桥强弩的意象化）。\n",
+    "flavor": "自安以下，四世居三公位，由是勢傾天下。"
   },
   {
     "id": "qun_caiwenji",
     "name": "蔡文姬",
     "faction": "qun",
     "type": "strategist",
-    "cost": 2,
+    "cost": 6,
     "attack": 0,
-    "health": 2,
-    "memo": "让一张武将牌和一个人物各少 1 费",
+    "health": 6,
+    "rarity": "elite",
+    "memo": "6 费 0/6：全队挨打她就写诗——每次友军受伤，随机一名友军 +1/+1",
     "gender": "female",
     "keywords": [],
     "skills": [
       {
-        "id": "qu_ming_cai_yi",
-        "name": "曲名才艺",
+        "id": "bei_fen_cheng_shi",
+        "name": "悲愤成诗",
         "kind": "trigger",
-        "trigger": "on_play",
+        "trigger": "on_ally_damaged",
+        "text": "光环：只要蔡文姬在场，己方人物（含她自己）每次受到伤害，就使随机 1 名其他友方人物永久 +1 攻击力与 +1 生命上限。",
         "effects": [
           {
-            "action": "cost_modifier",
-            "value": -1,
-            "duration": 1,
+            "action": "modify",
+            "attack": 1,
+            "health": 1,
             "target": {
-              "side": "self",
-              "zone": "hand",
+              "side": "ally",
               "filter": {
-                "type": "character"
+                "type": "character",
+                "exclude_source": true,
+                "hp_min": 1
               },
-              "count": "all"
-            }
-          },
-          {
-            "action": "cost_modifier",
-            "value": -1,
-            "duration": 1,
-            "target": {
-              "side": "self",
-              "zone": "hand",
-              "filter": {
-                "type": "tactic"
-              },
-              "count": "all"
+              "count": 1,
+              "mode": "random"
             }
           }
-        ],
-        "text": "使当前一回合使 自己一名武将和一张非令牌中武将牌 统帅消耗一."
+        ]
+      },
+      {
+        "id": "can_zhang",
+        "name": "残章",
+        "kind": "trigger",
+        "trigger": "on_play",
+        "text": "战吼：抽 1 张牌。",
+        "effects": [
+          {
+            "action": "draw",
+            "value": 1
+          }
+        ]
       }
     ],
-    "flavor": ""
+    "note": "**6 费 0/6 谋臣（`elite`）**：身体 6，基准 13，**−7**；〈悲愤成诗〉＝只要她在场，己方**任何** 人物（含她自己）每次受到伤害，随机 1 名其他友方人物永久 +1/+1；〈残章〉＝战吼抽 1 （0 攻牌不能白让节奏）。 **引擎**：新增触发器 `on_ally_damaged`（ADR-193），挂在 `dealDamage` 的 `afterUnitDamagedResolver` 上——普攻/技能/灼烧/水困/中毒全部覆盖；受伤者自己也会派发； 随机目标用新过滤 `hp_min: 1` 排除「伤判瞬间将死、hp 0 还占格」的单位。 **为什么不是 `kind: aura`**：`aura` 是静态重算，不监听伤害事件；卡面写「光环」， 引擎必须写成 `kind: trigger` + `on_ally_damaged`。 **史料（A）**：《后汉书·列女传·董祀妻》＋五言《悲愤诗》（**传为**蔡琰）； 「受苦→成诗→力量」的弧线，不把具体诗句当机制。 **不得写**：《胡笳十八拍》当确作（伪托存疑）、她自愿归汉（原文是曹操遣使以金璧赎之）、 左贤王言情叙事（正史只写「沒於南匈奴左賢王」）。\n",
+    "flavor": "己得自解免，當復棄兒子。"
   },
   {
     "id": "qun_zuoci",
@@ -4854,119 +4950,143 @@
     "cost": 3,
     "attack": 1,
     "health": 3,
-    "memo": "看对手手牌并踢一张进牌库；阵亡回自己牌库底",
+    "memo": "3 费 1/3：幻化万千——把一名场上人物随机变成同费用的另一名人物（满血、无状态）",
     "gender": "male",
     "keywords": [],
     "skills": [
       {
-        "id": "jian_tong_xing_wei",
-        "name": "兼通星纬",
+        "id": "huan_hua_wan_qian",
+        "name": "幻化万千",
         "kind": "trigger",
         "trigger": "on_play",
+        "text": "战吼：指定一名场上人物（不论敌我），将其随机变为全卡库中同费用的另一名人物（满血、无状态）。",
         "effects": [
           {
-            "action": "scry",
-            "from": "top",
-            "count": 1,
-            "to": "deck_bottom",
+            "action": "random_transform",
             "target": {
-              "side": "enemy"
+              "side": "both",
+              "filter": {
+                "type": "character"
+              },
+              "count": 1,
+              "mode": "choose"
             }
           }
-        ],
-        "text": "可查看对方当前手牌一次，并选择一个移到对方卡池里。左慈血量降为 0 时，回到己方牌库最底层。"
+        ]
       }
     ],
-    "flavor": ""
+    "note": "**3 费 1/3 谋臣**：身体 4，基准 7，**−3**；〈幻化万千〉＝指定场上任意一名人物， 随机变为**全卡库同费用**的另一名人物（满血、无状态、无修正）。 **引擎**：新增 `random_transform`（ADR-196）——按目标的**印刷费用**筛全卡库的 `general`/`strategist`（排除自身），随机取 1 张并复用换卡逻辑；同费用没有别的「人物」时为空操作 （例如 9 费只有吕布）。与 `transform` 的区别：那个保留已受伤害，这个**变出来是新的人**。 **史料（A，后出）**：《后汉书·方术列传·左慈》「左慈字元放，廬江人也。少有神道」；曹操宴会上 左慈以幻术取鱼、变化身形，「操欲杀之，慈乃走入壁中」。 **不得写**：左慈是真仙人/长生不死、左慈是张角的师父、把「幻化万千」当正史原文（技能命名）。\n",
+    "flavor": "左慈字元放，廬江人也。少有神道。"
   },
   {
     "id": "qun_chengong",
     "name": "陈宫",
     "faction": "qun",
     "type": "strategist",
-    "cost": 4,
+    "cost": 3,
     "attack": 1,
-    "health": 5,
-    "memo": "指定一人：敌人被禁锢，友军的伤害由陈宫扛",
+    "health": 3,
+    "rarity": "elite",
+    "memo": "3 费 1/3：扶危就义——友方 +1/+1 披坚；亡语全体友方含主公回 3",
     "gender": "male",
     "keywords": [],
     "skills": [
       {
-        "id": "zhong_lie",
-        "name": "忠烈",
+        "id": "fu_wei_jiu_yi",
+        "name": "扶危就义",
         "kind": "trigger",
         "trigger": "on_play",
-        "text": "战吼：选择一名武将，使其直到下个自己回合开始时获得——若为敌军，无法攻击和使用技能；若为友军，其受到的伤害由陈宫承担。",
+        "text": "战吼：使另一名友方人物永久获得 +1/+1 与「披坚」（免疫一次伤害）。",
         "effects": [
           {
-            "action": "apply_status",
-            "status": "jin_gu",
-            "duration": 1,
+            "action": "modify",
+            "attack": 1,
+            "health": 1,
             "target": {
-              "side": "both",
+              "side": "ally",
               "filter": {
-                "type": "character"
+                "type": "character",
+                "exclude_source": true
               },
               "count": 1,
               "mode": "choose"
-            },
-            "condition": {
-              "chosen_side": "enemy"
             }
           },
           {
             "action": "apply_status",
-            "status": "shou_hu",
-            "duration": "until_next_turn",
-            "status_source": "self",
+            "status": "sheng_dun_status",
             "target": {
-              "side": "both",
+              "side": "ally",
               "filter": {
-                "type": "character"
+                "type": "character",
+                "exclude_source": true
               },
               "count": 1,
               "mode": "choose"
-            },
-            "condition": {
-              "chosen_side": "ally"
+            }
+          }
+        ]
+      },
+      {
+        "id": "fu_wei_jiu_yi_death",
+        "name": "扶危就义·亡语",
+        "kind": "trigger",
+        "trigger": "on_death",
+        "text": "亡语：场上所有友方角色，含主公恢复 3 点生命。",
+        "effects": [
+          {
+            "action": "heal",
+            "value": 3,
+            "target": {
+              "side": "ally",
+              "filter": {
+                "type": "character"
+              },
+              "count": "all"
+            }
+          },
+          {
+            "action": "heal",
+            "value": 3,
+            "target": {
+              "side": "ally",
+              "lord": true
             }
           }
         ]
       }
     ],
-    "flavor": ""
+    "note": "**3 费 1/3 谋臣（`elite`）**：身体 4，基准 7，**−3**；〈扶危就义〉＝战吼给另一名友方 +1/+1 与「披坚」（`sheng_dun_status`，免疫一次伤害）；亡语全场友方角色（含主公）回 3。 **引擎**：`modify`/`apply_status`（`sheng_dun_status`）/`on_death`/`heal` 全部现成，零改动。 **史料（B）**：《三国志》卷七 吕布传裴注引《典略》：「請出就戮，以明軍法。遂趨出，不可止。 太祖泣而送之，宮不還顧。」 **不得写**：陈宫是曹操的谋主（他是兖州叛曹迎吕布）、陈宫与吕布是结义兄弟、 陈宫「白门楼」是被吕布所杀（正史是曹操所杀，陈宫请死）。\n",
+    "flavor": "請出就戮，以明軍法。遂趨出，不可止。太祖泣而送之，宮不還顧。"
   },
   {
     "id": "qun_huatuo",
     "name": "华佗",
     "faction": "qun",
     "type": "strategist",
-    "cost": 4,
-    "attack": 0,
-    "health": 5,
-    "memo": "每回合治疗一人 2 血；治主公额外抽一张",
-    "note": "4 费 0/5 = 5 点，比基准（9）低 4 点，换每回合一次的稳定治疗（4 费的价格里含\"可反复使用\"）。 ⚠️ ADR-148：原设计是\"弃一张手牌，按其统率回血\"，需要**两步选择**（先点手牌再选目标）， 设计者反馈太重、改为直接治疗 —— 更简单也更贴\"神医\"。 「治主公额外抽一张」用新增条件 `chosen_lord` 表达（与 `chosen_side` 同源，读 `ctx.chosen`）； 候选池用 `include_lord: true` 把主公并进人物池。\n",
+    "cost": 5,
+    "attack": 1,
+    "health": 6,
+    "rarity": "legendary",
+    "memo": "5 费 1/6：麻沸济世——战吼满血+清负面；回合结束全体含主公回 2",
+    "note": "**5 费 1/6 谋臣（`legendary`）**：身体 7，基准 11，**−4**；〈麻沸济世〉＝战吼指定一名友方人物， **完全恢复**生命并清除其所有负面状态；己方回合结束时**所有友方角色（含主公）回 2**。 **引擎**：`heal`（大数值＝满血）/ `remove_status remove_kind: debuff`（按类别批量驱散）/ `turn_end` + `heal` 全部现成，零改动。 **史料（A）**：《三国志·魏书·方技传·华佗》「若病結積在內，針藥所不能及，當須刳割者， 便飲其**麻沸散**，須臾便如醉死無所知，因破取」；华佗被曹操所杀。 **不得写**：华佗为关羽刮骨疗毒（演义 C；正史无）、华佗是曹操的御医、华佗活了几百岁。\n",
     "gender": "male",
-    "keywords": [
-      "zhan_ji"
-    ],
+    "keywords": [],
     "skills": [
       {
-        "id": "yi_sheng",
-        "name": "医圣",
-        "kind": "active",
-        "cost": 0,
-        "frequency": "once_per_turn",
-        "text": "战技（每回合一次）：治疗一位人物恢复 2 点生命；若治疗的是主公，额外抽一张牌。",
+        "id": "ma_fei_ji_shi",
+        "name": "麻沸济世",
+        "kind": "trigger",
+        "trigger": "on_play",
+        "text": "战吼：指定一名友方人物，使其完全恢复生命值并清除其所有负面状态。",
         "effects": [
           {
             "action": "heal",
-            "value": 2,
+            "value": 99,
             "target": {
               "side": "ally",
               "filter": {
-                "type": "character",
-                "include_lord": true
+                "type": "character"
               },
               "count": 1,
               "mode": "choose"
@@ -4978,61 +5098,81 @@
             "target": {
               "side": "ally",
               "filter": {
-                "type": "character",
-                "include_lord": true
+                "type": "character"
               },
               "count": 1,
               "mode": "choose"
             }
+          }
+        ]
+      },
+      {
+        "id": "ma_fei_ji_shi_end",
+        "name": "麻沸济世·济世",
+        "kind": "trigger",
+        "trigger": "turn_end",
+        "text": "己方回合结束时：为所有友方角色（含主公）恢复 2 点生命。",
+        "effects": [
+          {
+            "action": "heal",
+            "value": 2,
+            "target": {
+              "side": "ally",
+              "filter": {
+                "type": "character"
+              },
+              "count": "all"
+            }
           },
           {
-            "action": "draw",
-            "value": 1,
-            "condition": {
-              "chosen_lord": true
+            "action": "heal",
+            "value": 2,
+            "target": {
+              "side": "ally",
+              "lord": true
             }
           }
         ]
       }
     ],
-    "flavor": "醫者仁心，刮骨療毒。"
+    "flavor": "若病結積在內，針藥所不能及，當須刳割者，便飲其麻沸散，須臾便如醉死無所知。"
   },
   {
     "id": "qun_tianfeng",
     "name": "田丰",
     "faction": "qun",
     "type": "strategist",
-    "cost": 4,
+    "cost": 3,
     "attack": 1,
-    "health": 3,
-    "memo": "封住己方主公技一回合，换 1 张牌（策略牌免费）",
-    "gender": "male",
+    "health": 4,
+    "rarity": "elite",
+    "tags": [
+      "yuan_shi"
+    ],
     "keywords": [],
+    "memo": "3 费 1/4：举杖击地——发现一张牌 −1 费；本回合没打出就弃掉并炸敌方全体 1",
+    "gender": "male",
     "skills": [
       {
-        "id": "gang_er_zhi_jian",
-        "name": "刚而直谏",
+        "id": "ju_zhang_ji_di",
+        "name": "举杖击地",
         "kind": "trigger",
         "trigger": "on_play",
+        "text": "战吼：从你的牌库中发现 1 张牌置入手牌，并使其统率消耗 −1；若你未在本回合内打出该牌，回合结束时弃掉该牌并对敌方全体人物造成 1 点伤害。",
         "effects": [
           {
-            "action": "apply_status",
-            "status": "jin_yan",
-            "duration": 1,
-            "target": {
-              "side": "ally",
-              "lord": true
+            "action": "discover",
+            "count": 3,
+            "value": -1,
+            "unplayed_penalty": {
+              "damage": 1
             }
-          },
-          {
-            "action": "draw",
-            "value": 1
           }
-        ],
-        "text": "禁用己方主将一回合主公技，可抽取一张卡牌到手种，如果为策略卡，则无需消耗统帅."
+        ]
       }
     ],
-    "flavor": ""
+    "note": "**3 费 1/4 谋臣（`elite`，`tags: [yuan_shi]`）**：身体 5，基准 7，**−2**；〈举杖击地〉＝从牌库 发现 1 张（3 选 1）并使其费用 −1；若本回合没打出，回合结束时**弃掉该牌并对敌方全体人物各 1 点伤害** （进谏不被采纳，就把话砸在桌上）。 **引擎**：`discover` 新增 `unplayed_penalty`（ADR-194）——发现时给该牌打 `markId` 标记， 回合结束检查标记是否还在手牌：在则弃掉＋结算惩罚，已打出则无事。零新动作。 **史料（A）**：《三国志·魏书六·袁绍传》：田丰字元皓，巨鹿人；袁绍南征，田丰强谏不听， 后绍败，田丰曰「若軍有利，吾必全；今軍敗，吾其死矣」，袁绍遂杀之。 **不得写**：田丰是袁绍的义子/主公、田丰在官渡战死（他是**败后被袁绍所杀**）、田丰被曹操所杀、 把「举杖击地」当正史原文（是技能命名，取强谏的形象）。\n",
+    "flavor": "若軍有利，吾必全；今軍敗，吾其死矣。"
   },
   {
     "id": "qun_diaochan",
@@ -5087,24 +5227,44 @@
     "name": "张角",
     "faction": "qun",
     "type": "strategist",
-    "cost": 5,
+    "cost": 7,
     "attack": 1,
-    "health": 5,
+    "health": 6,
+    "rarity": "legendary",
     "tags": [
       "huang_jin",
       "huang_jin_tongling"
     ],
-    "memo": "回合结束 5 道雷，半数震慑，雷死敌人就召黄巾兵",
+    "memo": "7 费 1/6：黄天当立给黄巾 +1/+1；五雷每回合开始/登场各轰一次",
     "gender": "male",
     "keywords": [],
     "skills": [
       {
-        "id": "da_xian_liang_shi",
-        "name": "大贤良师",
+        "id": "huang_tian_dang_li",
+        "name": "黄天当立",
         "kind": "trigger",
         "trigger": "on_play",
-        "text": "战吼：己方所有黄巾众（黄巾兵与黄巾力士）永久 +1/+1。",
+        "text": "战吼：使己方所有「黄巾」单位永久获得 +1/+1（若己方场上没有其他「黄巾」单位，改为先召唤一个 1/1「黄巾兵」）。",
         "effects": [
+          {
+            "action": "summon",
+            "unit": "token_huangjin_bing",
+            "count": 1,
+            "position": "random",
+            "condition": {
+              "count": {
+                "selector": {
+                  "side": "ally",
+                  "filter": {
+                    "tag": "huang_jin",
+                    "exclude_source": true
+                  }
+                },
+                "op": "==",
+                "value": 0
+              }
+            }
+          },
           {
             "action": "modify",
             "attack": 1,
@@ -5112,7 +5272,7 @@
             "target": {
               "side": "ally",
               "filter": {
-                "tag": "huang_jin_zhong"
+                "tag": "huang_jin"
               },
               "count": "all"
             }
@@ -5123,7 +5283,8 @@
         "id": "wu_lei_hong_ding",
         "name": "五雷轰顶",
         "kind": "trigger",
-        "trigger": "turn_end",
+        "trigger": "turn_start",
+        "text": "每个己方回合开始时：造成 5 次 1 点雷击（每次随机敌人，50% 震慑 1 回合）；每击杀 1 名敌方人物召唤 1 个 1/1「黄巾兵」。",
         "effects": [
           {
             "action": "damage",
@@ -5152,7 +5313,7 @@
               "count": 1,
               "mode": "random"
             },
-            "note": "DSL 建模范式：与 5 次雷击独立结算，聚合概率等价；不可绑同一次伤害"
+            "note": "DSL 建模范式：与 5 次雷击独立结算"
           },
           {
             "action": "summon",
@@ -5163,11 +5324,57 @@
               "event": "killed"
             }
           }
-        ],
-        "text": "每回合结束时 5 次随机 1 点雷击；每次 50% 概率震慑；击杀则召唤 1 攻 1 血黄巾兵。"
+        ]
+      },
+      {
+        "id": "wu_lei_deng_chang",
+        "name": "五雷轰顶·登场",
+        "kind": "trigger",
+        "trigger": "on_play",
+        "text": "登场时立即轰一次：5 次 1 点雷击（每次随机敌人，50% 震慑 1 回合）；每击杀 1 名敌方人物召唤 1 个 1/1「黄巾兵」。",
+        "effects": [
+          {
+            "action": "damage",
+            "value": 1,
+            "count": 5,
+            "target": {
+              "side": "enemy",
+              "filter": {
+                "type": "character"
+              },
+              "count": 1,
+              "mode": "random"
+            }
+          },
+          {
+            "action": "apply_status",
+            "status": "zhen_she",
+            "duration": 1,
+            "chance": 0.5,
+            "count": 5,
+            "target": {
+              "side": "enemy",
+              "filter": {
+                "type": "character"
+              },
+              "count": 1,
+              "mode": "random"
+            }
+          },
+          {
+            "action": "summon",
+            "unit": "token_huangjin_bing",
+            "count": 1,
+            "position": "random",
+            "condition": {
+              "event": "killed"
+            }
+          }
+        ]
       }
     ],
-    "flavor": ""
+    "note": "**7 费 1/6 谋臣（`legendary`，`tags: [huang_jin, huang_jin_tongling]`）**：身体 7，基准 15，**−8**； 〈黄天当立〉＝己方所有黄巾 +1/+1；场上没有其他黄巾时先召 1 个黄巾兵（先召后 buff，新兵吃得到）。 〈五雷轰顶〉＝每个己方回合开始＋登场立即各一次：5 次随机 1 点雷击、每次 50% 震慑 1 回合、 击杀则召 1 个黄巾兵。 **引擎**：零改动（`summon`/`modify`/`damage`/`apply_status`/`condition.count`/`event: killed`）。 ⚠️ 引擎没有「雷电」属性（只有物理/火/水/毒），雷击按**物理伤害**结算，卡面「雷电」是表现措辞。 **史料（A）**：《后汉书·皇甫嵩传》「角稱天公將軍」；黄巾口号「蒼天已死，黃天當立」； 张角病死（正史），黄巾主力被皇甫嵩镇压。 **不得写**：张角呼风唤雨是真仙人（演义 C）、张角被关羽/曹操亲手所杀、张角是「妖道」（是民变领袖）。\n",
+    "flavor": "蒼天已死，黃天當立，歲在甲子，天下大吉。"
   },
   {
     "id": "neutral_shieldman",
@@ -5400,20 +5607,24 @@
     "name": "万箭齐发",
     "faction": "neutral",
     "type": "tactic",
-    "cost": 0,
-    "memo": "抽到时自动释放：敌方全体 1 伤（袁绍专属）",
+    "cost": 2,
+    "memo": "2 费：敌方全体 1 伤；已受伤的目标多受 1（共 2）",
     "gender": "unknown",
     "keywords": [],
-    "skills": [
-      {
-        "id": "wan_jian_qi_fa",
-        "name": "万箭齐发",
-        "kind": "trigger",
-        "trigger": "on_draw",
-        "text": "抽到时释放：对所有敌方人物造成 1 点伤害。"
-      }
-    ],
     "effects": [
+      {
+        "action": "damage",
+        "value": 1,
+        "target": {
+          "side": "enemy",
+          "filter": {
+            "type": "character",
+            "damaged": true,
+            "include_lord": false
+          },
+          "count": "all"
+        }
+      },
       {
         "action": "damage",
         "value": 1,
@@ -5426,6 +5637,7 @@
         }
       }
     ],
+    "note": "**2 费战法**：对敌方全体造成 1 点伤害；**原本已受伤**的目标额外多受 1 点（共 2）。 ⚠️ 顺序：先结算「已受伤目标 +1」，再结算「全体 1」——这样「已受伤」的判定是**施放前**的快照； 反过来会把所有人先打成已受伤，第二段就人人 2 点。 主公只吃基础 1 点（额外段显式 `include_lord: false`）。 **不再「抽到即释放」**：从 ADR-050 的 `on_draw` 改为普通战法牌，抽到进手牌、要花 2 费打出。\n",
     "flavor": ""
   },
   {
@@ -8250,6 +8462,9 @@
     "upgradeFrom": "cavalry",
     "keywords": [
       "xian_gong"
+    ],
+    "tags": [
+      "xi_liang"
     ],
     "memo": "先攻；打武将或谋臣时 +2 攻（马腾的凉州军团）",
     "note": "**名称出处**：「西凉铁骑」这个名号成名于西晋 —— 洛阳童谣「**凉州大马，横行天下**」说的是 308–309 年 凉州刺史张轨遣北宫纯两次解洛阳之围（《晋书·张轨传》），比三国晚近百年；「西凉铁骑」是该童谣的别名。 但**凉州兵精悍在三国当时就有明确记载**（虞诩「关西出将」「凉州习兵壮勇，实过余州」；曹操「关西兵精悍」）。 本卡对应**马腾**这一支（「典领部众」创立者），蜀版对应**马超**继承后带进蜀汉的同一支军团 （《典略》「以超为偏将军……**领腾部曲**」）—— 两张卡是同一支凉州军团的两个时期（ADR-116）。 **马腾其人**（《典略》裴注引）：「騰字壽成，**馬援後也**……因留隴西，**與羌錯居**。家貧無妻，遂**娶羌女**， 生騰。騰少貧無產業，常從彰山中斫材木，負販詣城市，以自供給。**騰為人長八尺餘，身體洪大，面鼻雄異， 而性賢厚，人多敬之。**」《后汉书·董卓列传》：「馬騰……亦擁兵反叛，又漢陽王國，自號「合眾將軍」， 皆**與韓遂合**。**共推王國為主，悉令領其眾**。」《三国志·蜀书六》：「騰為**征西將軍**，遣屯郿…… **後騰與韓遂不和，求還京畿。於是徵為衛尉**，以超為偏將軍，封都亭侯，**領騰部曲**。」 **技能口径（ADR-122，设计者裁定：保留不改）**：保留「突骑：打武将或谋臣 +2」。 与蜀版「突阵：打主将 +2」构成对称 —— **群雄破敌将（马腾据关中、与诸将合众，先解敌方人物）， 蜀版直取主帅（马超「陰欲突前捉曹公」）**。评估过但未采用的三个方向（留档，见 ADR-122）： ①「合众：每有一名骑兵 +1 攻」；②「羌骑：上场召唤一个羌骑衍生物」；③ 与「西凉」标签联动 （**与马岱「西凉子弟」同轴，已排除**）。⚠️ 本卡同名可放 3 张，故「全体加属性」类光环一律不可用（ADR-120/121）。",
@@ -12321,5 +12536,1691 @@
       }
     ],
     "flavor": "八门布阵，金锁困敌。"
+  },
+  {
+    "id": "qun_shizubing",
+    "name": "士族兵",
+    "faction": "qun",
+    "type": "token",
+    "cost": 1,
+    "attack": 1,
+    "health": 2,
+    "tags": [
+      "yuan_shi"
+    ],
+    "memo": "袁氏士族兵（袁绍「号令四州」召唤的 1/2 衍生物）",
+    "gender": "male",
+    "keywords": [],
+    "skills": [],
+    "flavor": ""
+  },
+  {
+    "id": "qun_lvbu",
+    "name": "吕布",
+    "faction": "qun",
+    "type": "general",
+    "cost": 9,
+    "attack": 8,
+    "health": 8,
+    "rarity": "elite",
+    "memo": "9 费 8/8：5 伤主目标＋左右各 3；主目标阵亡则震慑相邻",
+    "gender": "male",
+    "keywords": [],
+    "skills": [
+      {
+        "id": "yi_qi_dang_qian",
+        "name": "一骑当千",
+        "kind": "trigger",
+        "trigger": "on_play",
+        "text": "战吼：对指定一名敌方人物造成 5 点伤害，并对其左右相邻的敌方人物各造成 3 点伤害；若该人物因此阵亡，使相邻目标获得 1 回合「震慑」。",
+        "effects": [
+          {
+            "action": "damage",
+            "value": 5,
+            "target": {
+              "side": "enemy",
+              "filter": {
+                "type": "character",
+                "include_lord": false
+              },
+              "count": 1,
+              "mode": "choose"
+            }
+          },
+          {
+            "action": "damage",
+            "value": 3,
+            "target": {
+              "side": "enemy",
+              "filter": {
+                "type": "character",
+                "include_lord": false,
+                "adjacent_to": "chosen"
+              },
+              "count": "all"
+            }
+          },
+          {
+            "action": "apply_status",
+            "status": "zhen_she",
+            "duration": 1,
+            "target": {
+              "side": "enemy",
+              "filter": {
+                "type": "character",
+                "include_lord": false,
+                "adjacent_to": "chosen"
+              },
+              "count": "all"
+            },
+            "condition": {
+              "chosen_dead": true
+            }
+          }
+        ]
+      }
+    ],
+    "note": "**9 费 8/8 = 16 点**（9 费基准 19，**−3**）：身板让出 3 点，换「5 点主目标 + 左右各 3 点 + 主目标击杀震慑相邻」。 **定位**：位置惩罚型终结卡。对手把人物挤在一起时，这一张能打出 5+3+3=11 点并震住两侧； 对手把阵型拉开（隔一格站）时，只剩 5 点单体伤害，8/8 白板仍要处理。 **强度**：主目标 5 点（≈2.5）＋两侧各 3 点（≈3）＋条件震慑（≈2~4，只有主目标被 5 点击杀才触发）≈ 7~9； 合计 23~25，比基准高 4~6——属于 elite 终结卡的强度。若实测过强，杠杆按顺序： ① 主目标 5→4（更不容易触发击杀）；② 相邻 3→2；③ 震慑只封普攻（jin_gong）而不是完整 zhen_she。 （按设计者定稿，先按 5/3/震慑 实装，不擅自改数值。）\n**口径（设计者 2026-10-18 确认）**：先结算相邻 3 点伤害，再挂震慑；且只有**主目标**（被 5 点打的那个人） 阵亡才挂——相邻 3 点造成的击杀**不**触发。实现用新增条件 `chosen_dead`（ADR-179）读主目标 **求值时**的状态，而不是共享的 `event: killed`；后者分不清是主目标还是相邻目标死的。\n**史料（A 级为主，卷七《吕布传》）**： ① A-02「布便弓马，**膂力过人**，**号为飞将**」——骑射与膂力的底子； ② A-07「常与其亲近成廉、魏越等**陷锋突陈**，遂破燕军」；A-20（《后汉书》，A 后出） 「与其健将成廉、魏越等数十骑驰突燕阵，一日或至三四」——小股精锐反复冲阵，是「一骑当千」的**行为**依据； ③ A-11/A-12 辕门射戟「正中小支」+「不喜合斗，但喜解斗」——精准与威慑； ④ A-18 陈寿评「吕布有**虓虎之勇**，而无英奇之略」——史书对吕布勇武最接近的原话。 **C/D**：「一骑当千」是成语/后世形容（C/D），不是《三国志》对吕布的原话； 三英战吕布（毛本第 5 回）、方天画戟、貂蝉连环计都是演义（C）。\n**不得写**： - 貂蝉是正史人物 / 吕布为貂蝉杀董卓（貂蝉不见于卷六/卷七/后汉书卷 75；正史是王允合谋+董卓掷手戟+与侍婢私通）； - 三英战吕布是正史 / 方天画戟是史实兵器（正史只作「戟/手戟/一只戟」）； - 赤兔是关羽的（赤兔是吕布的 A-06；关羽骑赤兔是演义 C-13）； - 「一骑当千」「天下无双」是史书对吕布的原话；「万人之敌」是关张（卷 36），不是吕布； - 吕布单挑无敌 / 天下第一（唯一单挑记录 B-03 是「各两罢」，没分胜负）； - 陷阵营是吕布亲自统领（陷阵营是高顺所将，B-11；吕布亲领未找到原文）； - 吕布杀丁原是因为董卓送赤兔（正史只写「诱布令杀原」A-03；赤兔+金珠+李肃是演义 C-02）； - 白门楼是刘备一句话害死吕布（曹操先「有疑色」后「颔之」A-16；裴注还有王必反对 B-10）； - 「并州骑兵」是建制名（「并州」是籍贯/出身，A；无此部队名，D-09）； - 吕布“爱好和平”（A-12 的语境是辕门射戟的仲裁话术，不是性格定评）。\n",
+    "flavor": "布便弓马，膂力过人，号为飞将。"
+  },
+  {
+    "id": "qun_wangyun",
+    "name": "王允",
+    "faction": "qun",
+    "type": "strategist",
+    "cost": 4,
+    "attack": 1,
+    "health": 4,
+    "rarity": "elite",
+    "memo": "4 费 1/4：令两名敌人互殴；只要还有人活着，王允阵亡且主公挨最高攻击",
+    "gender": "male",
+    "keywords": [],
+    "skills": [
+      {
+        "id": "mi_mou_zhu_e",
+        "name": "密谋诛恶",
+        "kind": "trigger",
+        "trigger": "on_play",
+        "text": "战吼：依次指定两名敌方人物，令第 1 个目标立即对第 2 个目标发起一次普通攻击；交锋后，若这两名人物中仍有存活者，王允阵亡，且己方主公受到其中攻击力最高者等量的伤害。",
+        "effects": [
+          {
+            "action": "scheme_duel",
+            "survivor_condition": "any",
+            "self_destruct": true,
+            "lord_damage": "max_attack",
+            "target": {
+              "side": "enemy",
+              "filter": {
+                "type": "character",
+                "include_lord": false
+              },
+              "count": 2,
+              "mode": "choose",
+              "pick": 2
+            }
+          }
+        ]
+      }
+    ],
+    "note": "**4 费 1/4 = 5 点**（4 费基准 9，**−4**）：前期 1/4 很脆，几乎不能站场； 它的价值在**后期**——两个高攻低血敌人互殴，双方同归于尽时 **0 代价 2 换 1**。 **机制**：依次指定两名敌方人物，第 1 个对第 2 个发起一次**真实普攻**（含反击、亡语、攻击时触发）； 交锋后按 `survivor_condition` 判断：`any`（本卡）= 两名中**至少一名**存活 → 王允阵亡， 己方主公受到**存活目标中最高攻击**的伤害；`both` = 两名都存活才触发。 王允是**真实阵亡**（`killUnit`），不是 9999 伤害，披坚挡不住“以身为饵”。\n**⚠️ 关键：反击是同时结算的（ADR-062）**——目标死了也会反击。所以： · **双方攻击力都 ≥ 对方生命** → **双方同时阵亡** → 没有存活者 → `any` **不触发**：\n  王允存活、主公不掉血，这就是 4 费大杀器的上限（0 代价 2 换 1）；\n· **只死一个**（一方血厚/攻击不足）→ **触发**：王允阵亡 + 主公按存活者最高攻击掉血； · **两名都存活**（互相打不死）→ 触发。 若本意是“两名都存活（一个都没死）才惩罚”，把 `survivor_condition` 改为 `both` 即可（动作已支持）。 当前按设计者最终稿的 `any` 实现，不擅自改语义。\n**强度/定位**：4 费 1/4 = 5（基准 9，**−4**）——前期很脆，几乎不能站场；后期是一张**大杀器**： 两个高攻低血敌人互殴，双方同归于尽时 **0 代价 2 换 1**；只死一个则王允阵亡 + 主公掉血，这是下限。 属于 `elite` 的“后期大杀器”，需要前期保护/铺垫。 若实测过强：① 5 费；② 身板 1/3；③ 主公伤害提高； 若偏弱：① `survivor_condition: both`（死一个就无代价，显著变强）；② 去掉 `self_destruct`。 **注意**：核心机制仍是“令敌人互殴”（强制攻击），与**贾诩「离间计」/周瑜「离间」同轴**； 考证稿 §8 建议王允不要做离间轴。本卡是设计者最终定稿，按此实现，但撞轴风险保留在案。\n**史料**： **A（已核，卷七 A-06）**：「時允與僕射士孫瑞密謀誅卓，是以告布使為內應。……布遂許之，手刃刺卓。」 —— 合谋诛卓是 A；动手的是吕布，定计的是王允。技能名「密谋诛恶」取此。 **B1（后汉书 卷66/卷72，考证稿 B-12/B-13/B-20/B-22）**： 「允矯情屈意，每相承附，卓亦推心，不生乖疑」——隐忍； 「密與司隸校尉黃琬、尚書鄭公業等謀共誅之」——合谋不止吕布； 「王允以為一歲不可再赦，不許之」——不赦； 「臨難苟免，吾不忍也」——城破不退，选择死。 **C（演义，只作气质，不写进史实区）**：貂蝉、连环计、凤仪亭（毛本第 8~9 回）。 **不得写**： - 貂蝉是正史人物 / 王允用貂蝉离间（貂蝉不见于正史；连环计是 C）； - 连环计是正史（正史无此名；A-06 是“密谋/内应”）； - 王允是武将 / 董卓部下（A：司徒、汉臣；太原祁人，不是董卓部曲）； - 王允被董卓所杀（董卓先死；王允后被李傕/郭汜所杀）； - 王允“跳楼”/坠城（演义 C；正史作「允窮蹙乃下」）； - 王允与吕布是“义父义子”（正史是“厚接纳之”＋“素輕布，以劍客遇之”；“誓为父子”是董卓与吕布）； - 王允是“完美忠臣”（史书有“剛稜疾惡、不循權宜”的两面；“一岁不可再赦”是长安城破的直接导火索）； - “攻击力最高”是史料原文（游戏抽象；史书没有这种数值表述）。\n",
+    "flavor": "時允與僕射士孫瑞密謀誅卓。"
+  },
+  {
+    "id": "qun_yuanshu",
+    "name": "袁术",
+    "faction": "qun",
+    "type": "general",
+    "cost": 5,
+    "attack": 3,
+    "health": 5,
+    "rarity": "elite",
+    "tags": [
+      "yuan_shi"
+    ],
+    "memo": "5 费 3/5：展示 3 张 1 费玉玺，自选 2 张置入手牌",
+    "gender": "male",
+    "keywords": [],
+    "skills": [
+      {
+        "id": "chuan_guo_yu_xi",
+        "name": "传国玉玺",
+        "kind": "trigger",
+        "trigger": "on_play",
+        "text": "战吼：展示「玉玺·场」「玉玺·手」「玉玺·抽」三张 1 费宝物，由你选择 2 张置入手牌。",
+        "effects": [
+          {
+            "action": "discover",
+            "count": 3,
+            "picks": 2,
+            "discover_to": "hand",
+            "pool": {
+              "cards": [
+                "qun_yuxi_board",
+                "qun_yuxi_hand",
+                "qun_yuxi_draw"
+              ]
+            }
+          }
+        ]
+      }
+    ],
+    "note": "**5 费 3/5 = 8 点**（5 费基准 11，**−3**）：战吼展示 3 张 1 费「玉玺」宝物，由你**自选 2 张**置入手牌； 第 3 张不进牌库、不进手牌（**丢弃**）。3 选 2 是设计者 2026-10-21 定稿，**不要改回随机**。\n**3 张玉玺**： · **玉玺·场**：己方场上全体人物攻击 +1（`modify`，永久）； · **玉玺·手**：己方手牌全体人物攻击 +1（`grant_hand`）； · **玉玺·抽**：抽 1 张牌（`draw`）。\n**强度/定位**：5 费 3/5 = 8（基准 11，−3）＋ 3 选 2（玩家必拿最好的 2 张：场 +1 攻、手 +1 攻）≈ **12~15**， **偏强**。若实测偏强：① 5/3/4；② 6/3/5；③ 把“场/手 +1”改成“本回合”； 不要把 3 选 2 改回随机（那是削弱玩家 agency，设计者明确要求 3 选 2）。\n**引擎**：`discover` 的 `pool.cards`（ADR-181，本轮新增）＋ `picks: 2`；3 张玉玺是 `type: token`， 不进卡池、不进构筑；第 3 张默认丢弃（`rest` 不填）。\n**史料**（考证稿 `qun-yuanshu.md`，玉玺链条分四层）： · 孙坚得玺 = **B**（裴注《吴书》，陈寿正文不载，裴松之质疑）； · 袁术「**拘堅妻奪之**」= **A（后出）**； · 「孙策以玺质兵」正史无，仅演义第 15 回（孙策得兵是「術以堅部曲還策」）； · 术死后徐璆得玺献汉 = **B**。 **「3 张 1 费 / 3 选 2」是设计**；“展示”不是“召唤”（3 张是手牌卡，不是场上单位）。\n**不得写**： - 袁术是袁绍的**亲弟弟/亲哥哥**（正史只作从兄弟；绍年长）； - 玉玺是袁术**直接从孙坚手里抢**的 / 孙策用玉玺换兵（前者是“拘坚妻”，A 后出；后者仅演义第 15 回）； - “冢中枯骨”“蜜水”当正史/当 A 级（前者正史零命中，仅演义第 21 回；后者是裴注“蜜浆”+演义“蜜水”）； - 袁术是袁逢**嫡子**（查无原文）； - 袁术杀陈温（裴注异文，《英雄记》谓自病死）； - 国号只写“仲家”（《三国志》只作“僭號”，《后汉书》“仲家”，裴注《典略》/演义“仲氏”，并列）。\n**flavor**：`受命於天，既壽永昌`（传国玺铭文，**B**：裴注《吴书》B-08；异文「既壽且康」B-10）。\n",
+    "flavor": "受命於天，既壽永昌。"
+  },
+  {
+    "id": "qun_yuxi_board",
+    "name": "玉玺·场",
+    "faction": "qun",
+    "type": "token",
+    "cost": 1,
+    "attack": 0,
+    "health": 1,
+    "rarity": "common",
+    "memo": "1 费玉玺宝物：己方场上全体人物 +1 攻",
+    "gender": "unknown",
+    "keywords": [],
+    "effects": [
+      {
+        "action": "modify",
+        "attack": 1,
+        "target": {
+          "side": "ally",
+          "filter": {
+            "type": "character"
+          },
+          "count": "all"
+        }
+      }
+    ],
+    "note": "**1 费玉玺宝物**：由袁术「传国玉玺」展示，3 选 2 置入手牌后使用。 `type: token` ⇒ 不进卡池、不进构筑；只通过 `discover` 的 `pool.cards` 出现。 场上全体 +1 攻用 `modify`（现成）；只加场上，不加手牌/主公。 `flavor` 为传国玺铭文，**B**（裴注《吴书》B-08；异文「既壽且康」B-10）。\n",
+    "flavor": "受命於天，既壽永昌。"
+  },
+  {
+    "id": "qun_yuxi_hand",
+    "name": "玉玺·手",
+    "faction": "qun",
+    "type": "token",
+    "cost": 1,
+    "attack": 0,
+    "health": 1,
+    "rarity": "common",
+    "memo": "1 费玉玺宝物：己方手牌全体人物 +1 攻",
+    "gender": "unknown",
+    "keywords": [],
+    "effects": [
+      {
+        "action": "grant_hand",
+        "hand_attack": 1,
+        "target": {
+          "side": "self",
+          "zone": "hand",
+          "filter": {
+            "type": "character"
+          },
+          "count": "all"
+        }
+      }
+    ],
+    "note": "**1 费玉玺宝物**：由袁术「传国玉玺」展示，3 选 2 置入手牌后使用。 `type: token` ⇒ 不进卡池、不进构筑；只通过 `discover` 的 `pool.cards` 出现。 手牌全体 +1 攻用 `grant_hand`（现成）；只加手牌，不加场上/主公。 `flavor` 为传国玺铭文，**B**（裴注《吴书》B-08；异文「既壽且康」B-10）。\n",
+    "flavor": "受命於天，既壽永昌。"
+  },
+  {
+    "id": "qun_yuxi_draw",
+    "name": "玉玺·抽",
+    "faction": "qun",
+    "type": "token",
+    "cost": 1,
+    "attack": 0,
+    "health": 1,
+    "rarity": "common",
+    "memo": "1 费玉玺宝物：抽 1 张牌",
+    "gender": "unknown",
+    "keywords": [],
+    "effects": [
+      {
+        "action": "draw",
+        "value": 1
+      }
+    ],
+    "note": "**1 费玉玺宝物**：由袁术「传国玉玺」展示，3 选 2 置入手牌后使用。 `type: token` ⇒ 不进卡池、不进构筑；只通过 `discover` 的 `pool.cards` 出现。 抽 1 用 `draw`（现成）；1 费换 1 牌，是“3 选 2”里最保底的一张。 `flavor` 为传国玺铭文，**B**（裴注《吴书》B-08；异文「既壽且康」B-10）。\n",
+    "flavor": "受命於天，既壽永昌。"
+  },
+  {
+    "id": "qun_liru",
+    "name": "李儒",
+    "faction": "qun",
+    "type": "strategist",
+    "cost": 4,
+    "attack": 1,
+    "health": 4,
+    "rarity": "elite",
+    "tags": [
+      "dong_zhuo"
+    ],
+    "keywords": [
+      "ju_du"
+    ],
+    "memo": "4 费 1/4：鸩酒攻击 <4 才下毒；1 点毒攻命中即剧毒斩杀",
+    "gender": "male",
+    "skills": [
+      {
+        "id": "zhen_jiu",
+        "name": "鸩酒",
+        "kind": "trigger",
+        "trigger": "on_play",
+        "text": "战吼：若一名敌方人物攻击力 < 4，对其造成 1 点毒攻。若伤害生效，剧毒直接消灭。",
+        "target": {
+          "side": "enemy",
+          "filter": {
+            "type": "character",
+            "include_lord": false
+          },
+          "count": 1,
+          "mode": "choose"
+        },
+        "effects": [
+          {
+            "action": "damage",
+            "value": 1,
+            "damage_type": "poison",
+            "condition": {
+              "chosen_attack_max": 3
+            }
+          }
+        ]
+      }
+    ],
+    "note": "**4 费 1/4 谋臣（`elite`，`tags: [dong_zhuo]`，`keywords: [ju_du]`）**：身体 5， 基准 9，**−4**；〈鸩酒〉＝攻击 <4 才下毒，1 点毒攻命中即剧毒斩杀 ≈ 3~4；贴线。 **剧毒 ≠ 中毒**：`ju_du` 是该单位造成伤害并**实际命中**后直接消灭受伤单位（`mutate.ts`）； `zhong_du` 是永久削生命上限。剧毒只对场上单位、对主公无效；此前卡池 **0 使用者** （无当飞军已移除，ADR-117 裁定「剧毒另立卡牌」），李儒是第一张。 **只判断攻击 <4，不削攻**：`condition: { chosen_attack_max: 3 }` 读目标**当前**攻击力 （0/1/2/3 可毒杀；4 攻及以上完全不碰）。伤害被披坚/免疫/减伤到 0 → `ju_du` 不触发 （设计者口径：披坚状态的人物不会被毒杀）；主公不能选；李儒 1/4 可被解。 **对冲**：披坚/免疫/减伤到 0；4 攻及以上天然免疫“毒杀”；李儒 1/4 可被解。 **若偏强**：3 → 2（只毒杀 ≤2 攻）；**若偏弱**：3 → 4（≤4 攻）。 **史料（A）**：《后汉书》卷十下 A-01「使郎中令李儒進酖」——毒酒鸩杀弘农王；「鸩酒」即此。 **不得写**：李儒焚洛阳/劝迁都；李儒是董卓女婿；李儒被王允斩/死于董卓之死； 《三国志》载李儒；李儒读废立策（读册的是尚书）。\n",
+    "flavor": "使郎中令李儒進酖。"
+  },
+  {
+    "id": "qun_jushou",
+    "name": "沮授",
+    "faction": "qun",
+    "type": "strategist",
+    "cost": 4,
+    "attack": 1,
+    "health": 5,
+    "rarity": "elite",
+    "tags": [
+      "yuan_shi"
+    ],
+    "keywords": [],
+    "memo": "4 费 1/5：回合结束每 2 点未用统率抽 1 + 随机治疗受伤友方 2（最多 3 次）",
+    "gender": "male",
+    "skills": [
+      {
+        "id": "huan_shi_xu_liang",
+        "name": "缓师蓄粮",
+        "kind": "trigger",
+        "trigger": "turn_end",
+        "text": "己方回合结束时，每有 2 点未使用的统率，便抽 1 张牌，并为随机一名已受伤的友方角色（含主公）恢复 2 点生命（每回合最多触发 3 次）。",
+        "effects": [
+          {
+            "action": "draw",
+            "value": 1,
+            "count_from": {
+              "resource": "command",
+              "divisor": 2,
+              "max": 3
+            }
+          },
+          {
+            "action": "heal",
+            "value": 2,
+            "count_from": {
+              "resource": "command",
+              "divisor": 2,
+              "max": 3
+            },
+            "target": {
+              "side": "ally",
+              "filter": {
+                "damaged": true,
+                "include_lord": true
+              },
+              "count": 1,
+              "mode": "random"
+            }
+          }
+        ]
+      }
+    ],
+    "note": "**4 费 1/5 谋臣（`elite`，`tags: [yuan_shi]`）**：身体 6，基准 9，**−3**； 〈缓师蓄粮〉＝“把统率省下来”换牌 + 治疗，每 2 点未使用统率触发 1 次、每回合最多 3 次，≈ 3~4；贴线。 **引擎**：新增 `count_from`（`resource: command` / `divisor: 2` / `max: 3`，ADR-183）， 读 `state.sides[ctx.side].command.cur`（回合结束时的“未使用统率”）；`draw` 1 + `heal` 2 各按次数重复。 **治疗目标**：`side: ally` + `filter: { damaged: true, include_lord: true }` + `mode: random`， **含主公**；每次触发重新随机（不是固定同一个人）；没有受伤友方时只抽牌、不治疗。 **对冲**：必须**留统率**（少做事才触发）；回合结束前用光统率 = 白板；对手可抢节奏逼你花统率。 **若偏强**：`max: 3 → 2`；**若偏弱**：`divisor: 2 → 1`（每 1 点触发）或 `max: 4`。 **史料（A）**：《后汉书》卷七十四上 A-13「南幸於急戰，北利在緩師。宜徐持久，曠以日月。」 ——“缓师”是沮授的战略判断，本卡取“省下统率、拖长回合”的后勤向，不是“不行动就变强”。 **不得写**：十胜十败是郭嘉（B）/荀彧四胜（A），沮授 0；盗马/厚葬/墓碑/观星是演义（C）； 沮授之死写成演义细节；把沮授写成田丰（刚而犯上）；“沮授献劫乌巢之计”（那是蒋奇支军，且未被采纳）。\n",
+    "flavor": "北利在緩師。宜徐持久，曠以日月。"
+  },
+  {
+    "id": "qun_yanliang",
+    "name": "颜良",
+    "faction": "qun",
+    "type": "general",
+    "cost": 5,
+    "attack": 5,
+    "health": 5,
+    "rarity": "elite",
+    "tags": [
+      "yuan_shi"
+    ],
+    "keywords": [],
+    "memo": "5 费 5/5：白马搦战——逼一名敌将决斗；反杀则敌主公断粮 2 并抽 1",
+    "gender": "male",
+    "skills": [
+      {
+        "id": "bai_ma_nuo_zhan",
+        "name": "白马搦战",
+        "text": "战吼：指定一名敌将立即攻击颜良（双方各打一次真实普攻，含反击）；若将其反杀，敌主公获得「断粮 2」并抽 1 张牌。",
+        "kind": "trigger",
+        "trigger": "on_play",
+        "target": {
+          "side": "enemy",
+          "filter": {
+            "type": "general"
+          },
+          "count": 1,
+          "mode": "choose"
+        },
+        "effects": [
+          {
+            "action": "duel"
+          }
+        ]
+      },
+      {
+        "id": "fan_sha_duan_liang",
+        "name": "反杀·断粮",
+        "text": "若颜良反杀该敌将：敌主公获得「断粮 2」（统率上限 −2），并抽 1 张牌。",
+        "kind": "trigger",
+        "trigger": "on_kill",
+        "effects": [
+          {
+            "action": "apply_status",
+            "status": "duan_liang",
+            "stacks": 2,
+            "target": {
+              "side": "enemy",
+              "lord": true
+            }
+          },
+          {
+            "action": "draw",
+            "value": 1
+          }
+        ]
+      }
+    ],
+    "note": "**5 费 5/5 武将（`elite`，`tags: [yuan_shi]`）**：身体 10，基准 11，**−1**； 〈白马搦战〉＝逼一名敌将和颜良各打一次（`duel`，真实普攻、含反击）； **反杀**（`on_kill`）→ 敌主公「断粮 2」＋抽 1，≈ 3~4；总强度约 **14~15，偏强**。 **引擎**：`duel` + `on_kill` + `apply_status duan_liang` + `draw` —— 全部现成，零改动。 **断粮 2**：`duan_liang`（`scope: lord`，统率上限 −N，持续到该方回合开始；本卡给 2 层）。 **对冲**：颜良 5/5 和敌将互打，可能自己被反杀（选 6 攻以上会亏）；断粮只压统率不压血； 敌将可以被保护/换掉；「反杀」需要颜良活下来并打死对方。 **若偏强**：5/5 → 5/4 或 4/5；断粮 2 → 1；抽 1 → 0。**若偏弱**：5/5 → 5/6。 **史料（A）**：A-03「遣郭圖、淳于瓊、顏良攻東郡太守劉延於白馬」；A-08「良大驚，來逆戰」。 **不得写**：关羽斩颜良（关羽素材）；颜良文丑双人卡/羁绊/文丑在场才生效； 颜良是守将/奇袭者（方向反了）；「河北名将」是文丑；给颜良编第一人称台词。\n",
+    "flavor": "良大驚，來逆戰。"
+  },
+  {
+    "id": "qun_wenchou",
+    "name": "文丑",
+    "faction": "qun",
+    "type": "general",
+    "cost": 6,
+    "attack": 3,
+    "health": 5,
+    "rarity": "elite",
+    "tags": [
+      "yuan_shi"
+    ],
+    "keywords": [],
+    "memo": "6 费 3/5：延津铁骑——召 3/2 先攻骑兵；每次普攻后再召一个",
+    "gender": "male",
+    "skills": [
+      {
+        "id": "yan_jin_tie_qi",
+        "name": "延津铁骑",
+        "text": "战吼：召唤一个 3/2「延津铁骑」（先攻）。",
+        "kind": "trigger",
+        "trigger": "on_play",
+        "effects": [
+          {
+            "action": "summon",
+            "unit": "qun_yanjin_tieqi",
+            "position": "front"
+          }
+        ]
+      },
+      {
+        "id": "yan_jin_tie_qi_xu",
+        "name": "延津铁骑·续",
+        "text": "每次普通攻击后，再召唤一个 3/2「延津铁骑」（先攻）。",
+        "kind": "trigger",
+        "trigger": "after_attack",
+        "effects": [
+          {
+            "action": "summon",
+            "unit": "qun_yanjin_tieqi",
+            "position": "front"
+          }
+        ]
+      }
+    ],
+    "note": "**6 费 3/5 武将（`elite`，`tags: [yuan_shi]`）**：身体 8，基准 13，**−5**； 〈延津铁骑〉＝战吼召 1 个 3/2「延津铁骑」（**先攻**）；之后文丑每次**普通攻击后**再召 1 个 （`after_attack`，每回合可多次），≈ 3 + 3~4；总强度约 **14~15，偏强**。 **引擎**：`summon` + `after_attack` + 1 张 token（3/2 先攻）—— 全部现成，零改动。 **先攻**：token 入场当回合即可攻击；文丑本身 3/5 不是先攻，需要活到自己的攻击。 **对冲**：3/2 先攻骑兵只有 2 血，AOE/扫场可清；文丑 3/5 被解则 `after_attack` 停； 召唤位只有前军 3 格，铺满后不再召。 **若偏强**：6/3/5 → 6/3/4；3/2 → 3/1；`after_attack` 改每回合一次。**若偏弱**：3/2 → 4/2。 **史料（A）**：A-04/A-05《三国志》卷六「五六千騎前後至」（延津）。 **不得写**：关羽斩文丑当正史（正史无斩者，关羽传无文丑）；文丑死于乱军/被徐晃所杀； 颜良文丑并称＝武力相当/河北四庭柱/文丑是颜良副将。\n",
+    "flavor": "五六千騎前後至。"
+  },
+  {
+    "id": "qun_yanjin_tieqi",
+    "name": "延津铁骑",
+    "faction": "qun",
+    "type": "token",
+    "cost": 0,
+    "attack": 3,
+    "health": 2,
+    "rarity": "common",
+    "memo": "3/2 先攻骑兵（文丑「延津铁骑」召唤）",
+    "gender": "unknown",
+    "keywords": [
+      "xian_gong"
+    ],
+    "note": "**3/2 先攻骑兵 token**：由文丑「延津铁骑」召唤；`xian_gong`＝入场当回合即可攻击。 `type: token` ⇒ 不进卡池、不进构筑；只通过 `summon` 出现。 `flavor` 取《三国志》卷六「五六千騎前後至」（A-04/A-05，文丑延津）。\n",
+    "flavor": "五六千騎前後至。"
+  },
+  {
+    "id": "qun_liuzhang",
+    "name": "刘璋",
+    "faction": "qun",
+    "type": "strategist",
+    "cost": 4,
+    "attack": 1,
+    "health": 6,
+    "rarity": "elite",
+    "tags": [],
+    "keywords": [],
+    "memo": "4 费 1/6：战吼/回合开始抽 1 + 主公回 2；亡语敌方抽 1",
+    "gender": "male",
+    "skills": [
+      {
+        "id": "fu_cheng_zhi_kou",
+        "name": "负乘致寇",
+        "text": "战吼：抽 1 张牌，并为己方主公恢复 2 点生命。",
+        "kind": "trigger",
+        "trigger": "on_play",
+        "effects": [
+          {
+            "action": "draw",
+            "value": 1
+          },
+          {
+            "action": "heal",
+            "value": 2,
+            "target": {
+              "side": "ally",
+              "lord": true
+            }
+          }
+        ]
+      },
+      {
+        "id": "fu_cheng_zhi_kou_turn",
+        "name": "负乘致寇·回合",
+        "text": "己方回合开始时：抽 1 张牌，并为己方主公恢复 2 点生命。",
+        "kind": "trigger",
+        "trigger": "turn_start",
+        "effects": [
+          {
+            "action": "draw",
+            "value": 1
+          },
+          {
+            "action": "heal",
+            "value": 2,
+            "target": {
+              "side": "ally",
+              "lord": true
+            }
+          }
+        ]
+      },
+      {
+        "id": "wang_yu_zi_di",
+        "name": "亡语·资敌",
+        "text": "亡语：敌方抽 1 张牌。",
+        "kind": "trigger",
+        "trigger": "on_death",
+        "effects": [
+          {
+            "action": "draw",
+            "value": 1,
+            "target": {
+              "side": "enemy"
+            }
+          }
+        ]
+      }
+    ],
+    "note": "**4 费 1/6 谋臣（`elite`）**：身体 7，基准 9，**−2**；〈负乘致寇〉＝战吼与己方回合开始 各抽 1 + 主公回 2；亡语敌方抽 1；≈ 3~4；贴线。 **引擎**：零改动（`draw` / `heal` / `on_play` / `turn_start` / `on_death` 全部现成）。 **「负乘致寇」是陈寿评语**（本传评「才非人雄……负乘致寇」），不是刘璋自称；卡名取评语，不是台词。 **对冲**：4 费 1/6 身板一般；主公回 2 对快攻有限；亡语给对手补牌；抽 1 可能爆牌。 **若偏强**：1/6 → 1/5；**若偏弱**：1/6 → 1/7 或治疗 3。 **史料（A）**：《三国志》卷三十一/三十二 刘璋传；本传评「才非人雄，而土自恃，负乘致寇」。 **不得写**：陈寿说刘璋「暗弱」（本传是「才非人雄……负乘致寇」；「闇弱」出诸葛亮隆中对）； 张松献图当正史（演义 60 回；正史只有张松使曹被轻慢、劝迎刘备、事泄被收斩）； 结局写成被刘备杀/自杀/病死于成都（正史迁公安→孙权以璋为益州牧、驻秭归→卒，无卒年）。\n",
+    "flavor": "負乘致寇。"
+  },
+  {
+    "id": "qun_liubiao",
+    "name": "刘表",
+    "faction": "qun",
+    "type": "strategist",
+    "cost": 5,
+    "attack": 1,
+    "health": 6,
+    "rarity": "elite",
+    "tags": [],
+    "keywords": [],
+    "memo": "5 费 1/6：回合结束若本回合未普攻，抽 1 + 手牌人物永久 +1/+1",
+    "gender": "male",
+    "skills": [
+      {
+        "id": "zuo_guan_tian_xia",
+        "name": "坐观天下",
+        "text": "己方回合结束时，若己方本回合所有人物未对敌方发起过普通攻击，你抽 1 张牌，并使你手牌中的所有人物牌永久获得 +1/+1。",
+        "kind": "trigger",
+        "trigger": "turn_end",
+        "effects": [
+          {
+            "action": "draw",
+            "value": 1,
+            "condition": {
+              "count": {
+                "selector": {
+                  "side": "ally",
+                  "filter": {
+                    "type": "character",
+                    "attacked_this_turn": true
+                  }
+                },
+                "op": "==",
+                "value": 0
+              }
+            }
+          },
+          {
+            "action": "modify",
+            "attack": 1,
+            "health": 1,
+            "condition": {
+              "count": {
+                "selector": {
+                  "side": "ally",
+                  "filter": {
+                    "type": "character",
+                    "attacked_this_turn": true
+                  }
+                },
+                "op": "==",
+                "value": 0
+              }
+            },
+            "target": {
+              "side": "ally",
+              "zone": "hand",
+              "filter": {
+                "type": "character"
+              },
+              "count": "all"
+            }
+          }
+        ]
+      }
+    ],
+    "note": "**5 费 1/6 谋臣（`elite`）**：身体 7，基准 11，**−4**；〈坐观天下〉＝己方回合结束时， 若己方本回合**所有人物都未普通攻击过**，抽 1，并使手牌中所有人物牌**永久 +1/+1**；≈ 4~5；贴线。 **引擎**：零改动 —— `count` + `filter.attacked_this_turn: true`（现成）+ `draw` + `modify` （`zone: hand`，HandMod 永久）。 **判定口径**：只数**己方场上人物**的 `attackedThisTurn`；本回合没攻击过 → 0 → 触发； 任意一名己方人物攻击过 → 不触发。法伤/战技不算“普通攻击”。 **对冲**：必须**整回合不普攻**才触发（压节奏）；手牌没有人物时只抽 1；5 费 1/6 身板一般； 对手可逼你攻击/抢节奏。 **若偏强**：1/6 → 1/5；**若偏弱**：1/6 → 1/7 或抽 2。 **史料（A/B）**：《三国志》卷六 刘表传；「坐談客」是郭嘉/曹操对刘表的评语（B）。 **不得写**：汉室宗亲/八俊写成一件事（《后汉书》「鲁恭王之后」A后出；「八俊」仅《三国志》正文， 《后汉书》作「八顾」，裴注有「八交/八友」异说，「江夏八俊」是演义第 6 回 C）； 刘表亲手杀孙坚/设伏（《孙坚传》A「表遣黄祖逆于樊鄧之間……為祖軍士所射殺」）； 废长立幼/让荆州当 A（正史只「欲以为后……出琦为江夏太守」；让荆州仅裴注 B，裴松之已驳）。\n",
+    "flavor": "坐談客耳。"
+  },
+  {
+    "id": "qun_kongrong",
+    "name": "孔融",
+    "faction": "qun",
+    "type": "strategist",
+    "cost": 2,
+    "attack": 1,
+    "health": 3,
+    "rarity": "elite",
+    "tags": [],
+    "keywords": [],
+    "memo": "2 费 1/3：北海举贤——从牌库发现 1 张人物，费用 −2",
+    "gender": "male",
+    "skills": [
+      {
+        "id": "bei_hai_ju_xian",
+        "name": "北海举贤",
+        "kind": "trigger",
+        "trigger": "on_play",
+        "text": "战吼：从牌库发现 1 张人物牌置入手牌，使其统率消耗 −2（最低为 0 费）。",
+        "target": {
+          "filter": {
+            "type": "character"
+          }
+        },
+        "effects": [
+          {
+            "action": "discover",
+            "count": 1,
+            "picks": 1,
+            "value": -2,
+            "discover_to": "hand"
+          }
+        ]
+      }
+    ],
+    "note": "**2 费 1/3 谋臣（`elite`）**：身体 4，基准 5，**−1**；〈北海举贤〉＝从牌库发现 1 张人物 置入手牌并 **−2 费**（`discover` 的 `value` 就是 costModifier，ADR-178；`picks: 1`）；≈ 3~4。 **引擎**：零改动 —— `discover`（牌库来源；`value: -2` 即费用修正；`picks: 1`）。 **对冲**：2 费 1/3 身板很脆；发现的是牌库随机 1 张人物，不一定拿到想要的；减费最低 0。 **若偏强**：1/2；**若偏弱**：1/4 或减费 −3。 **史料（A后出＋B）**：北海相荐贤/养士；不得写让梨出处（《后汉书》李贤注《融家传》＋《世说》刘孝标注《融别传》B，三字经 D）、 建安七子之首/孔子嫡孙、被曹操杀单一原因。\n",
+    "flavor": "座上客常滿，樽中酒不空。"
+  },
+  {
+    "id": "qun_zhanglu",
+    "name": "张鲁",
+    "faction": "qun",
+    "type": "strategist",
+    "cost": 3,
+    "attack": 1,
+    "health": 3,
+    "rarity": "elite",
+    "tags": [],
+    "keywords": [],
+    "memo": "3 费 1/3：义舍——抽 2 敌抽 1；敌手牌不少于你则敌主公 3 伤、己主公回 3",
+    "gender": "male",
+    "skills": [
+      {
+        "id": "yi_she",
+        "name": "义舍",
+        "kind": "trigger",
+        "trigger": "on_play",
+        "text": "战吼：你抽 2 张牌、敌方抽 1 张牌；若敌方手牌不少于你，敌主公受 3 点伤害且己方主公恢复 3 点生命。",
+        "effects": [
+          {
+            "action": "draw",
+            "value": 2
+          },
+          {
+            "action": "draw",
+            "value": 1,
+            "target": {
+              "side": "enemy"
+            }
+          },
+          {
+            "action": "damage",
+            "value": 3,
+            "target": {
+              "side": "enemy",
+              "lord": true
+            },
+            "condition": {
+              "count_vs": {
+                "left": {
+                  "side": "enemy",
+                  "zone": "hand"
+                },
+                "right": {
+                  "side": "ally",
+                  "zone": "hand"
+                },
+                "op": ">="
+              }
+            }
+          },
+          {
+            "action": "heal",
+            "value": 3,
+            "target": {
+              "side": "ally",
+              "lord": true
+            },
+            "condition": {
+              "count_vs": {
+                "left": {
+                  "side": "enemy",
+                  "zone": "hand"
+                },
+                "right": {
+                  "side": "ally",
+                  "zone": "hand"
+                },
+                "op": ">="
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "note": "**3 费 1/3 谋臣（`elite`）**：身体 4，基准 7，**−3**；〈义舍〉＝你抽 2、敌抽 1； 若**敌方手牌 ≥ 你**，敌主公 3 伤 + 己主公回 3；≈ 3~4。 **引擎**：零改动（`draw` + `count_vs` 手牌 + `damage`/`heal` 主公；`count_vs` 的两侧都用 `zone: 'hand'`）。 **判定**：先抽（你 +2、敌 +1）再比较手牌；`op: '>='` 是“敌方不少于你”。 **对冲**：给对手补 1 张；3 费 1/3 身板脆；条件不满足时只有抽牌。 **若偏强**：1/2；**若偏弱**：1/4 或伤害 4。 **史料（A/B）**：《典略》「諸祭酒皆作義舍，如今之亭傳」；不得写张鲁＝黄巾/太平道/张角余部、 杀马秋、降曹＝被杀/灭族/烧仓库。\n",
+    "flavor": "諸祭酒皆作義舍，如今之亭傳。"
+  },
+  {
+    "id": "qun_hejin",
+    "name": "何进",
+    "faction": "qun",
+    "type": "general",
+    "cost": 8,
+    "attack": 5,
+    "health": 7,
+    "rarity": "elite",
+    "tags": [],
+    "keywords": [],
+    "memo": "8 费 5/7：诏召猛将——从牌库召唤 ≤6 费武将并给先攻；亡语己主公 3 伤",
+    "gender": "male",
+    "skills": [
+      {
+        "id": "zhao_zhao_meng_jiang",
+        "name": "诏召猛将",
+        "kind": "trigger",
+        "trigger": "on_play",
+        "text": "战吼：从牌库召唤 1 名 ≤6 费的武将上场，并使其获得「先攻」。",
+        "effects": [
+          {
+            "action": "deploy_from_deck",
+            "count": 1,
+            "grant_keyword": "xian_gong",
+            "target": {
+              "filter": {
+                "type": "general",
+                "cost_max": 6
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "he_jin_wang_yu",
+        "name": "亡语·祸及",
+        "kind": "trigger",
+        "trigger": "on_death",
+        "text": "亡语：己方主公受到 3 点伤害。",
+        "effects": [
+          {
+            "action": "damage",
+            "value": 3,
+            "target": {
+              "side": "ally",
+              "lord": true
+            }
+          }
+        ]
+      }
+    ],
+    "note": "**8 费 5/7 武将（`elite`）**：身体 12，基准 17，**−5**；〈诏召猛将〉＝从牌库召唤 1 名 ≤6 费武将并给「先攻」（`deploy_from_deck`，ADR-186）＋亡语己主公 3 伤；≈ 4~6。 **引擎**：新增 `deploy_from_deck`（牌库 → 场上，按 filter 找第一张；`grant_keyword` 挂状态）； 其余 `damage` / `on_death` 现成。 **对冲**：8 费很高；召唤的武将随机（第一张 ≤6 费）；亡语自伤 3；5/7 被解后自伤。 **若偏强**：5/6；**若偏弱**：5/8 或召唤 2 名。 **史料（A）**：《后汉书》卷六十九「遂西召前將軍董卓」；不得写何进被董卓所杀（张让/段珪/渠穆）、 召董卓一人之谋、何进/何太后/十常侍铁板因果。\n",
+    "flavor": "遂西召前將軍董卓。"
+  },
+  {
+    "id": "qun_hansui",
+    "name": "韩遂",
+    "faction": "qun",
+    "type": "general",
+    "cost": 7,
+    "attack": 4,
+    "health": 6,
+    "rarity": "elite",
+    "tags": [
+      "xi_liang"
+    ],
+    "keywords": [
+      "xian_gong"
+    ],
+    "memo": "7 费 4/6 先攻：纵横西凉——夺取一名人物全部攻击力",
+    "gender": "male",
+    "skills": [
+      {
+        "id": "zong_heng_xi_liang",
+        "name": "纵横西凉",
+        "kind": "trigger",
+        "trigger": "on_play",
+        "text": "先攻。战吼：指定场上另一名人物（不论敌我），夺取其全部攻击力（使其攻击力永久变为 0，韩遂永久获得等量的攻击力）。",
+        "target": {
+          "side": "both",
+          "mode": "choose"
+        },
+        "effects": [
+          {
+            "action": "steal_attack"
+          }
+        ]
+      }
+    ],
+    "note": "**7 费 4/6 武将（`elite`，`tags: [xi_liang]`，`keywords: [xian_gong]`）**：身体 10，基准 15，**−5**； 〈纵横西凉〉＝先攻 ＋ 战吼夺取一名人物（敌我皆可）的全部攻击力：目标攻击力永久 0，韩遂永久 +等量； ≈ 5~6。 **引擎**：新增 `steal_attack`（目标 `atk = 0`；来源 `atk += 原有效攻击力`；ADR-187）。 **对冲**：7 费很高；夺取目标可选敌我可被对手用低攻单位“喂”；4/6 身板被解后攻击白拿；先攻让入场当回合能打。 **若偏强**：4/5；**若偏弱**：4/7 或 5/6。 **史料（A/B）**：《三国志》卷三十六 马超传/卷十 贾诩传；「西凉」是地域标签，不是势力；不得写韩遂是 马超杀父仇人/韩遂与马超合谋具体细节/韩遂被曹操杀。\n",
+    "flavor": "吾與馬超，何讎何親。"
+  },
+  {
+    "id": "qun_yuji",
+    "name": "于吉",
+    "faction": "qun",
+    "type": "strategist",
+    "cost": 2,
+    "attack": 1,
+    "health": 4,
+    "rarity": "legendary",
+    "tags": [],
+    "keywords": [],
+    "memo": "2 费 1/4 传说：太平仙道——三选一符水；亡语洗入仙·于吉",
+    "gender": "male",
+    "skills": [
+      {
+        "id": "tai_ping_fu_shui",
+        "name": "太平符水",
+        "kind": "trigger",
+        "trigger": "on_play",
+        "text": "战吼：展示三张不同的 1 费「仙道符水」，从中选择 1 张置入你的手牌。",
+        "effects": [
+          {
+            "action": "discover",
+            "count": 3,
+            "picks": 1,
+            "discover_to": "hand",
+            "pool": {
+              "cards": [
+                "qun_fushui_zhibing",
+                "qun_fushui_huahuo",
+                "qun_fushui_shijie"
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "id": "shi_jie_cheng_xian",
+        "name": "尸解成仙",
+        "kind": "trigger",
+        "trigger": "on_death",
+        "text": "亡语：将一张 2 费 1/4 的「仙·于吉」随机洗入你的牌库。",
+        "effects": [
+          {
+            "action": "add_to_deck",
+            "unit": "qun_yuji_xian",
+            "count": 1
+          }
+        ]
+      }
+    ],
+    "note": "**2 费 1/4 谋臣（🌟`legendary`）**：身体 5，基准 5，**0**；〈太平符水〉＝三选一 1 费符水； 亡语〈尸解成仙〉＝把 2 费 1/4「仙·于吉」随机洗入牌库；≈ 3~4。 **引擎**：零改动（`discover` 的 `pool.cards` 三选一，ADR-181；`add_to_deck` 的随机洗入，ADR-050）。 **对冲**：2 费 1/4 身板一般；三选一只能拿 1 张；亡语给的是牌库随机位置（不一定马上抽到）。 **若偏强**：1/3；**若偏弱**：1/5 或三张全给（改 `picks: 3`）。 **史料（B）**：裴注《江表传》「立精舍，燒香讀道書，製作符水以治病，吳會人多事之」； 「尸解」＝裴注「諸事之者，尚不謂其死而云屍解焉」；不得写于吉是神仙/长生不死/孙策杀于吉的 具体情节当正史（《三国志》正文只「策殺吉」一句，裴注异说多）。\n",
+    "flavor": "立精舍，燒香讀道書，製作符水以治病。"
+  },
+  {
+    "id": "qun_yuji_xian",
+    "name": "仙·于吉",
+    "faction": "qun",
+    "type": "strategist",
+    "cost": 2,
+    "attack": 1,
+    "health": 4,
+    "rarity": "common",
+    "tags": [],
+    "keywords": [],
+    "memo": "仙·于吉（衍生）：战吼三张符水全部入手",
+    "gender": "male",
+    "skills": [
+      {
+        "id": "xian_dao_da_cheng",
+        "name": "仙道大成",
+        "kind": "trigger",
+        "trigger": "on_play",
+        "text": "战吼：将三张不同的 1 费「仙道符水」全部置入你的手牌。",
+        "effects": [
+          {
+            "action": "discover",
+            "count": 3,
+            "picks": 3,
+            "discover_to": "hand",
+            "pool": {
+              "cards": [
+                "qun_fushui_zhibing",
+                "qun_fushui_huahuo",
+                "qun_fushui_shijie"
+              ]
+            }
+          }
+        ]
+      }
+    ],
+    "note": "**2 费 1/4 谋臣（token，不可构筑带走）**：〈仙道大成〉＝战吼把三张 1 费符水**全部**置入手牌 （`discover` 的 `picks: 3`，ADR-178）；无亡语。由 于吉〈尸解成仙〉随机洗入牌库。 **引擎**：零改动（`discover` 的 `pool.cards` + `picks: 3`）。 **注意**：token 不进卡池/不进构筑；只能由于吉亡语洗入牌库后抽到。 **史料**：同于吉（B，裴注《江表传》「屍解」）。\n",
+    "flavor": "諸事之者，尚不謂其死而云屍解焉。"
+  },
+  {
+    "id": "qun_fushui_zhibing",
+    "name": "符水治病",
+    "faction": "qun",
+    "type": "special",
+    "cost": 1,
+    "rarity": "common",
+    "tags": [],
+    "keywords": [],
+    "memo": "1 费符水：治疗友方 4 + 抽 1",
+    "gender": "male",
+    "skills": [
+      {
+        "id": "fu_shui_zhi_bing",
+        "name": "符水·治病",
+        "kind": "trigger",
+        "trigger": "on_play",
+        "text": "为一名友方角色（含主公）恢复 4 点生命，并抽 1 张牌。",
+        "target": {
+          "side": "ally",
+          "filter": {
+            "include_lord": true
+          }
+        },
+        "effects": [
+          {
+            "action": "heal",
+            "value": 4
+          },
+          {
+            "action": "draw",
+            "value": 1
+          }
+        ]
+      }
+    ],
+    "note": "**1 费符水（`type: special`，token）**：治疗友方 4 + 抽 1；由于吉〈太平符水〉/仙·于吉〈仙道大成〉获得。 **引擎**：零改动（`heal` + `draw`）。 **史料（B）**：裴注《江表传》「製作符水以治病」。\n",
+    "flavor": "製作符水以治病。"
+  },
+  {
+    "id": "qun_fushui_huahuo",
+    "name": "符水幻惑",
+    "faction": "qun",
+    "type": "special",
+    "cost": 1,
+    "rarity": "common",
+    "tags": [],
+    "keywords": [],
+    "memo": "1 费符水：敌方人物 -2 攻 + 1 回合震慑",
+    "gender": "male",
+    "skills": [
+      {
+        "id": "fu_shui_huan_huo",
+        "name": "符水·幻惑",
+        "kind": "trigger",
+        "trigger": "on_play",
+        "text": "指定一名敌方人物，使其攻击力永久 −2，并获得 1 回合「震慑」（无法普通攻击）。",
+        "target": {
+          "side": "enemy",
+          "filter": {
+            "type": "character"
+          }
+        },
+        "effects": [
+          {
+            "action": "modify",
+            "attack": -2
+          },
+          {
+            "action": "apply_status",
+            "status": "zhen_she",
+            "duration": 1
+          }
+        ]
+      }
+    ],
+    "note": "**1 费符水（`type: special`，token）**：敌方人物攻击 −2（永久）+ 1 回合「震慑」； 由于吉〈太平符水〉/仙·于吉〈仙道大成〉获得。 **引擎**：零改动（`modify` + `apply_status` 的 `zhen_she`）。 **史料（B）**：裴注《江表传》「製作符水以治病」的「幻惑」侧写（吴会人多事之）。\n",
+    "flavor": "吳會人多事之。"
+  },
+  {
+    "id": "qun_fushui_shijie",
+    "name": "符水尸解",
+    "faction": "qun",
+    "type": "special",
+    "cost": 1,
+    "rarity": "common",
+    "tags": [],
+    "keywords": [],
+    "memo": "1 费符水：友方人物披坚；阵亡时移回手牌",
+    "gender": "male",
+    "skills": [
+      {
+        "id": "fu_shui_shi_jie",
+        "name": "符水·尸解",
+        "kind": "trigger",
+        "trigger": "on_play",
+        "text": "使一名友方人物获得「披坚」（免疫一次伤害）；当该人物阵亡时，将其移回你的手牌。",
+        "target": {
+          "side": "ally",
+          "filter": {
+            "type": "character"
+          }
+        },
+        "effects": [
+          {
+            "action": "apply_status",
+            "status": "sheng_dun_status"
+          }
+        ]
+      }
+    ],
+    "note": "**1 费符水（`type: special`，token）**：友方人物获得「披坚」（免疫一次伤害）； 该人物阵亡时移回手牌；由于吉〈太平符水〉/仙·于吉〈仙道大成〉获得。 **引擎**：`apply_status` 的 `sheng_dun` 现成；「阵亡时移回手牌」用 `add_to_deck` （`to: hand`）的 **`unit: $dead`** 动态取值（ADR-187 的 `on_death` 路径）。 **史料（B）**：裴注《江表传》「屍解」。\n",
+    "flavor": "尚不謂其死而云屍解焉。"
+  },
+  {
+    "id": "qun_taoqian",
+    "name": "陶谦",
+    "faction": "qun",
+    "type": "strategist",
+    "cost": 6,
+    "attack": 1,
+    "health": 5,
+    "rarity": "elite",
+    "tags": [],
+    "keywords": [],
+    "memo": "6 费 1/5：三让徐州——回合结束Buff手牌最高费武将；亡语Buff友方+主回血",
+    "gender": "male",
+    "skills": [
+      {
+        "id": "san_rang_xu_zhou",
+        "name": "三让徐州",
+        "kind": "trigger",
+        "trigger": "turn_end",
+        "text": "己方回合结束时，使你手牌中统率消耗最高的 1 张【武将】牌永久获得 +2/+2，且统率消耗 −1（最低为 0）。",
+        "effects": [
+          {
+            "action": "modify",
+            "attack": 2,
+            "health": 2,
+            "target": {
+              "side": "ally",
+              "zone": "hand",
+              "filter": {
+                "type": "general"
+              },
+              "count": 1,
+              "select": "highest_cost"
+            }
+          },
+          {
+            "action": "cost_modifier",
+            "value": -1,
+            "target": {
+              "side": "ally",
+              "zone": "hand",
+              "filter": {
+                "type": "general"
+              },
+              "count": 1,
+              "select": "highest_cost"
+            }
+          }
+        ]
+      },
+      {
+        "id": "tao_qian_wang_yu",
+        "name": "亡语·让贤",
+        "kind": "trigger",
+        "trigger": "on_death",
+        "text": "亡语：使己方场上随机 1 名其他友方人物永久获得 +1 攻击力 / +5 生命，并为己方主公恢复 3 点生命。",
+        "effects": [
+          {
+            "action": "modify",
+            "attack": 1,
+            "health": 5,
+            "target": {
+              "side": "ally",
+              "filter": {
+                "type": "character",
+                "exclude_source": true
+              },
+              "count": 1,
+              "mode": "random"
+            }
+          },
+          {
+            "action": "heal",
+            "value": 3,
+            "target": {
+              "side": "ally",
+              "lord": true
+            }
+          }
+        ]
+      }
+    ],
+    "note": "**6 费 1/5 谋臣（`elite`）**：身体 6，基准 13，**−7**；〈三让徐州〉＝己方回合结束给手牌里 **统率消耗最高**的 1 张武将 **+2/+2 且 −1 费**（永久，可叠）；亡语＝随机 1 名其他友方人物 **+1/+5** 并给主公回 3；≈ 10~12，**偏弱/贴线**。 **引擎**：新增 `select: 'highest_cost'`（手牌按费用排序取最高，ADR-188）＋ `zone: 'hand'` （原来只有 `zone: 'both'` 才把手牌并入池）；`exclude_source` / `modify` 手牌 / `cost_modifier` / `mode: 'random'` 均现成。 **对冲**：6 费 1/5 身板很脆；手牌没有武将时只 Buff 不到；Buff 的是“最高费”不一定是你想留的； 亡语需要先死；+5 生命可能被溢出伤害白吃。 **若偏强**：1/4；**若偏弱**：1/6 或 +2/+2 改 +3/+3。 **史料（A/B）**：《三国志》卷八 陶谦传；「三让徐州」是演义/民间叙事（C），正史只「让徐州与刘备」 的记载在《先主传》（A，但过程与“三让”不同）；不得写陶谦是刘备的恩人/主动三让当正史、 陶谦杀曹嵩（《后汉书》/《吴书》异说，A 但责任有争议）、徐州百姓拥戴。\n",
+    "flavor": "非吾所能及也。"
+  },
+  {
+    "id": "qun_zhangxiu",
+    "name": "张绣",
+    "faction": "qun",
+    "type": "general",
+    "cost": 6,
+    "attack": 5,
+    "health": 5,
+    "rarity": "elite",
+    "tags": [
+      "xi_liang"
+    ],
+    "keywords": [],
+    "memo": "6 费 5/5：盗戟夜袭——指定一名人物，按攻击力打敌主公",
+    "gender": "male",
+    "skills": [
+      {
+        "id": "dao_ji_ye_xi",
+        "name": "盗戟夜袭",
+        "kind": "trigger",
+        "trigger": "on_play",
+        "text": "战吼：指定场上另一名人物（不论敌我），对敌方主公造成等同于该人物攻击力的伤害。",
+        "target": {
+          "side": "both",
+          "mode": "choose",
+          "filter": {
+            "exclude_source": true
+          }
+        },
+        "effects": [
+          {
+            "action": "damage",
+            "value_from_chosen": "attack",
+            "target": {
+              "side": "enemy",
+              "lord": true
+            }
+          }
+        ]
+      }
+    ],
+    "note": "**6 费 5/5 武将（`elite`，`tags: [xi_liang]`）**：身体 10，基准 13，**−3**；〈盗戟夜袭〉＝战吼指定 场上另一名人物（不论敌我），对敌方主公造成**等同于该人物攻击力**的伤害；≈ 13~15，**偏强**。 **引擎**：新增 `value_from_chosen: 'attack'`（取选定目标当前有效攻击力；ADR-189）。 **对冲**：6 费 5/5 身板一般；伤害看目标攻击力（3~5），选自己人也能打；目标可被对手先解/换掉； 只打主公不打场（对铺场无帮助）。 **若偏强**：5/5 → 5/4 或 6/4/5；**若偏弱**：5/5 → 6/5。 **史料（A）**：《三国志》卷八 张绣传「繡乃嚴兵入屯，掩太祖。太祖不備，故敗」；「盗戟」是演义/民间 叙事（C），不是张绣本人偷戟；不得写张绣杀曹昂/曹安民当正史（正史只「太祖不備，故敗」）、 张绣是吕布/董卓部将、张绣被曹丕逼死当正史（《魏略》异说）、「北地枪王」是演义/评书。\n",
+    "flavor": "繡乃嚴兵入屯，掩太祖。太祖不備，故敗。"
+  },
+  {
+    "id": "qun_lijue",
+    "name": "李傕",
+    "faction": "qun",
+    "type": "general",
+    "cost": 8,
+    "attack": 5,
+    "health": 5,
+    "rarity": "elite",
+    "tags": [
+      "xi_liang"
+    ],
+    "keywords": [],
+    "memo": "8 费 5/5：纵兵劫掠——全体夺 1 上限；双方主公断粮 2",
+    "gender": "male",
+    "skills": [
+      {
+        "id": "zong_bing_jie_lue",
+        "name": "纵兵劫掠",
+        "kind": "trigger",
+        "trigger": "on_play",
+        "text": "战吼：对敌人场上所有人物夺取 1 点生命上限到自己身上，并对双方主公造成 1 回合「断粮 2」。",
+        "target": {
+          "side": "enemy",
+          "filter": {
+            "type": "character"
+          }
+        },
+        "effects": [
+          {
+            "action": "modify",
+            "health": -1,
+            "target": {
+              "side": "enemy",
+              "filter": {
+                "type": "character"
+              },
+              "count": "all"
+            }
+          },
+          {
+            "action": "modify",
+            "health_from": {
+              "side": "enemy",
+              "filter": {
+                "type": "character"
+              },
+              "count": "all"
+            },
+            "target": {
+              "source": true
+            }
+          },
+          {
+            "action": "apply_status",
+            "status": "duan_liang",
+            "stacks": 2,
+            "duration": 1,
+            "target": {
+              "side": "both",
+              "lord": true
+            }
+          }
+        ]
+      },
+      {
+        "id": "jie_lue_chang_an_li",
+        "name": "劫掠长安·李",
+        "kind": "trigger",
+        "trigger": "on_play",
+        "text": "李傕与郭汜同时在己方场上时（第二人入场瞬间），随机夺取敌方 2 张手牌置入你的手牌，并使这两张牌统率消耗 −2。",
+        "effects": [
+          {
+            "action": "steal_card",
+            "count": 2,
+            "target": {
+              "side": "enemy"
+            },
+            "condition": {
+              "count": {
+                "selector": {
+                  "side": "ally",
+                  "filter": {
+                    "card_id": "qun_guosi"
+                  }
+                },
+                "op": ">=",
+                "value": 1
+              }
+            }
+          },
+          {
+            "action": "cost_modifier",
+            "value": -2,
+            "target": {
+              "side": "ally",
+              "zone": "hand",
+              "filter": {
+                "type": "character"
+              },
+              "count": 2,
+              "mode": "random"
+            },
+            "condition": {
+              "count": {
+                "selector": {
+                  "side": "ally",
+                  "filter": {
+                    "card_id": "qun_guosi"
+                  }
+                },
+                "op": ">=",
+                "value": 1
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "note": "**8 费 5/5 武将（`elite`，`tags: [xi_liang]`）**：身体 10，基准 17，**−7**；〈纵兵劫掠〉＝战吼 敌方全体人物 −1 生命上限、自己 +N 上限（N=敌方人物数，5/9~5/13）；双方主公 1 回合「断粮 2」； 与郭汜同时在场时触发〈劫掠长安〉：抢敌方 2 张手牌并使其费用 −2。 **引擎**：`modify` 的 `health: -1`/`value_from` 数量、`apply_status duan_liang`、`steal_card`、 `cost_modifier` 全部现成；「同时在己方场上」用 `condition.count` + `filter.card_id` 判定。 **史料（A）**：《三国志》卷六/卷十 董卓传、贾诩传；「縱兵劫掠」是李傕/郭汜长安乱政的概括， 不得写李傕吃人/杀天子/被曹操杀；「断粮」映射长安饥荒，不是李傕本人断粮。\n",
+    "flavor": "縱兵劫掠，長安為之一空。"
+  },
+  {
+    "id": "qun_guosi",
+    "name": "郭汜",
+    "faction": "qun",
+    "type": "general",
+    "cost": 3,
+    "attack": 3,
+    "health": 4,
+    "rarity": "elite",
+    "tags": [
+      "xi_liang"
+    ],
+    "keywords": [],
+    "memo": "3 费 3/4：公卿尽质——2 张人物 +2 费；下回合敌方结束若手牌多于你则抢 1",
+    "gender": "male",
+    "skills": [
+      {
+        "id": "gong_qing_jin_zhi",
+        "name": "公卿尽质",
+        "kind": "trigger",
+        "trigger": "on_play",
+        "text": "战吼：随机扣押敌方手牌中 2 张【人物】牌，使其下回合费用 +2。敌方下个回合结束时，若其手牌多于你，随机夺取 1 张置入你的手牌。",
+        "effects": [
+          {
+            "action": "cost_modifier",
+            "value": 2,
+            "duration": 1,
+            "target": {
+              "side": "enemy",
+              "zone": "hand",
+              "filter": {
+                "type": "character"
+              },
+              "count": 2,
+              "mode": "random"
+            }
+          },
+          {
+            "action": "apply_status",
+            "status": "gong_qing_pending",
+            "duration": 2,
+            "target": {
+              "side": "enemy",
+              "lord": true
+            }
+          }
+        ]
+      },
+      {
+        "id": "gong_qing_jie_lue",
+        "name": "公卿劫掠",
+        "kind": "trigger",
+        "trigger": "turn_end",
+        "text": "敌方回合结束时，若其手牌多于你，随机夺取 1 张置入你的手牌。",
+        "condition": {
+          "count": {
+            "selector": {
+              "side": "enemy",
+              "lord": true,
+              "filter": {
+                "has_status": "gong_qing_pending"
+              }
+            },
+            "op": ">=",
+            "value": 1
+          }
+        },
+        "effects": [
+          {
+            "action": "steal_card",
+            "count": 1,
+            "target": {
+              "side": "enemy"
+            },
+            "condition": {
+              "count_vs": {
+                "left": {
+                  "side": "enemy",
+                  "zone": "hand"
+                },
+                "right": {
+                  "side": "ally",
+                  "zone": "hand"
+                },
+                "op": ">"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "jie_lue_chang_an_guo",
+        "name": "劫掠长安·郭",
+        "kind": "trigger",
+        "trigger": "on_play",
+        "text": "李傕与郭汜同时在己方场上时（第二人入场瞬间），随机夺取敌方 2 张手牌置入你的手牌，并使这两张牌统率消耗 −2。",
+        "effects": [
+          {
+            "action": "steal_card",
+            "count": 2,
+            "target": {
+              "side": "enemy"
+            },
+            "condition": {
+              "count": {
+                "selector": {
+                  "side": "ally",
+                  "filter": {
+                    "card_id": "qun_lijue"
+                  }
+                },
+                "op": ">=",
+                "value": 1
+              }
+            }
+          },
+          {
+            "action": "cost_modifier",
+            "value": -2,
+            "target": {
+              "side": "ally",
+              "zone": "hand",
+              "filter": {
+                "type": "character"
+              },
+              "count": 2,
+              "mode": "random"
+            },
+            "condition": {
+              "count": {
+                "selector": {
+                  "side": "ally",
+                  "filter": {
+                    "card_id": "qun_lijue"
+                  }
+                },
+                "op": ">=",
+                "value": 1
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "note": "**3 费 3/4 武将（`elite`，`tags: [xi_liang]`）**：身体 7，基准 7，**0**；〈公卿尽质〉＝随机扣押 敌方 2 张人物（下回合 +2 费）；敌方下个回合结束时若其手牌 > 你则抢 1；与李傕同时在场触发 〈劫掠长安〉：抢 2 张并 −2 费。 **引擎**：`cost_modifier`（+2, turns 1）、`gong_qing_pending` 标记、`turn_end` 条件、`steal_card`、 `condition.count` + `filter.card_id` 现成/新增一处标记状态。 **史料（A/B）**：李傕/郭汜「质公卿」；不得写郭汜绑架天子（天子在李傕手里）、郭汜杀公卿当正史、 「质」的对象是公卿/百官而不是百姓。\n",
+    "flavor": "質公卿，掠長安。"
+  },
+  {
+    "id": "qun_xuyou",
+    "name": "许攸",
+    "faction": "qun",
+    "type": "strategist",
+    "cost": 3,
+    "attack": 1,
+    "health": 3,
+    "rarity": "elite",
+    "tags": [
+      "yuan_shi"
+    ],
+    "keywords": [],
+    "memo": "3 费 1/3：恃旧不虔——己方手牌全 −1 费，但主公技被锁",
+    "gender": "male",
+    "skills": [
+      {
+        "id": "shi_jiu_bu_qian",
+        "name": "恃旧不虔",
+        "kind": "aura",
+        "text": "光环：许攸在场时，己方手牌中所有卡牌的统率消耗 −1，但己方主公无法使用主公技。",
+        "effects": [
+          {
+            "action": "cost_modifier",
+            "value": -1,
+            "target": {
+              "side": "ally",
+              "zone": "hand",
+              "count": "all"
+            }
+          },
+          {
+            "action": "apply_status",
+            "status": "jin_yan",
+            "duration": 99,
+            "target": {
+              "side": "ally",
+              "lord": true
+            }
+          }
+        ]
+      }
+    ],
+    "note": "**3 费 1/3 谋臣（`elite`，`tags: [yuan_shi]`）**：身体 4，基准 7，**−3**；〈恃旧不虔〉＝光环 己方手牌所有卡牌统率消耗 −1，但己方主公无法使用主公技（`jin_yan` = `block_lord_skill`）。 **引擎**：光环走 `recomputeAuras` 的 `applyEffects`（`auraId` 标记，每回合重算时先清后加）； `cost_modifier` + `apply_status` 均已实现，**无需新动作**。 **史料（A）**：《三国志·崔琰传》「南陽許攸，以恃舊不虔見誅」；**B**：裴注《魏略》「攸自恃勳勞， 每在席，不自限齊，曰：『卿不得我，不得冀州也！』」。 **不得写**：许攸背叛主公当正史（他的死是「恃旧不虔见诛」）、许攸是曹操的谋主（他是袁绍旧部、 后投曹操）、许攸出卖乌巢当「为了百姓」、许攸被许褚杀当正史（演义情节）。\n",
+    "flavor": "攸自恃勳勞，每在席，不自限齊，曰：「卿不得我，不得冀州也！」"
+  },
+  {
+    "id": "qun_zangba",
+    "name": "臧霸",
+    "faction": "qun",
+    "type": "general",
+    "cost": 4,
+    "attack": 3,
+    "health": 6,
+    "rarity": "elite",
+    "keywords": [
+      "jia_dun"
+    ],
+    "memo": "4 费 3/6 架盾：受击未死永久 +2 攻（只一次）",
+    "gender": "male",
+    "skills": [
+      {
+        "id": "tai_shan_pan_shi",
+        "name": "泰山磐石",
+        "kind": "trigger",
+        "trigger": "on_damaged",
+        "frequency": "once",
+        "text": "架盾。受到攻击且未阵亡时，臧霸永久 +2 攻击力。（只触发一次）",
+        "effects": [
+          {
+            "action": "modify",
+            "attack": 2,
+            "target": {
+              "source": true
+            }
+          }
+        ]
+      }
+    ],
+    "note": "**4 费 3/6 武将（`elite`，`keywords: [jia_dun]`）**：身体 9，基准 9，**0**； 〈泰山磐石〉＝受到攻击且未阵亡时永久 +2 攻击力，`frequency: once`（每局只触发一次）。 **引擎**：`on_damaged` 触发器 + `frequency: 'once'` 现成，零改动。 **史料（A）**：《三国志·臧霸传》「割青、徐二州，委之於霸……清定海岱，功莫大焉。」 **不得写**：臧霸是吕布义子、臧霸杀曹操、臧霸是泰山「贼首」（正史「亡命」后归正）、 「清定海岱」＝平定青徐（不是平定全国）。\n",
+    "flavor": "割青、徐二州，委之於霸……清定海岱，功莫大焉。"
+  },
+  {
+    "id": "qun_guotu",
+    "name": "郭图",
+    "faction": "qun",
+    "type": "strategist",
+    "cost": 2,
+    "attack": 1,
+    "health": 2,
+    "rarity": "common",
+    "keywords": [],
+    "memo": "2 费 1/2：急攻进谗——友方 +2 攻、本回合多打一次，回合结束阵亡；抽 1",
+    "gender": "male",
+    "skills": [
+      {
+        "id": "ji_gong_jin_chan",
+        "name": "急攻进谗",
+        "kind": "trigger",
+        "trigger": "on_play",
+        "text": "战吼：指定一名其他友方人物，使其获得 +2 攻击力，且本回合可额外攻击一次；该人物于本回合结束时阵亡。随后己方抽 1 张牌。",
+        "effects": [
+          {
+            "action": "modify",
+            "attack": 2,
+            "target": {
+              "side": "ally",
+              "filter": {
+                "type": "character",
+                "exclude_source": true
+              },
+              "count": 1,
+              "mode": "choose"
+            }
+          },
+          {
+            "action": "extra_attack",
+            "target": {
+              "side": "ally",
+              "filter": {
+                "type": "character",
+                "exclude_source": true
+              },
+              "count": 1,
+              "mode": "choose"
+            }
+          },
+          {
+            "action": "apply_status",
+            "status": "die_at_turn_end",
+            "target": {
+              "side": "ally",
+              "filter": {
+                "type": "character",
+                "exclude_source": true
+              },
+              "count": 1,
+              "mode": "choose"
+            }
+          },
+          {
+            "action": "draw",
+            "value": 1
+          }
+        ]
+      }
+    ],
+    "note": "**2 费 1/2 谋臣（`common`）**：身体 3，基准 5，**−2**；〈急攻进谗〉＝战吼指定一名其他友方人物： +2 攻击力 + 本回合**额外攻击一次**（已打过＝还能再打一次；没打过＝本回合能打两次）， 但该人物在**本回合结束时阵亡**；随后己方抽 1。定位是\"借刀\"——把一个人的最后一口气提前兑现成伤害。 **引擎**：`modify attack` / `extra_attack` / `apply_status: die_at_turn_end` / `draw` 全部现成。 `extra_attack` 语义按 ADR-192 修正（配额 −1，未攻击的单位可因此打两次；旧实现夹 0 拿不到收益）。 **史料（A/B）**：《三国志·魏书六·袁绍传》郭图为颍川人、袁绍谋士；裴注引《献帝传》记其劝袁绍 **不迎天子**（「若迎天子以自近，動輒表聞，從之則權輕，違之則拒命，非計之善者也」）； 官渡后谮张郃（《张郃传》「郭图惭其计之失，又谮郃曰……郃惧，乃归太祖」）；袁绍死后辅袁谭， 建安十年曹操破南皮，袁谭、郭图皆死。 **不得写**：郭图是袁绍的义子或主公、郭图献计火烧乌巢（那是许攸叛降后曹操自决）、 郭图在官渡战死、郭图劝袁绍称帝、郭图是河北派（他是**颍川派**，与审配/逢纪对立）。\n",
+    "flavor": "若迎天子以自近，動輒表聞，從之則權輕，違之則拒命，非計之善者也。"
+  },
+  {
+    "id": "qun_shenpei",
+    "name": "审配",
+    "faction": "qun",
+    "type": "strategist",
+    "cost": 7,
+    "attack": 1,
+    "health": 6,
+    "rarity": "elite",
+    "keywords": [],
+    "memo": "7 费 1/6：主公 +4 护甲；友军 +2 生命与架盾；受伤反击敌方主公与随机敌人各 3",
+    "gender": "male",
+    "skills": [
+      {
+        "id": "shen_zhu_nei_qian",
+        "name": "深筑内堑",
+        "kind": "trigger",
+        "trigger": "on_play",
+        "text": "战吼：使己方主公获得 4 点护甲。",
+        "effects": [
+          {
+            "action": "gain_armor",
+            "value": 4
+          }
+        ]
+      },
+      {
+        "id": "shen_zhu_nei_qian_aura",
+        "name": "深筑内堑·壁垒",
+        "kind": "aura",
+        "text": "审配在场时，己方场上所有其他人物获得 +2 生命与「架盾」。",
+        "effects": [
+          {
+            "action": "modify",
+            "health": 2,
+            "target": {
+              "side": "ally",
+              "filter": {
+                "type": "character",
+                "exclude_source": true
+              },
+              "count": "all"
+            }
+          },
+          {
+            "action": "apply_status",
+            "status": "jia_dun_status",
+            "target": {
+              "side": "ally",
+              "filter": {
+                "type": "character",
+                "exclude_source": true,
+                "without_status": "jia_dun_status"
+              },
+              "count": "all"
+            }
+          }
+        ]
+      },
+      {
+        "id": "shen_zhu_nei_qian_retal",
+        "name": "深筑内堑·死守",
+        "kind": "trigger",
+        "trigger": "on_damaged",
+        "text": "每当审配受到伤害时，对敌方主公与随机 1 名敌方人物各造成 3 点伤害。",
+        "effects": [
+          {
+            "action": "damage",
+            "value": 3,
+            "target": {
+              "side": "enemy",
+              "lord": true
+            }
+          },
+          {
+            "action": "damage",
+            "value": 3,
+            "target": {
+              "side": "enemy",
+              "filter": {
+                "type": "character",
+                "include_lord": false
+              },
+              "count": 1,
+              "mode": "random"
+            }
+          }
+        ]
+      }
+    ],
+    "note": "**7 费 1/6 谋臣（`elite`）**：身体 7，基准 15，**−8**，换 4 点主公护甲 + 全场友军 +2 生命/架盾 + 受击反击（敌方主公与随机 1 名敌方人物各 3）。定位是\"河北的城墙\"：越拖越难拆。 **引擎**：`gain_armor`（走 `ctx.side`，天然是本方主公）/ `kind: aura`＋`modify health`＋`apply_status: jia_dun_status` （向宠「行阵和睦」同款） / `damage`（含 `lord: true` 与 `mode: random`）全部现成； 光环补架盾的目标加了新过滤 `without_status: jia_dun_status`（ADR-192）， **只给还没有架盾的人补**——否则 `applyStatus` 会给原生架盾条目标上 `auraId`，审配一死就把别人的架盾一起清掉。 ⚠️ **口径**：「受到伤害」沿用引擎既有定义 = **受伤且未阵亡**（与黄祖「顽强」、臧霸「泰山磐石」同）， 致命伤害不触发反击。 **史料（A/B）**：《三国志·魏书六·袁绍传》：审配字正南，魏郡人，**河北派**；守邺城至城破， 「配意氣壯烈，終無撓辭，見者莫不嘆息。遂斬之」；与许攸有隙（许攸叛）；杀辛毗家眷（《辛毗传》，B）。 **不得写**：审配是袁绍的义子或主公、审配献计火烧乌巢、审配降曹、审配守的是官渡（他守**邺城**）、 审配是颍川派（他是**河北派**）。\n",
+    "flavor": "配意氣壯烈，終無撓辭，見者莫不嘆息。"
   }
 ]

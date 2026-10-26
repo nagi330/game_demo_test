@@ -66,7 +66,7 @@ import {
   runCardPlayedTriggers, runEffects, runTriggerSkills, runUnitTrigger, runAllyUpgradeTriggers,
 } from './effects.ts';
 import type {
-  Action, ApplyResult, CardDef, CardEffect, EngineContext, GameEvent, MatchState, Row, Side,
+  Action, ApplyResult, CardDef, CardEffect, EngineContext, GameEvent, HandCard, MatchState, Row, Side,
   TargetSelector, Unit,
 } from './types.ts';
 
@@ -223,6 +223,14 @@ function chooseDiscover(
     costModifier: totalCost || undefined,
     destination: pending.destination ?? 'hand',
   });
+  // ADR-194：田丰「举杖击地」——给发现的牌打标记，回合结束检查是否还在手牌
+  const markUnplayed = (hc: HandCard): void => {
+    if (!pending.unplayedPenalty || (pending.destination ?? 'hand') !== 'hand') return;
+    const markId = `unplayed#${nextUidSeq(state)}`;
+    hc.mods.push({ id: markId, kind: 'cost', value: 0 });
+    state.pendingUnplayed = { side: pending.side, cardId: hc.card.id, markId, damage: pending.unplayedPenalty.damage };
+  };
+
   const picks = pending.picks ?? 1;
   const morePicks = picks > 1 && pending.candidates.length > 1;
   if (morePicks) {
@@ -269,7 +277,10 @@ function chooseDiscover(
     if (tagCost) mods.push({ id: 'discover-tag-cost', kind: 'cost' as const, value: tagCost });
     if (tagAttack) mods.push({ id: 'discover-tag-attack', kind: 'attack' as const, value: tagAttack });
     if (tagHealth) mods.push({ id: 'discover-tag-health', kind: 'health' as const, value: tagHealth });
-    state.sides[pending.side].hand.push({ card, mods });
+    const hc: HandCard = { card, mods };
+    state.sides[pending.side].hand.push(hc);
+    // ADR-194：田丰发现牌的上车标记
+    markUnplayed(hc);
     if (pending.banChoice) {
       const handIndex = state.sides[pending.side].hand.length - 1;
       state.sides[pending.side].hand[handIndex]!.mods.push({
@@ -754,6 +765,29 @@ function startTurn(state: MatchState, ctx: EngineContext, events: GameEvent[], r
   runTriggerSkills(state, ctx.cards, other(side), TIMING.ENEMY_TURN_START, rng, events);
 }
 
+/**
+ * ADR-194：田丰「举杖击地」的回合结束结算。
+ *
+ * 发现时给那张牌打了 `markId`；这里检查它是否还在这方手牌里 —— 还在，说明本回合没打出，
+ * 弃掉并对其**敌方全体人物**各造成 `damage` 点伤害；已打出（手牌里没标记）则无事发生。
+ */
+function resolvePendingUnplayed(state: MatchState, ctx: EngineContext, events: GameEvent[]): void {
+  const p = state.pendingUnplayed;
+  if (!p) return;
+  delete state.pendingUnplayed;
+  const hand = state.sides[p.side].hand;
+  const idx = hand.findIndex((hc) => hc.mods.some((m) => m.id === p.markId));
+  if (idx < 0) return;
+  const [hc] = hand.splice(idx, 1);
+  if (!hc) return;
+  state.sides[p.side].discard.push(hc.card);
+  events.push({ type: 'CARD_DISCARDED', side: p.side, card: hc.card });
+  for (const ref of allUnits(state, other(p.side))) {
+    if (ref.unit.hp <= 0) continue;
+    dealDamage(state, ctx.cards, unitRef(ref.side, ref.row, ref.col), p.damage, events, '举杖击地');
+  }
+}
+
 /** 结算当前行动方的回合结束（第 20~23 步），**不**换手、不开始新回合 */
 function finishTurn(state: MatchState, ctx: EngineContext, events: GameEvent[], rng: ReturnType<typeof createRng>): void {
   const side = state.active;
@@ -767,6 +801,7 @@ function finishTurn(state: MatchState, ctx: EngineContext, events: GameEvent[], 
       killUnit(state, ctx.cards, ref, events, null);
     }
   }
+  resolvePendingUnplayed(state, ctx, events);                                 // ADR-194：田丰「举杖击地」
   // 盾兵在敌方回合结束时仍存活，记录一次独立升变进度。
   for (const ref of allUnits(state, other(side))) {
     if (ref.unit.troopKind === 'shield' && isBasicTroop(ref.unit) && ref.unit.hp > 0) {
@@ -865,6 +900,10 @@ function playCard(
 
   if (isCharacter && slot) {
     const u = makeUnit(card, state.turn, nextUidSeq(state));
+    // ADR-197：手牌/牌库层面的关键词授予（公孙瓒「白马义从」）——出场即带
+    for (const kw of state.sides[side].cardKeywords?.[card.id] ?? []) {
+      if (!u.kw.includes(kw)) u.kw.push(kw);
+    }
     // 手牌数值修正（ADR-141）：打出时**一次性结算到单位身上**
     //   · 光环施加的（`auraId` 有值）在打出前已随 `recomputeAuras` 清掉，不会带进场 —— 符合预期：
     //     孟获在场上时手牌里的蛮族 +2/+2，打出去的瞬间孟获的光环就不再罩着它了；
@@ -914,20 +953,23 @@ function playCard(
     }
     // 时机表第 7 步：入场后光环重算（ADR-037）
     recomputeAuras(state, ctx.cards, rng, events);
-    runCardPlayedTriggers(state, ctx.cards, card, rng, events, side, playedRightmost);   // ADR-041
+    // ADR-200：把刚打出的单位坐标一并传入（黄祖「暗箭」要指向它）
+    runCardPlayedTriggers(state, ctx.cards, card, rng, events, side, playedRightmost,
+      unitRef(side, slot.row, slot.col));   // ADR-041
     recomputeAuras(state, ctx.cards, rng, events);
   } else {
-    // 非人物卡：通常执行卡牌级 effects；带 modes 的 on_play 技能则按出牌时
-    // 的 modeIndex 执行所选分支（战法「虎豹突袭」等抉择战法）。
+    // 非人物卡：先跑 `on_play` 技能（特殊卡如三张「符水」，ADR-187；带 modes 的按 modeIndex 选分支），
+    // 再跑卡级 effects。
     const chosen: TargetRef | undefined = action.target
       ? action.target.row !== undefined
         ? unitRef(action.target.side, action.target.row, action.target.col as number)
         : lordRef(action.target.side)
       : undefined;
-    const modeSkills = (card.skills ?? []).filter((sk) => sk.trigger === 'on_play' && sk.modes?.length);
-    for (const sk of modeSkills) {
+    const onPlay = (card.skills ?? []).filter((sk) => sk.trigger === 'on_play');
+    for (const sk of onPlay) {
+      emitSkillTriggered(state, side, null, sk, 'on_play', events);
       runEffects(state, ctx.cards, effectsOf(sk, action.modeIndex),
-        { side, chosen, modeIndex: action.modeIndex }, rng, events);
+        { side, chosen, handIndex: action.handIndex, modeIndex: action.modeIndex }, rng, events);
     }
     runEffects(state, ctx.cards, card.effects, { side, chosen }, rng, events);
     s.discard.push(card);

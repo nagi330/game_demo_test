@@ -349,49 +349,6 @@ test('ADR-075：陈到确实从 pending 名单里出来了（防"测试读错文
    张宝 / 张梁「黄天当立」：按 card_id 精确判「谁在场」
    ============================================================ */
 
-test('ADR-074 张宝：与张梁同场 → 2 个黄巾兵；三兄弟齐全 → 共 4 个', () => {
-  realCard('qun_zhangbao');
-  realCard('qun_zhangliang');
-  realCard('qun_zhangjiao');
-
-  // ① 只有张梁
-  const a = scenario({ ownHand: ['qun_zhangbao'], own: { front: [null, 'qun_zhangliang'] } });
-  const ra = applyAction(a.state, a.ctx, { type: 'PLAY_CARD', cardIndex: 0, row: 'front', col: 0 });
-  assert.ok(ra.ok, `打出应成功：${ra.error}`);
-  assert.equal(tokens(ra.events), 2, '与张梁同场 → 2 个');
-
-  // ② 三兄弟齐全
-  const b = scenario({ ownHand: ['qun_zhangbao'], own: { front: [null, 'qun_zhangliang', 'qun_zhangjiao'] } });
-  const rb = applyAction(b.state, b.ctx, { type: 'PLAY_CARD', cardIndex: 0, row: 'front', col: 0 });
-  assert.ok(rb.ok, `打出应成功：${rb.error}`);
-  assert.equal(tokens(rb.events), 4, '三兄弟齐全 → 共 4 个');
-});
-
-test('ADR-074 张宝：只有黄巾标签的兵在场**不算**张梁（原先的宽条件会误触发）', () => {
-  realCard('qun_zhangbao');
-  realCard('token_huangjin_bing');
-  const { state, ctx } = scenario({ ownHand: ['qun_zhangbao'], own: { front: [null, 'token_huangjin_bing'] } });
-  const r = applyAction(state, ctx, { type: 'PLAY_CARD', cardIndex: 0, row: 'front', col: 0 });
-  assert.ok(r.ok, `打出应成功：${r.error}`);
-  assert.equal(tokens(r.events), 0, '场上只有黄巾兵（不是张梁）→ 不该召唤');
-});
-
-test('ADR-074 张梁：与张宝同场 → 2 个；三兄弟齐全 → 共 4 个', () => {
-  realCard('qun_zhangliang');
-  realCard('qun_zhangbao');
-  realCard('qun_zhangjiao');
-
-  const a = scenario({ ownHand: ['qun_zhangliang'], own: { front: [null, 'qun_zhangbao'] } });
-  const ra = applyAction(a.state, a.ctx, { type: 'PLAY_CARD', cardIndex: 0, row: 'front', col: 0 });
-  assert.ok(ra.ok, `打出应成功：${ra.error}`);
-  assert.equal(tokens(ra.events), 2);
-
-  const b = scenario({ ownHand: ['qun_zhangliang'], own: { front: [null, 'qun_zhangbao', 'qun_zhangjiao'] } });
-  const rb = applyAction(b.state, b.ctx, { type: 'PLAY_CARD', cardIndex: 0, row: 'front', col: 0 });
-  assert.ok(rb.ok, `打出应成功：${rb.error}`);
-  assert.equal(tokens(rb.events), 4);
-});
-
 /* ============================================================
    任何条件：all_of / any_of 的语义
    ============================================================ */
@@ -446,7 +403,7 @@ test('ADR-074：战吼会产生 SKILL_TRIGGERED（带技能名/时机/来源）'
   assert.ok(r.ok, `${r.error}`);
   const ev = r.events.find((e) => e.type === 'SKILL_TRIGGERED') as Extract<GameEvent, { type: 'SKILL_TRIGGERED' }>;
   assert.ok(ev, '应发 SKILL_TRIGGERED');
-  assert.equal(ev.skillName, '水攻');
+  assert.equal(ev.skillName, '督水');
   assert.equal(ev.from, 'on_play');
   assert.equal(ev.kind, 'trigger');
   assert.equal(ev.unitName, '蔡瑁');
@@ -454,10 +411,10 @@ test('ADR-074：战吼会产生 SKILL_TRIGGERED（带技能名/时机/来源）'
   assert.equal(ev.col, 0, '应带上坐标，客户端才能把提示画在卡上');
 });
 
-test('ADR-074：触发技 / 光环 / 主动技 / 主公技都发 SKILL_TRIGGERED', () => {
-  // 触发技：张角 turn_end
-  realCard('qun_zhangjiao');
-  const zj = scenario({ own: { front: ['qun_zhangjiao'] } });
+test('ADR-074：触发技 / 光环 / 主公技都发 SKILL_TRIGGERED', () => {
+  // 触发技：华佗 turn_end（麻沸济世·济世）
+  realCard('qun_huatuo');
+  const zj = scenario({ own: { front: ['qun_huatuo'] } });
   const rz = applyAction(zj.state, zj.ctx, { type: 'END_TURN' });
   assert.ok(rz.events.some((e) => e.type === 'SKILL_TRIGGERED' && e.timing === 'turn_end'),
     'turn_end 触发技应发事件');
@@ -470,16 +427,6 @@ test('ADR-074：触发技 / 光环 / 主动技 / 主公技都发 SKILL_TRIGGERED
   assert.ok(rh.events.some((e) => e.type === 'SKILL_TRIGGERED' && e.kind === 'aura'),
     '光环重算应发事件');
 
-  // 主动技：华佗「医圣」（ADR-148：不再弃牌，改直接治疗）
-  realCard('qun_huatuo');
-  const ht = scenario({ own: { front: ['qun_huatuo'] }, ownHand: ['neutral_infantry'] });
-  setUnit(ht.state, 'own', 'front', 1, mk('patient', 1, 5, 'shu'));
-  const rt = applyAction(ht.state, ht.ctx, {
-    type: 'USE_SKILL', row: 'front', col: 0, target: { side: 'own', row: 'front', col: 1 },
-  });
-  assert.ok(rt.ok, `${rt.error}`);
-  assert.ok(rt.events.some((e) => e.type === 'SKILL_TRIGGERED' && e.from === 'active'),
-    '主动技应发事件');
 
   // 主公技：刘备「仁德」
   const lk = scenario({ ownHand: ['neutral_infantry'] });

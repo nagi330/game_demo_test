@@ -61,6 +61,24 @@ export interface EffectCondition {
    */
   chosen_damaged?: boolean;
   /**
+   * 所选目标**是否已阵亡/已不在场**（ADR-179，吕布「一骑当千」）。
+   *
+   * 与 `chosen_damaged` 的区别：`chosen_damaged` 是**技能开始时**的快照（黄忠），
+   * 本条件读的是**求值时**的当前状态 —— 必须放在伤害效果**之后**才有意义。
+   * 单位看 `getUnit` 是否为空或 `hp <= 0`；主将看 `lord.hp <= 0`。
+   */
+  chosen_dead?: boolean;
+  /**
+   * 所选目标**当前攻击力 ≤ N**（ADR-182，李儒「鸩酒」＝先削攻再下毒）。
+   *
+   * 与 `chosen_damaged`/`chosen_dead` 同一套读法（读 `ctx.chosen`），但读的是
+   * **求值时**的 `atk` —— 必须排在 `modify`（削攻）**之后**，才表示“削攻后的攻击力”。
+   * 只判场上单位；主将/手牌返回 false。
+   */
+  chosen_attack_max?: number;
+  /** ADR-191：所选目标**当前攻击力 ≥ N**（宋宪「白门盗戟」＝目标攻 ≥4 才加攻）。读 `ctx.chosen` 求值时的 atk。 */
+  chosen_attack_min?: number;
+  /**
    * **某张卡本局是否已经阵亡过**（ADR-160，姜维「复汉」公开判胜技）——读 `SideState.fallen`。
    *
    * ```yaml
@@ -95,6 +113,11 @@ export interface EffectCondition {
   chosen_health?: { op: CompareOp; value: number };
   /** 牌库中带指定标签的牌数量条件（司马昭「司马之心」）。 */
   deck_tag?: { tag: string; op: CompareOp; value: number };
+  /**
+   * ADR-200：某一方主公是否持有指定状态（黄祖「暗箭」＝敌方主公头顶的标记还在不在）。
+   * 这是「公开标记」的唯一真源：标记在，触发；触发时移除；黄祖阵亡也移除。
+   */
+  lord_status?: { side: 'self' | 'enemy'; status: string };
   /** 本次普通攻击的目标类别或固有关键词。 */
   attack_target?: { type?: CardType | 'character' | 'lord'; keyword?: string; damaged?: boolean; has_status?: string };
   /**
@@ -143,6 +166,11 @@ export interface CardEffect {
     type?: string;
     /** 允许的阵营（缺省 = 不限） */
     factions?: string[];
+    /**
+     * 指定卡 id 列表（ADR-181，袁术「传国玉玺」3 选 2）：
+     * 给出时**只**在这些卡里选，忽略 `type`/`factions`；卡表里查无的 id 直接跳过。
+     */
+    cards?: string[];
   };
   /** clash 专用：平局不视为失败，不执行胜负分支（周瑜「反间计」） */
   tie_is_neutral?: boolean;
@@ -164,9 +192,16 @@ export interface CardEffect {
   value_from_source?: 'attack' | 'health';    // 取来源单位当前攻/血作为数值
   /** 取最近一次 clash 指定目标在拼点前的攻击力（周瑜「反间计」） */
   value_from_clash_target?: 'attack';
+  /** ADR-189：取**选定目标**的当前攻击力作为数值（张绣「盗戟夜袭」） */
+  value_from_chosen?: 'attack';
   value_from_status?: string;                  // 取来源单位身上某状态的层数
-  /** summon 专用：按选择器命中数量决定召唤数量。 */
-  count_from?: TargetSelector;
+  /**
+   * 两种形状，运行时分派（见 effects.ts 的 `isCommandRepeat`）：
+   *   ① 选择器 —— `summon` 专用：按命中数量决定召唤数量（辎车「数敌方骑兵」）；
+   *   ② `{ resource: 'command', divisor, max }` —— 动态重复次数（ADR-183，沮授「缓师蓄粮」），
+   *      作用于 `damage` / `heal` / `draw`。
+   */
+  count_from?: TargetSelector | { resource: 'command'; divisor: number; max: number };
   damage_type?: DamageType;       // damage 专用：水攻/火攻/毒攻伤害（缺省 physical，见 DamageType）
   /**
    * gain_command 专用（ADR-139，蒋琬「足食」）：**永久提升统率上限**而不只是本回合可用值。
@@ -187,7 +222,14 @@ export interface CardEffect {
   minimum_hp?: number;            // 伤害后目标至少保留的生命值
   roll_id?: string;               // roll 动作写入的结果标识
   copy_source_stats?: boolean;    // summon：复制来源当前攻血，不复制技能或状态
-  discover_to?: 'hand' | 'deck_top'; // discover 专用：选择后进手牌或牌库顶
+  discover_to?: 'hand' | 'deck_top';
+  /** ADR-197（`grant_card_keyword`）：要授予的关键词（如 `xian_gong`） */
+  keyword?: string;
+  /**
+   * ADR-194（田丰「举杖击地」）：发现牌若**本回合未打出**，回合结束时弃掉并对敌方全体人物
+   * 各造成 `damage` 点伤害。`discover` 专用——发现时给该牌打标记，回合结束检查标记是否还在手牌。
+   */
+  unplayed_penalty?: { damage: number }; // discover 专用：选择后进手牌或牌库顶
   /** ADR-178：数值取「刚被打出的那张牌」的属性（目前只支持 `cost`），配合 `on_card_played` 触发器 */
   value_from_played?: 'cost';
   /** ADR-178：discover 要选几张（缺省 1） */
@@ -229,7 +271,15 @@ export interface CardEffect {
   duration?: string | number;
   unit?: string;                 // summon 的召唤物 id；scry 的 'top' | 'bottom'
   units?: string[];              // summon_random 的候选召唤物
+  /** deploy_from_deck 召唤后赋予的关键词（ADR-186，何进「诏召猛将」＝先攻） */
+  grant_keyword?: string;
   count?: number;
+  /**
+   * 动态重复次数（ADR-183，沮授「缓师蓄粮」）：每 `divisor` 点未使用的统率重复 1 次，封顶 `max`。
+   *
+   * 目前只支持 `resource: 'command'` —— 读 `state.sides[ctx.side].command.cur`（回合结束时
+   * 就是“未使用的统率”）。作用于 `draw` / `heal` / `damage`；缺省时退回 `count ?? 1`。
+   */
   position?: string;
   to?: 'hand' | 'deck_top' | 'deck_bottom' | 'discard' | 'board';   // scry/steal 的落点
   // transform：进化目标卡 id（写在 to 上，与 scry 的落点区分由 action 决定）
@@ -265,6 +315,16 @@ export interface CardEffect {
   attack_side?: 'own' | 'foe';
   /** force_attack 专用：被攻击者怎么挑（缺省 `'random'`；草船借箭要「血量最高」） */
   victim_mode?: 'random' | 'highest_health';
+  /**
+   * `scheme_duel` 专用（ADR-180，王允「密谋诛恶」）：交锋后是否触发“王允阵亡 + 主公受伤”。
+   * `'any'`（缺省）= 两名目标中**至少一名**存活；`'both'` = **两名都存活**。
+   * ⚠️ 普通攻击后至少一方会活着，所以 `'any'` 的惩罚几乎必触发；设计者要“赌一个都没死”时用 `'both'`。
+   */
+  survivor_condition?: 'any' | 'both';
+  /** `scheme_duel` 专用：触发时王允是否阵亡（缺省 true）。 */
+  self_destruct?: boolean;
+  /** `scheme_duel` 专用：己方主公受到的伤害（缺省 `'max_attack'` = 存活目标中最高攻击）。 */
+  lord_damage?: 'max_attack' | number;
   /**
    * apply_status 专用（ADR-087）：被标记者**阵亡时由施法方结算**的效果。
    *
@@ -303,6 +363,11 @@ export interface TargetSelector {
   attack_target?: boolean;
   /** 本次事件里的另一方单位（华雄亡语：使**击杀者**获得 +1/+1，ADR-070） */
   event?: 'killer' | 'victim' | 'attacker' | 'upgraded';
+  /**
+   * ADR-200：目标＝「本次 on_card_played 触发里刚被打出的那个单位」（黄祖「暗箭」）。
+   * 与 `event` 同源，读 `ctx.playedUnitRef`；非出牌语境取不到 → 空池（效果自然跳过）。
+   */
+  played?: boolean;
   lord?: boolean;                // true = 选该方主帅（ADR-036）
   /**
    * 取玩家的第几个选择（ADR-071，程昱「审时度势」需要同时指定「牺牲谁」与「治疗谁」）。
@@ -311,6 +376,11 @@ export interface TargetSelector {
    * 未提供时退回「合法池取前 N 个」，供 AI 与测试兜底。
    */
   pick?: 1 | 2;
+  /**
+   * 池内排序取第 1 个（ADR-188，陶谦「三让徐州」：手牌里**统率消耗最高**的 1 张武将）。
+   * 目前只实现 `'highest_cost'`；未指定时保持原顺序（手牌从左到右）。
+   */
+  select?: 'highest_cost';
   filter?: {
     type?: CardType | 'character';
     types?: CardType[];
@@ -322,6 +392,8 @@ export interface TargetSelector {
     lane?: number;
     row?: Row;
     health_max?: number;
+    /** 生命值下限（绝对，含）——ADR-193：蔡文姬「悲愤成诗」的随机目标必须排除刚被打死的单位（hp 0 仍在场） */
+    hp_min?: number;
     damaged?: boolean;          // true=低于生命上限；false=**毫发无伤**（越骑「厉志」用）
     damaged_or_controlled?: boolean; // 受伤或带行动控制状态（陈泰「援军解围」）
     attacked_this_turn?: boolean;
@@ -335,6 +407,8 @@ export interface TargetSelector {
     damage_type?: DamageType;      // 发现/卡牌筛选：效果伤害属性
   troopKind?: 'infantry' | 'shield' | 'cavalry' | 'archer';   // 兵种（进化卡按兵种选目标，ADR-042）
     has_status?: string;
+    /** 不持有某状态（ADR-192，审配「深筑内堑」：只给还没「架盾」的人补，避免覆盖原生架盾） */
+    without_status?: string;
     adjacent_to?: 'self' | 'chosen' | 'killer'; // 来源、选定目标或击杀者的相邻单位
     offset_from_chosen?: number;   // 已选目标右侧固定格偏移，空格不压缩距离
     /** 排除来源单位自身（ADR-071，陆抗「手里**或**场上友方将领」：不能复制自己） */
@@ -366,6 +440,11 @@ export interface SkillDef {
   /** 第二个选择器，供需要同时指定来源与空位的主动技使用（如张郃「巧变」）。 */
   target2?: TargetSelector;
   same_side?: boolean;
+  /**
+   * ADR-200：`on_card_played` 只在「哪一方打出」时触发。
+   * `'enemy'` = 只有对手打出的牌才触发（黄祖「暗箭」）；`'ally'` = 只有己方；缺省 any。
+   */
+  played_by?: 'enemy' | 'ally' | 'any';
   played_rightmost?: boolean;
   requires?: {
     deck_tag?: { tag: string; op: CompareOp; value: number };
@@ -594,6 +673,8 @@ export interface Lord {
 }
 
 export interface SideState {
+  /** ADR-197：本局给「某张卡」在手牌/牌库层面永久授予的关键词（出场时叠加到单位 kw） */
+  cardKeywords?: Record<string, string[]>;
   lord: Lord;
   rows: { front: Array<Unit | null>; back: Array<Unit | null> };
   hand: HandCard[];
@@ -650,7 +731,14 @@ export interface MatchState {
     unselectedCandidates?: string[];
     unselectedTo?: 'deck_top';
     banChoice?: boolean;
+    /** ADR-194：本回合未打出的惩罚（田丰「举杖击地」） */
+    unplayedPenalty?: { damage: number };
   };
+  /**
+   * ADR-194：田丰「举杖击地」的待结算项 —— 发现并入手的那张牌带 `markId` 标记；
+   * 回合结束时若它还在这方手牌里，弃掉并对**该方敌人**全体人物各造成 `damage` 点伤害。
+   */
+  pendingUnplayed?: { side: Side; cardId: string; markId: string; damage: number };
   /** 发现流程暂停时，等待继续结算的同一时机触发技队列。 */
   pendingTriggerSkills?: { side: Side; trigger: string; nextIndex: number };
   /**

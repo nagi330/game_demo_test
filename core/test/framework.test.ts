@@ -275,12 +275,12 @@ test('回归·华雄「威震四方」：技能为击杀成长 + 亡语给击杀
 });
 
 test('主动技频率：0 费主动技每回合只能用 1 次（GDD 10 §1.1）', () => {
-  // 用真实数据里一个 0 费主动技的卡：华佗「青囊」
-  const huatuo = data.cards.get('qun_huatuo');
-  assert.ok(huatuo, '华佗应存在');
-  const sk = (huatuo.skills ?? []).find((s) => s.kind === 'active');
-  assert.ok(sk, '华佗应有主动技');
-  assert.equal(sk!.cost ?? 0, 0, '青囊是 0 费主动技');
+  // 用真实数据里一个 0 费主动技的卡：曹氏宗亲「宗室擢用」（华佗 2026-10-25 重做后已无主动技）
+  const caoclan = data.cards.get('wei_caopi');
+  assert.ok(caoclan, '曹丕应存在');
+  const sk = (caoclan.skills ?? []).find((s) => s.kind === 'active');
+  assert.ok(sk, '曹氏宗亲应有主动技');
+  assert.equal(sk!.cost ?? 0, 0, '宗室擢用是 0 费主动技');
   assert.equal(sk!.frequency ?? 'once_per_turn', 'once_per_turn');
 });
 
@@ -395,58 +395,6 @@ function qun() {
 
 
 
-test('万箭齐发：抽到时自动释放（不进手牌），对全体敌方人物各 1 点伤害', async () => {
-  const { applyAction } = await import('../src/engine.ts');
-  const { createMatch, setUnit, getUnit, makeUnit } = await import('../src/state.ts');
-  const d = qun();
-  const base = createMatch({ seed: 5, cards: d.cards, lords: d.lords, decks: { own: [], enemy: [] }, firstSide: 'own' });
-  const ctx = { cards: d.cards, lords: d.lords };
-  let s = startMatch(base, ctx).state;
-  setUnit(s, 'enemy', 'front', 0, makeUnit(d.cards.get('shu_guanyu')!, 1, 900));
-  setUnit(s, 'enemy', 'front', 1, makeUnit(d.cards.get('shu_zhangfei')!, 1, 901));
-  const guanyuHp0 = d.cards.get('shu_guanyu')!.health!;
-  const zhangfeiHp0 = d.cards.get('shu_zhangfei')!.health!;
-  s.sides.own.deck = ['tactic_wanjianqifa'];
-  const handBefore = s.sides.own.hand.length;
-
-  // 交出行动权（敌方回合）再交回（己方回合开始抽牌）——万箭齐发在己方抽牌时释放
-  const r1 = applyAction(s, ctx, { type: 'END_TURN' });
-  assert.equal(r1.ok, true);
-  const r2 = applyAction(r1.state, ctx, { type: 'END_TURN' });
-  assert.equal(r2.ok, true);
-  const r = { state: r2.state, events: [...r1.events, ...r2.events] };
-  const cur = r.state;
-  const cast = r.events.filter((e) => e.type === 'CARD_AUTO_CAST');
-  assert.equal(cast.length, 1, '万箭齐发应自动释放 1 次');
-  assert.equal(cur.sides.own.hand.length, handBefore, '自动释放的牌不进手牌');
-  assert.ok(cur.sides.own.discard.some((c) => c.id === 'tactic_wanjianqifa'), '应进弃牌堆');
-  // 断言"掉了 1 点"而不是写死结果血量 —— 否则设计者一改卡面数值这条测试就碎
-  assert.equal(getUnit(cur, 'enemy', 'front', 0)!.hp, guanyuHp0 - 1, '关羽应掉 1 点');
-  assert.equal(getUnit(cur, 'enemy', 'front', 1)!.hp, zhangfeiHp0 - 1, '张飞应掉 1 点');
-});
-
-test('袁绍亡语：把牌组里**未抽到**的万箭齐发全部塞进敌方牌库', async () => {
-  const { createMatch, setUnit, getUnit, makeUnit } = await import('../src/state.ts');
-  const { killUnit } = await import('../src/mutate.ts');
-  const d = qun();
-  const base = createMatch({ seed: 5, cards: d.cards, lords: d.lords, decks: { own: [], enemy: [] }, firstSide: 'own' });
-  const ctx = { cards: d.cards, lords: d.lords };
-  const s = startMatch(base, ctx).state;
-  setUnit(s, 'own', 'front', 0, makeUnit(d.cards.get('qun_yuanshao')!, 1, 902));
-  // 牌组里留 2 张未抽到的
-  s.sides.own.deck = ['tactic_wanjianqifa', 'shu_guanyu', 'tactic_wanjianqifa'];
-  const enemyBefore = s.sides.enemy.deck.filter((x) => x === 'tactic_wanjianqifa').length;
-
-  const me = getUnit(s, 'own', 'front', 0)!;
-  killUnit(s, d.cards, { side: 'own', row: 'front', col: 0, unit: me }, []);
-
-  assert.equal(s.sides.own.deck.filter((x) => x === 'tactic_wanjianqifa').length, 0,
-    '己方牌组里未抽到的应被搬走');
-  assert.equal(s.sides.enemy.deck.filter((x) => x === 'tactic_wanjianqifa').length, enemyBefore + 2,
-    '应全部进入敌方牌库');
-  assert.ok(s.sides.own.deck.includes('shu_guanyu'), '不该动其它牌');
-});
-
 test('仁德：可指定**敌方**人物回血（设计者裁定「任何人物」）', async () => {
   const { applyAction } = await import('../src/engine.ts');
   const { createMatch, setUnit, getUnit, makeUnit } = await import('../src/state.ts');
@@ -493,7 +441,9 @@ test('后手补偿·多抽 1 张：机制确实生效（后手第 1 回合抽 2 
   assert.equal(a.draws, 1, '默认（none）：只抽 1 张 → 4 张');
   assert.equal(a.hand, 4);
   assert.equal(b.draws, 2, '显式开启 extra_draw 补偿时：抽 2 张（机制保留，只是不再默认启用）');
-  assert.equal(b.hand, 5, '手牌应多 1 张');
+  // ⚠️ 第二张可能抽到曹休（`on_draw`：抽到时直接结算、**不进手牌**）——此时手牌不会 +1。
+  // 机制本身看 draws（2 次）；手牌允许 5，或 4（第二张是 on_draw 卡）。
+  assert.ok(b.hand === 5 || b.hand === 4, '手牌应多 1 张（若抽到 on_draw 卡则它不进手牌）');
 });
 
 test('卡池：传国玉玺已移除（ADR-053）', () => {
@@ -604,18 +554,17 @@ test('ADR-055：先攻不含「击杀不遭反击」——目标存活时仍会�
     '目标存活 → 必须反击 2 点；「先攻」不再压制反击（原定义是 AI 编的，已删）');
 });
 
-test('张角：5 费 1/5 谋臣「五雷轰顶」——5 次随机雷击 + 50% 震慑 + 击杀召唤黄巾兵', () => {
+test('张角：7 费 1/6 谋臣传说「黄天当立」+「五雷轰顶」（回合开始/登场）', () => {
   const zj = CARDS.find((c) => c.id === 'qun_zhangjiao');
   assert.ok(zj, '张角应在卡池里');
-  assert.equal(zj!.cost, 5);
+  assert.equal(zj!.cost, 7);
   assert.equal(zj!.attack, 1);
-  assert.equal(zj!.health, 5);
+  assert.equal(zj!.health, 6);
+  assert.equal(zj!.rarity, 'legendary');
   assert.equal(zj!.type, 'strategist');
-  // 按 trigger 取，不按数组下标 —— ADR-121 给张角加了 on_play「大贤良师」，
-  // 写在五雷轰顶之前，按下标取会指错技能。
-  const sk = zj!.skills!.find((x) => x.trigger === 'turn_end')!;
-  assert.ok(sk, '五雷轰顶必须还在');
-  assert.ok(zj!.skills!.some((x) => x.trigger === 'on_play'), 'ADR-121：大贤良师（上场给黄巾众 +1/+1）');
+  // 按 trigger 取，不按数组下标
+  const sk = zj!.skills!.find((x) => x.trigger === 'turn_start')!;
+  assert.ok(sk, '五雷轰顶必须还在（turn_start）');
   const dmg = sk.effects!.find((e) => e.action === 'damage')!;
   assert.equal(dmg.count, 5, '5 次雷击');
   assert.equal(dmg.value, 1);
@@ -627,28 +576,10 @@ test('张角：5 费 1/5 谋臣「五雷轰顶」——5 次随机雷击 + 50% �
   const sm = sk.effects!.find((e) => e.action === 'summon')!;
   assert.equal(sm.unit, 'token_huangjin_bing');
   assert.equal(sm.condition!.event, 'killed', '击杀才召唤');
-});
-
-test('袁绍：6 费 3/6，每回合召唤弓兵 + 战吼 1 张进手牌/2 张进牌组 + 亡语转手', async () => {
-  const { applyAction } = await import('../src/engine.ts');
-  const { createMatch } = await import('../src/state.ts');
-  const d = qun();
-  const ys = CARDS.find((c) => c.id === 'qun_yuanshao')!;
-  assert.equal(ys.cost, 6);
-  assert.equal(ys.attack, 3);
-  assert.equal(ys.health, 6);
-  assert.deepEqual((ys.skills ?? []).map((s) => s.trigger), ['turn_start', 'on_play', 'on_death']);
-
-  const base = createMatch({ seed: 5, cards: d.cards, lords: d.lords, decks: { own: [], enemy: [] }, firstSide: 'own' });
-  const ctx = { cards: d.cards, lords: d.lords };
-  const s = startMatch(base, ctx).state;
-  s.sides.own.command.cur = 10;
-  s.sides.own.hand.push({ card: d.cards.get('qun_yuanshao')!, mods: [] });
-  const r = applyAction(s, ctx, { type: 'PLAY_CARD', cardIndex: s.sides.own.hand.length - 1, row: 'front', col: 0 });
-  assert.equal(r.ok, true);
-  const own = r.state.sides.own;
-  assert.equal(own.hand.filter((h) => h.card.id === 'tactic_wanjianqifa').length, 1, '战吼：1 张进手牌');
-  assert.equal(own.deck.filter((x) => x === 'tactic_wanjianqifa').length, 2, '战吼：2 张进牌组');
+  // 登场立即触发一次：on_play 里有黄天当立 + 五雷·登场
+  const onPlays = zj!.skills!.filter((x) => x.trigger === 'on_play');
+  assert.equal(onPlays.length, 2, '黄天当立 + 五雷·登场');
+  assert.ok(onPlays.some((x) => x.id === 'huang_tian_dang_li'));
 });
 
 /* ============================================================

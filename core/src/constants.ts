@@ -114,6 +114,8 @@ export const TAGS: Record<string, { name: string; note: string }> = {
   cao_clan:  { name: '曹氏宗亲', note: '曹操宗族人物：曹昂、曹休、曹彰、曹仁、曹丕等' },
   sun_clan:  { name: '孙氏宗亲', note: '孙氏宗亲人物：孙坚、孙策、孙尚香、孙翊及其后继者' },
   machine_attackable: { name: '可攻击军械', note: '允许指定军械进行普通攻击' },
+  // 董卓集团（ADR-182）：李儒是董卓帐下谋臣；董卓本人是主公（heroes.yaml），不在这张表里。
+  dong_zhuo: { name: '董卓', note: '董卓集团（董卓帐下）：李儒' },
 };
 
 export const FORBIDDEN_KEYWORD_COMBOS: string[][] = [
@@ -236,7 +238,7 @@ export const STATUSES: Record<string, StatusDef> = {
                 note: '单挑中：第三方无法对其出手' },
   chou_di:    { name: '仇敌', kind: 'debuff', numeric: false, duration: 'permanent', caps: ['mark_damage'],
                 note: '被法正标记：受到伤害时为其指定友方回血' },
-  jin_yan:    { name: '进言', kind: 'debuff', numeric: false, duration: 'turns', caps: ['block_lord_skill'],
+  jin_yan:    { name: '禁言', kind: 'debuff', numeric: false, duration: 'turns', caps: ['block_lord_skill'],
                 note: '该方主帅不能使用主公技' },
   can_mou:    { name: '参谋', kind: 'buff',   numeric: true,  duration: 'permanent', scope: 'lord',
                 caps: ['extra_lord_skill'], note: '该方主帅每回合主公技次数 +N' },
@@ -332,6 +334,10 @@ export const STATUSES: Record<string, StatusDef> = {
                 note: '该方回合结束时**永久降低 N 点生命上限**（N = 层数，ADR-132）；**不造成伤害**；层数叠加**不封顶**、**永久**（净化后停止，已削的不恢复）。削完当前生命高于新上限则夹到新上限，上限归零即阵亡。只有场上单位会中毒，主公免疫（ADR-117）' },
   xu_ruo:     { name: '虚弱', kind: 'debuff', numeric: true,  duration: 'turns', note: '攻击 −N' },
   duan_liang: { name: '断粮', kind: 'debuff', numeric: true,  duration: 'turns', scope: 'lord', note: '统率上限 −N' },
+  anjian_status: { name: '暗箭', kind: 'debuff', numeric: false, duration: 'permanent', scope: 'lord',
+                note: '黄祖布下的公开暗箭：敌方下一个打出的人物落地后受 3 点伤害，随即消失（ADR-200）' },
+  gong_qing_pending: { name: '公卿尽质·待劫', kind: 'debuff', numeric: false, duration: 'turns', scope: 'lord',
+                note: '敌方回合结束时检查手牌，若多于郭汜方则被夺 1 张' },
 };
 
 export const TIMING = {
@@ -352,16 +358,18 @@ export const TIMING = {
   ON_MARK_DAMAGED: 'on_mark_damaged',
   ON_MARK_DEATH: 'on_mark_death',
   ON_KILL: 'on_kill',          // 击杀者视角：每次击杀时（ADR-070）
+  ON_ALLY_DAMAGED: 'on_ally_damaged',   // 友方受伤时（ADR-193，蔡文姬「悲愤成诗」）
 } as const;
 
 export const ACTIONS = [
   'damage', 'heal', 'draw', 'summon', 'apply_status', 'remove_status',
-  'move', 'destroy', 'modify', 'gain_armor', 'gain_command', 'cost_modifier', 'transform', 'random_pick',
+  'move', 'destroy', 'modify', 'gain_armor', 'gain_command', 'cost_modifier', 'transform', 'random_transform', 'grant_card_keyword', 'random_pick',
   'discard', 'return_to_hand', 'clash', 'flip', 'scry', 'ban_play', 'steal_card', 'survive',
-  'extra_attack', 'take_control', 'copy_skill', 'force_attack', 'duel',
+  'extra_attack', 'take_control', 'copy_skill', 'force_attack', 'duel', 'scheme_duel',
   'attack_bonus',  // 普通攻击结算前的临时伤害加成
   'cast_random',   // 从卡池随机取 N 张直接释放（ADR-162，庞统「连环」）
-  'add_to_deck',   // 往牌库随机位置塞 N 张指定卡（ADR-050）
+  'add_to_deck',
+  'add_to_hand',   // 往牌库随机位置塞 N 张指定卡（ADR-050）
   'send_to_deck',  // 把牌库里剩下的指定牌全塞给对方（ADR-050）
   'cycle_to_deck', // 手牌放回牌库随机位置再抽 1 张（ADR-050）
   'sacrifice',     // 牺牲一个己方单位，把它的 maxHp/hp 写进 flags（ADR-071，程昱）
@@ -376,7 +384,9 @@ export const ACTIONS = [
   'self_to_hand',      // 阵亡后把手牌重建出来（ADR-141，孟获「蛮王」——亡语作用于**阵亡单位自身**）
   'defect_to_deck',    // 叛变：阵亡后换成另一张卡进对手牌库随机位置（ADR-174，糜芳「叛迎」）
   'deploy_from_hand',  // 手牌 → 场上（免费，按 card_id 精准搬牌；ADR-149，诸葛瞻/诸葛尚「同赴」）
+  'deploy_from_deck',  // 牌库 → 场上（免费，按 card_id 精准搬牌；何进「诏召猛将」）
   'discard_status_count', // 按状态层数弃牌，不足时铣牌库
+  'steal_attack',  // 临时夺取目标攻击力（张绣「盗戟夜袭」）
   'override_rule',     // 覆盖**无状态**的规则档位（ADR-150，木鹿大王「象兵统领」抬概率）
   'override_status',   // 覆盖目标身上某状态的若干档位（ADR-142，兀突骨「藤甲统率」）
   'summon_random',     // 从候选列表随机召唤一个单位
